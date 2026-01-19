@@ -17,7 +17,6 @@ build/
 !firmware_files/*.bin
 
 # Standalone Arduino CLI environment (large, regeneratable)
-# The actual files are at C:\vail-cli, this is a symlink
 arduino-cli/
 
 # OS files
