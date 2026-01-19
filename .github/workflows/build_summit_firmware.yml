@@ -6,7 +6,7 @@ on:
       source_branch:
         description: 'Branch to build firmware from'
         required: true
-        default: 'vail-summit'
+        default: 'main'
         type: string
 
 jobs:
@@ -109,11 +109,6 @@ jobs:
           echo "Renamed files:"
           ls -lh
 
-      - name: Checkout master branch
-        run: |
-          git fetch origin master:master
-          git checkout master
-
       - name: Copy binaries to firmware directory
         run: |
           mkdir -p docs/firmware_files/summit
@@ -149,7 +144,7 @@ jobs:
             🤖 Generated with GitHub Actions"
 
             # Push using the GitHub token for authentication
-            git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git master
+            git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git ${{ inputs.source_branch }}
           fi
 
       - name: Upload artifacts

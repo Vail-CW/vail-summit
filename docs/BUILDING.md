@@ -138,16 +138,15 @@ VAIL SUMMIT firmware can be updated via:
 
 ### Repository Integration
 
-**Important:** This is the Vail Summit source code on the `vail-summit` branch of the vail-adapter repository.
+**Important:** This is the Vail Summit source code in the Vail-CW/vail-summit repository.
 
 **Branch Structure:**
-- **`vail-summit` branch** (this branch): Summit ESP32-S3 firmware source code
-- **`master` branch**: Web updater tool + compiled firmware binaries
+- **`main` branch**: Summit ESP32-S3 firmware source code and compiled firmware binaries
 
 **Deployment Workflow:**
-1. Code is developed and tested on the `vail-summit` branch
+1. Code is developed and tested on the `main` branch
 2. Firmware is compiled using GitHub Actions workflow (recommended) or Arduino CLI manually
-3. Binary files (`bootloader.bin`, `partitions.bin`, `vail-summit.bin`) are committed to `master` branch at `docs/firmware_files/summit/`
+3. Binary files (`bootloader.bin`, `partitions.bin`, `vail-summit.bin`) are committed to `main` branch at `docs/firmware_files/summit/`
 4. Users can flash firmware via web updater at `https://update.vailadapter.com`
 
 ### Building Firmware for Distribution
@@ -187,16 +186,14 @@ arduino-cli compile --fqbn esp32:esp32:adafruit_feather_esp32s3 --output-dir bui
 # - vail-summit.ino.partitions.bin (partition table at 0x8000)
 # - vail-summit.ino.bin (application at 0x10000)
 
-# Manually copy to master branch
-git fetch origin master:master
-git checkout master
+# Copy to firmware directory on main branch
 mkdir -p docs/firmware_files/summit
 cp build/vail-summit.ino.bootloader.bin docs/firmware_files/summit/bootloader.bin
 cp build/vail-summit.ino.partitions.bin docs/firmware_files/summit/partitions.bin
 cp build/vail-summit.ino.bin docs/firmware_files/summit/vail-summit.bin
 git add docs/firmware_files/summit/*.bin
 git commit -m "Update Summit firmware [skip ci]"
-git push origin master
+git push origin main
 ```
 
 **Firmware Stats:**
@@ -228,7 +225,7 @@ The web updater at `https://update.vailadapter.com` uses **esptool-js** for brow
 - Real-time progress indicators for each file
 - Dark mode UI matching site theme
 
-See `SUMMIT_INTEGRATION.md` in vail-adapter repo for complete technical details.
+See `SUMMIT_INTEGRATION.md` in the vail-summit repository for complete technical details.
 
 ## Deep Sleep Power Management
 
