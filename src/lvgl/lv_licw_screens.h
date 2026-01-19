@@ -47,6 +47,101 @@ static lv_obj_t* licw_carousel_btns[9] = {NULL};
 static lv_obj_t* licw_lesson_btns[10] = {NULL};
 static lv_obj_t* licw_practice_btns[8] = {NULL};
 
+// Grid navigation configuration for LICW selection screens
+// All LICW selection screens use 3 columns
+static const int LICW_GRID_COLUMNS = 3;
+
+// Current active button array and count for navigation
+static lv_obj_t** licw_nav_buttons = NULL;
+static int licw_nav_button_count = 0;
+
+/*
+ * Generic 2D grid navigation handler for LICW selection screens
+ * Handles arrow keys for proper grid navigation
+ * Also blocks TAB (LV_KEY_NEXT) from triggering LVGL's default navigation
+ */
+static void licw_grid_nav_handler(lv_event_t* e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code != LV_EVENT_KEY) return;
+
+    uint32_t key = lv_event_get_key(e);
+
+    // Block TAB key (LV_KEY_NEXT = '\t' = 9) from navigating
+    // TAB should not navigate in LICW selection menus
+    if (key == '\t' || key == LV_KEY_NEXT) {
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // Handle all four arrow keys
+    if (key != LV_KEY_LEFT && key != LV_KEY_RIGHT &&
+        key != LV_KEY_PREV &&
+        key != LV_KEY_UP && key != LV_KEY_DOWN) return;
+
+    // Always stop propagation to prevent LVGL's default navigation
+    lv_event_stop_processing(e);
+
+    if (licw_nav_buttons == NULL || licw_nav_button_count <= 1) return;
+
+    // Get current focused object
+    lv_obj_t* focused = lv_event_get_target(e);
+    if (!focused) return;
+
+    // Find index of focused object in our button array
+    int focused_idx = -1;
+    for (int i = 0; i < licw_nav_button_count; i++) {
+        if (licw_nav_buttons[i] == focused) {
+            focused_idx = i;
+            break;
+        }
+    }
+    if (focused_idx < 0) return;
+
+    // Calculate grid position
+    int row = focused_idx / LICW_GRID_COLUMNS;
+    int col = focused_idx % LICW_GRID_COLUMNS;
+    int total_rows = (licw_nav_button_count + LICW_GRID_COLUMNS - 1) / LICW_GRID_COLUMNS;
+
+    int target_idx = -1;
+
+    if (key == LV_KEY_RIGHT) {
+        // Move right: only if not at rightmost column AND target exists
+        if (col < LICW_GRID_COLUMNS - 1) {
+            int potential = focused_idx + 1;
+            if (potential < licw_nav_button_count) {
+                target_idx = potential;
+            }
+        }
+    } else if (key == LV_KEY_LEFT) {
+        // Move left: only if not at leftmost column
+        if (col > 0) {
+            target_idx = focused_idx - 1;
+        }
+    } else if (key == LV_KEY_DOWN) {
+        // Move down: go to same column in next row
+        if (row < total_rows - 1) {
+            int potential = focused_idx + LICW_GRID_COLUMNS;
+            if (potential < licw_nav_button_count) {
+                target_idx = potential;
+            }
+        }
+    } else if (key == LV_KEY_PREV || key == LV_KEY_UP) {
+        // Move up: go to same column in previous row
+        if (row > 0) {
+            target_idx = focused_idx - LICW_GRID_COLUMNS;
+        }
+    }
+
+    // Focus target if valid and scroll into view
+    if (target_idx >= 0 && target_idx < licw_nav_button_count) {
+        lv_obj_t* target = licw_nav_buttons[target_idx];
+        if (target) {
+            lv_group_focus_obj(target);
+            lv_obj_scroll_to_view(target, LV_ANIM_ON);
+        }
+    }
+}
+
 // ============================================
 // Carousel Selection Screen
 // ============================================
@@ -142,12 +237,19 @@ lv_obj_t* createLICWCarouselSelectScreen() {
         lv_obj_set_user_data(btn, (void*)(intptr_t)i);
         lv_obj_add_event_cb(btn, licw_carousel_click_handler, LV_EVENT_CLICKED, NULL);
 
+        // Add grid navigation handler for arrow keys
+        lv_obj_add_event_cb(btn, licw_grid_nav_handler, LV_EVENT_KEY, NULL);
+
         // Store button reference
         licw_carousel_btns[i] = btn;
 
         // Add to navigation group
         addNavigableWidget(btn);
     }
+
+    // Set up navigation context for this screen
+    licw_nav_buttons = licw_carousel_btns;
+    licw_nav_button_count = LICW_TOTAL_CAROUSELS;
 
     // Footer
     lv_obj_t* footer = lv_label_create(screen);
@@ -210,6 +312,7 @@ lv_obj_t* createLICWLessonSelectScreen() {
     lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
 
     // Create lesson buttons
+    int lesson_btn_count = 0;
     for (int i = 1; i <= carousel->totalLessons && i <= 10; i++) {
         const LICWLesson* lesson = getLICWLesson(licwSelectedCarousel, i);
 
@@ -258,12 +361,20 @@ lv_obj_t* createLICWLessonSelectScreen() {
         lv_obj_set_user_data(btn, (void*)(intptr_t)i);
         lv_obj_add_event_cb(btn, licw_lesson_click_handler, LV_EVENT_CLICKED, NULL);
 
+        // Add grid navigation handler for arrow keys
+        lv_obj_add_event_cb(btn, licw_grid_nav_handler, LV_EVENT_KEY, NULL);
+
         // Store button reference
         licw_lesson_btns[i - 1] = btn;
+        lesson_btn_count++;
 
         // Add to navigation group
         addNavigableWidget(btn);
     }
+
+    // Set up navigation context for this screen
+    licw_nav_buttons = licw_lesson_btns;
+    licw_nav_button_count = lesson_btn_count;
 
     // Footer
     lv_obj_t* footer = lv_label_create(screen);
@@ -478,12 +589,19 @@ lv_obj_t* createLICWPracticeTypeScreen() {
             lv_obj_add_event_cb(btn, licw_practice_click_handler, LV_EVENT_CLICKED, NULL);
         }
 
+        // Add grid navigation handler for arrow keys
+        lv_obj_add_event_cb(btn, licw_grid_nav_handler, LV_EVENT_KEY, NULL);
+
         // Store button reference
         licw_practice_btns[btn_count++] = btn;
 
         // Add to navigation group
         addNavigableWidget(btn);
     }
+
+    // Set up navigation context for this screen
+    licw_nav_buttons = licw_practice_btns;
+    licw_nav_button_count = btn_count;
 
     // Footer
     lv_obj_t* footer = lv_label_create(screen);

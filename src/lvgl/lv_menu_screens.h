@@ -172,10 +172,11 @@ static int menu_button_count = 0;
  * Custom event handler for FULL 2D grid navigation
  * Intercepts ALL arrow keys to navigate as a proper 2D grid:
  * - UP (LV_KEY_UP or LV_KEY_PREV): Move to same column in previous row
- * - DOWN (LV_KEY_DOWN or LV_KEY_NEXT): Move to same column in next row
+ * - DOWN (LV_KEY_DOWN): Move to same column in next row
  * - LEFT: Move to left column in same row
  * - RIGHT: Move to right column in same row
  * At any edge: does nothing (no wrap)
+ * TAB (LV_KEY_NEXT) is blocked from navigating
  */
 static void menu_grid_nav_handler(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
@@ -183,9 +184,16 @@ static void menu_grid_nav_handler(lv_event_t* e) {
 
     uint32_t key = lv_event_get_key(e);
 
-    // Handle all four arrow keys (support both UP/DOWN and PREV/NEXT mappings)
+    // Block TAB key (LV_KEY_NEXT = '\t' = 9) from navigating
+    // TAB should not navigate in menus - only arrow keys
+    if (key == '\t' || key == LV_KEY_NEXT) {
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // Handle all four arrow keys (support UP/DOWN and PREV for up arrow)
     if (key != LV_KEY_LEFT && key != LV_KEY_RIGHT &&
-        key != LV_KEY_PREV && key != LV_KEY_NEXT &&
+        key != LV_KEY_PREV &&
         key != LV_KEY_UP && key != LV_KEY_DOWN) return;
 
     // Always stop propagation to prevent LVGL's default linear navigation
@@ -227,7 +235,7 @@ static void menu_grid_nav_handler(lv_event_t* e) {
         if (col > 0) {
             target_idx = focused_idx - 1;
         }
-    } else if (key == LV_KEY_NEXT || key == LV_KEY_DOWN) {  // DOWN arrow
+    } else if (key == LV_KEY_DOWN) {  // DOWN arrow
         // Move down: go to same column in next row
         if (row < total_rows - 1) {
             int potential = focused_idx + MENU_COLUMNS;
@@ -414,9 +422,9 @@ lv_obj_t* createMenuScreen(const char* title, const LVMenuItem* items, int item_
     // Ensure content scroll starts at top (fixes items appearing above screen)
     lv_obj_scroll_to_y(content, 0, LV_ANIM_OFF);
 
-    // Footer hint - use standardized footer text
+    // Footer hint - use menu footer with volume shortcut hint
     lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, FOOTER_NAV_ENTER_ESC);
+    lv_label_set_text(footer, FOOTER_MENU_WITH_VOLUME);
     lv_obj_set_style_text_font(footer, getThemeFonts()->font_body, 0);  // Theme font
     lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);  // Orange for visibility
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);

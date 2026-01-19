@@ -446,7 +446,7 @@ void loop() {
     updateWebDownloadProgressUI();
 
     // Get keyboard input for download screens
-    char key = getKey();
+    char key = readKeyboardNonBlocking();
     if (key != 0) {
       handleWebDownloadInput(key);
     }

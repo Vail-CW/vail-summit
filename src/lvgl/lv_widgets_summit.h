@@ -24,6 +24,9 @@ extern int batteryPercent;
 // Menu navigation (up/down to move, enter to select)
 #define FOOTER_NAV_ENTER_ESC        "UP/DN Navigate   ENTER Select   ESC Back"
 
+// Menu navigation with volume shortcut hint
+#define FOOTER_MENU_WITH_VOLUME     "UP/DN Navigate   ENTER Select   V Volume   ESC Back"
+
 // Slider/value adjustment (left/right to change)
 #define FOOTER_ADJUST_ESC           "L/R Adjust   ESC Back (auto-saves)"
 

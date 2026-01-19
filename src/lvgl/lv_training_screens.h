@@ -1720,7 +1720,7 @@ lv_obj_t* createHearItTypeItScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     hear_it_footer_help = lv_label_create(footer);
-    lv_label_set_text(hear_it_footer_help, FOOTER_NAV_ENTER_ESC);  // Use standardized footer
+    lv_label_set_text(hear_it_footer_help, FOOTER_MENU_WITH_VOLUME);  // Menu footer with V shortcut
     lv_obj_set_style_text_color(hear_it_footer_help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(hear_it_footer_help, getThemeFonts()->font_small, 0);
     lv_obj_center(hear_it_footer_help);
@@ -5472,7 +5472,7 @@ lv_obj_t* createLicenseSelectScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, "ENTER: Select   ESC: Back");
+    lv_label_set_text(help, "ENTER Select   V Volume   ESC Back");  // Menu footer with V shortcut
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);

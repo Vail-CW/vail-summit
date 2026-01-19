@@ -1,6 +1,67 @@
 # Development Guide
 
-This document covers development patterns, critical constraints, and troubleshooting for VAIL SUMMIT development.
+This document covers building, development patterns, critical constraints, and troubleshooting for VAIL SUMMIT development.
+
+## Building the Firmware
+
+### Required: Use Bundled Arduino CLI
+
+This project uses a **standalone Arduino CLI environment** with pinned library and ESP32 core versions located in the `arduino-cli/` folder. This ensures reproducible builds across all development machines.
+
+**NEVER use a system-installed Arduino CLI or Arduino IDE** - always use the bundled version to ensure correct library versions.
+
+### Building on Windows
+
+Use the provided PowerShell build script:
+
+```powershell
+# From the project root directory
+.\build.ps1              # Compile firmware
+.\build.ps1 upload COM31 # Upload to device on COM31
+.\build.ps1 monitor COM31 # Serial monitor
+.\build.ps1 list         # List serial ports
+.\build.ps1 clean        # Clean build directory
+.\build.ps1 help         # Show all options
+```
+
+#### Windows Path Length Issues
+
+If you encounter "filename or extension is too long" errors, enable Windows long paths:
+
+```powershell
+# Run PowerShell as Administrator
+Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name 'LongPathsEnabled' -Value 1
+```
+
+A system restart may be required for this to take effect.
+
+### Building on Linux/macOS
+
+```bash
+cd arduino-cli
+./arduino-cli compile --config-file arduino-cli.yaml \
+  --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M,USBMode=hwcdc" \
+  ..
+```
+
+### GitHub Actions CI
+
+The project includes a GitHub Actions workflow that automatically builds on every push and PR. It uses the bundled arduino-cli for consistent builds.
+
+### Pinned Versions
+
+The following versions are pinned in `arduino-cli/`:
+
+| Component | Version | Location |
+|-----------|---------|----------|
+| ESP32 Core | 2.0.14 | `arduino-cli/data/packages/esp32/` |
+| LovyanGFX | 1.1.16 | `arduino-cli/user/libraries/` |
+| LVGL | 8.3.11 | `arduino-cli/user/libraries/` |
+| NimBLE-Arduino | 1.4.2 | `arduino-cli/user/libraries/` |
+| ArduinoJson | 7.0.4 | `arduino-cli/user/libraries/` |
+| ESP Async WebServer | 3.6.0 | `arduino-cli/user/libraries/` |
+
+**Do not update these libraries** without thorough testing of all features.
 
 ## Development Patterns
 
