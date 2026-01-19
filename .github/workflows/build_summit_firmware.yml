@@ -48,7 +48,8 @@ jobs:
           arduino-cli lib install "ArduinoJson"
 
           # Bluetooth library (for BLE HID/MIDI)
-          arduino-cli lib install "NimBLE-Arduino"
+          # IMPORTANT: Must use NimBLE-Arduino 1.4.x - code is not compatible with 2.x API
+          arduino-cli lib install "NimBLE-Arduino@1.4.2"
 
           # Install ESPAsyncWebServer and AsyncTCP from GitHub (not in Library Manager)
           mkdir -p ~/Arduino/libraries
