@@ -17,6 +17,7 @@
 #include <Preferences.h>
 #include "../core/config.h"
 #include "../core/morse_code.h"
+#include "../core/task_manager.h"  // For dual-core audio API
 #include "../audio/i2s_audio.h"
 
 // Forward declarations
@@ -349,13 +350,78 @@ void stSelectStory(const StoryData* story, int index) {
 // Morse Playback
 // ============================================
 
-// Delay while keeping LVGL responsive and checking for stop
+// Forward declare keyboard read function
+extern char readKeyboardNonBlocking();
+
+// Delay while keeping LVGL responsive and checking for keyboard input
+// Returns false if playback should stop (ESC/SPACE pressed or stopPlayback flag set)
 bool stDelayWithUI(unsigned long ms) {
     unsigned long start = millis();
     while (millis() - start < ms) {
         if (stSession.stopPlayback) return false;
+
+        // Check for keyboard input during playback
+        char key = readKeyboardNonBlocking();
+        if (key != 0) {
+            if (key == 0x1B) {  // ESC
+                stSession.stopPlayback = true;
+                return false;
+            } else if (key == ' ') {  // SPACE - pause
+                stSession.stopPlayback = true;
+                return false;
+            } else if (key == 'r' || key == 'R') {  // R - restart
+                stSession.stopPlayback = true;
+                stSession.playbackCharIndex = 0;  // Signal restart
+                return false;
+            }
+        }
+
         lv_timer_handler();
         delay(5);
+    }
+    return true;
+}
+
+// Interruptible version of playMorseChar for Story Time
+// Returns false if interrupted by keyboard (ESC, SPACE, R)
+bool stPlayMorseCharInterruptible(char c, int wpm, int toneFreq) {
+    const char* pattern = getMorseCode(c);
+    if (pattern == nullptr) {
+        return true;  // Skip unknown characters
+    }
+
+    MorseTiming timing(wpm);
+
+    // Play each element in the pattern
+    for (int i = 0; pattern[i] != '\0'; i++) {
+        // Check for keyboard interrupt before each element
+        char key = readKeyboardNonBlocking();
+        if (key != 0) {
+            if (key == 0x1B || key == ' ' || key == 'r' || key == 'R') {
+                stSession.stopPlayback = true;
+                if (key == 'r' || key == 'R') {
+                    stSession.playbackCharIndex = 0;
+                }
+                requestStopTone();
+                return false;
+            }
+        }
+
+        if (stSession.stopPlayback) {
+            requestStopTone();
+            return false;
+        }
+
+        // Play dit or dah
+        int duration = (pattern[i] == '.') ? timing.ditDuration : (timing.ditDuration * 3);
+        playTone(toneFreq, duration);
+
+        // Gap between elements (unless last element)
+        if (pattern[i + 1] != '\0') {
+            if (!stDelayWithUI(timing.elementGap)) {
+                return false;
+            }
+        }
     }
     return true;
 }
@@ -394,7 +460,7 @@ bool stPlayStoryMorse() {
         if (stSession.stopPlayback) {
             stSession.playbackCharIndex = i;
             stSession.playPhase = ST_PLAY_PAUSED;
-            stopTone();
+            requestStopTone();  // Non-blocking via dual-core audio
             return false;
         }
 
@@ -408,8 +474,11 @@ bool stPlayStoryMorse() {
                 return false;
             }
         } else {
-            // Play character at character speed
-            playMorseChar(c, charWPM, tone);
+            // Play character at character speed (interruptible)
+            if (!stPlayMorseCharInterruptible(c, charWPM, tone)) {
+                stSession.playbackCharIndex = i;
+                return false;
+            }
 
             // Inter-character gap (3 units) with Farnsworth extra
             if (i < len - 1 && text[i + 1] != ' ') {
@@ -439,13 +508,13 @@ bool stPlayStoryMorse() {
 
 void stStopPlayback() {
     stSession.stopPlayback = true;
-    stopTone();
+    requestStopTone();  // Non-blocking via dual-core audio
 }
 
 void stPausePlayback() {
     stSession.stopPlayback = true;
     stSession.playPhase = ST_PLAY_PAUSED;
-    stopTone();
+    requestStopTone();  // Non-blocking via dual-core audio
 }
 
 void stResumePlayback() {
@@ -456,7 +525,7 @@ void stResumePlayback() {
 
 void stRestartPlayback() {
     stSession.stopPlayback = true;
-    stopTone();
+    requestStopTone();  // Non-blocking via dual-core audio
     stSession.playbackCharIndex = 0;
     stSession.stopPlayback = false;
     stPlayStoryMorse();

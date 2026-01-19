@@ -14,6 +14,7 @@
 #include <Preferences.h>
 #include "../core/config.h"
 #include "../core/morse_code.h"
+#include "../core/task_manager.h"  // For dual-core audio API
 #include "../audio/i2s_audio.h"
 #include "../lvgl/lv_screen_manager.h"
 #include "../lvgl/lv_theme_summit.h"
@@ -356,7 +357,7 @@ void csOnWrong() {
         csSetLetterColor(i, LV_COLOR_ERROR);
     }
     csUpdateStatus("WRONG!");
-    stopTone();
+    requestStopTone();  // Non-blocking stop via dual-core audio
     beep(400, 200);
 }
 
@@ -364,7 +365,7 @@ void csOnAllComplete() {
     csGame.state = CS_STATE_COMPLETE;
     unsigned long finalTime = millis() - csGame.gameStartTime;
 
-    stopTone();
+    requestStopTone();  // Non-blocking stop via dual-core audio
 
     // Check for new best time
     bool newBest = (finalTime < csGame.bestTime || csGame.bestTime == 0);
@@ -495,7 +496,7 @@ void csResetGame() {
     csGame.keyLastChangeTime = 0;
     csGame.keyLastRawState = false;
 
-    stopTone();
+    requestStopTone();  // Non-blocking stop via dual-core audio
     csResetLetterColors();
     csUpdateTimer(0);
     csUpdateStatus("GET READY");
@@ -511,7 +512,7 @@ static void cs_game_key_event_cb(lv_event_t* e) {
     uint32_t key = lv_event_get_key(e);
 
     if (key == LV_KEY_ESC) {
-        stopTone();
+        requestStopTone();  // Non-blocking stop via dual-core audio
         onLVGLBackNavigation();
         lv_event_stop_processing(e);
     }
@@ -604,6 +605,7 @@ lv_obj_t* createCWSpeedSelectScreen() {
         lv_obj_add_style(btn, getStyleBtn(), 0);
         lv_obj_add_event_cb(btn, cs_select_btn_event_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
         lv_obj_add_event_cb(btn, cs_select_key_event_cb, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(btn, linear_nav_handler, LV_EVENT_KEY, NULL);
 
         lv_obj_t* label = lv_label_create(btn);
         lv_label_set_text(label, CS_WORD_CHALLENGES[i].displayName);
@@ -770,7 +772,7 @@ lv_obj_t* createCWSpeedGameScreen() {
 void csStraightKeyHandler(bool rawKeyDown) {
     extern int cwTone;
     unsigned long now = millis();
-    bool toneOn = isTonePlaying();
+    bool toneOn = isAudioTonePlaying();  // Use dual-core status check
 
     // Software debouncing
     if (rawKeyDown != csGame.keyLastRawState) {
@@ -791,10 +793,10 @@ void csStraightKeyHandler(bool rawKeyDown) {
             csGame.lastStateChange = now;
             csGame.lastToneState = true;
         }
-        startTone(cwTone);
+        requestStartTone(cwTone);  // Non-blocking via dual-core audio
     }
     else if (keyDown && toneOn) {
-        continueTone(cwTone);
+        // Tone continues automatically on audio core
     }
     else if (!keyDown && toneOn) {
         // Key up - stop tone
@@ -803,7 +805,7 @@ void csStraightKeyHandler(bool rawKeyDown) {
             csGame.lastStateChange = now;
             csGame.lastToneState = false;
         }
-        stopTone();
+        requestStopTone();  // Non-blocking via dual-core audio
     }
 }
 
@@ -843,14 +845,14 @@ void csIambicHandler(bool ditPressed, bool dahPressed) {
             csGame.lastStateChange = now;
             csGame.lastToneState = true;
 
-            startTone(cwTone);
+            requestStartTone(cwTone);  // Non-blocking via dual-core audio
         }
     }
     // Sending element
     else if (csGame.keyerActive && !csGame.inSpacing) {
         unsigned long duration = csGame.sendingDit ? ditDuration : (ditDuration * 3);
 
-        continueTone(cwTone);
+        // Tone continues automatically on audio core - no need to call continueTone
 
         // Check paddle memory
         if (ditPressed && dahPressed) {
@@ -864,7 +866,7 @@ void csIambicHandler(bool ditPressed, bool dahPressed) {
 
         // Element complete?
         if (now - csGame.elementStart >= duration) {
-            stopTone();
+            requestStopTone();  // Non-blocking via dual-core audio
 
             // Record key up for pattern matcher
             csGame.matcher.keyUp();

@@ -9,6 +9,7 @@
 #include "training_cwa_core.h"           // Same folder
 #include "training_cwa_data.h"           // Same folder - Beginner data
 #include "training_cwa_intermediate_data.h"  // Same folder - Intermediate data
+#include "training_cwa_fundamental_data.h"   // Same folder - Fundamental data
 #include "../core/task_manager.h"        // For async playback
 
 // Forward declaration for header drawing
@@ -230,12 +231,123 @@ String generateBeginnerContent() {
 }
 
 /*
+ * Generate content for Fundamental track based on message type and session
+ * Focuses on ICR training with Farnsworth timing (25 WPM char, 6-11 WPM effective)
+ */
+String generateFundamentalContent() {
+  int sessionIndex = cwaSelectedSession - 1;
+  if (sessionIndex < 0) sessionIndex = 0;
+  if (sessionIndex > 15) sessionIndex = 15;
+
+  // Determine word list based on session's effective WPM
+  int effWPM = cwaFundamentalEffectiveWPM[sessionIndex];
+
+  switch (cwaSelectedMessageType) {
+    case MESSAGE_CODE_GROUPS: {
+      // Generate random 5-character groups for ICR training
+      // This is the signature exercise for Fundamental track
+      const char* charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+      int charsetLen = strlen(charset);
+      String result = "";
+      int numGroups = max(1, cwaCopyCharCount / 5);  // Number of 5-char groups
+      for (int g = 0; g < numGroups; g++) {
+        if (g > 0) result += " ";
+        for (int c = 0; c < 5; c++) {
+          result += charset[random(charsetLen)];
+        }
+      }
+      return result;
+    }
+
+    case MESSAGE_CHARACTERS: {
+      // Generate random individual characters (full alphabet + numbers)
+      const char* charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+      int charsetLen = strlen(charset);
+      String result = "";
+      for (int i = 0; i < cwaCopyCharCount; i++) {
+        if (i > 0 && i % 5 == 0) result += " ";  // Group by 5 for readability
+        result += charset[random(charsetLen)];
+      }
+      return result;
+    }
+
+    case MESSAGE_WORDS: {
+      // Select words appropriate for the effective WPM
+      const char** words;
+      if (effWPM <= 7) {
+        words = cwaFundamentalWords6WPM;
+      } else if (effWPM <= 9) {
+        words = cwaFundamentalWords8WPM;
+      } else {
+        words = cwaFundamentalWords10WPM;
+      }
+      int numWords = max(1, cwaCopyCharCount / 4);
+      return selectRandomItems(words, numWords);
+    }
+
+    case MESSAGE_ABBREVIATIONS: {
+      // CW abbreviations - same for all sessions
+      int numAbbrevs = max(1, cwaCopyCharCount / 3);
+      return selectRandomItems(cwaFundamentalAbbreviations, numAbbrevs);
+    }
+
+    case MESSAGE_NUMBERS: {
+      // Generate random number groups
+      String result = "";
+      int numDigits = cwaCopyCharCount;
+      for (int i = 0; i < numDigits; i++) {
+        if (i > 0 && i % 5 == 0) result += " ";  // Group by 5
+        result += String(random(10));
+      }
+      return result;
+    }
+
+    case MESSAGE_CALLSIGNS: {
+      // Generate random callsigns (2-letter prefix + digit + 1-3 letter suffix)
+      String result = "";
+      int numCallsigns = max(1, cwaCopyCharCount / 5);
+      for (int i = 0; i < numCallsigns; i++) {
+        if (i > 0) result += " ";
+        // Prefix: 1-2 letters
+        result += (char)('A' + random(26));
+        if (random(2) == 1) result += (char)('A' + random(26));
+        // Digit
+        result += String(random(10));
+        // Suffix: 1-3 letters
+        int suffixLen = 1 + random(3);
+        for (int j = 0; j < suffixLen; j++) {
+          result += (char)('A' + random(26));
+        }
+      }
+      return result;
+    }
+
+    case MESSAGE_PHRASES: {
+      // Select from simple QSO phrases
+      return selectRandomItems(cwaFundamentalPhrases, 1);
+    }
+
+    default:
+      // Default to code groups for Fundamental
+      const char* charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+      int charsetLen = strlen(charset);
+      String result = "";
+      for (int c = 0; c < 5; c++) {
+        result += charset[random(charsetLen)];
+      }
+      return result;
+  }
+}
+
+/*
  * Generate random content based on track, message type and session
  */
 String generateCWAContent() {
   // Route to appropriate content generator based on track
   if (cwaSelectedTrack == TRACK_INTERMEDIATE) {
     return generateIntermediateContent();
+  } else if (cwaSelectedTrack == TRACK_FUNDAMENTAL) {
+    return generateFundamentalContent();
   }
   // Default to Beginner content
   return generateBeginnerContent();
@@ -370,10 +482,18 @@ void startCWACopyRound(LGFX& tft) {
   drawCWACopyPracticeUI(tft);
 
   // Start async morse playback (returns immediately)
-  // Use session-specific WPM for Intermediate track
-  int playbackWPM = getSessionWPM();
+  // Get WPM settings - Fundamental uses Farnsworth timing (25 WPM char, 6-11 WPM effective)
+  int effectiveWPM = getSessionWPM();        // Effective/spacing speed
+  int characterWPM = getSessionCharacterWPM(); // Character element speed
+
   cwaCopyPlaybackState = CWACOPY_PLAYBACK_PLAYING;
-  requestPlayMorseString(cwaCopyTarget.c_str(), playbackWPM, cwTone);
+
+  // Use Farnsworth playback if character WPM differs from effective
+  if (characterWPM != effectiveWPM) {
+    requestPlayMorseStringFarnsworth(cwaCopyTarget.c_str(), characterWPM, effectiveWPM, cwTone);
+  } else {
+    requestPlayMorseString(cwaCopyTarget.c_str(), effectiveWPM, cwTone);
+  }
   // Note: cwaCopyWaitingForInput will be set to true when playback completes
   // in updateCWACopyPractice()
 }
@@ -488,11 +608,17 @@ int handleCWACopyPracticeInput(char key, LGFX& tft) {
       if (isMorsePlaybackActive()) {
         cancelMorsePlayback();
       }
-      // Replay the morse code (async) at session-specific WPM
-      int playbackWPM = getSessionWPM();
+      // Replay the morse code (async) - use Farnsworth if needed
+      int effectiveWPM = getSessionWPM();
+      int characterWPM = getSessionCharacterWPM();
       cwaCopyPlaybackState = CWACOPY_PLAYBACK_PLAYING;
       cwaCopyWaitingForInput = false;  // Will be set true when playback completes
-      requestPlayMorseString(cwaCopyTarget.c_str(), playbackWPM, cwTone);
+
+      if (characterWPM != effectiveWPM) {
+        requestPlayMorseStringFarnsworth(cwaCopyTarget.c_str(), characterWPM, effectiveWPM, cwTone);
+      } else {
+        requestPlayMorseString(cwaCopyTarget.c_str(), effectiveWPM, cwTone);
+      }
       beep(TONE_MENU_NAV, BEEP_SHORT);
       return 2;  // Redraw to show "Listening..."
 

@@ -33,6 +33,7 @@
 #include "../api/web_api_settings.h"
 #include "../api/web_api_memories.h"
 #include "../api/web_api_storage.h"
+#include "../api/web_api_screenshot.h"
 #include "web_server_api.h"  // Same folder
 #include "web_file_downloader.h"  // GitHub download functions
 #include "../pages/web_logger_enhanced.h"
@@ -455,6 +456,7 @@ void setupWebServer() {
   setupSettingsAPI(webServer);
   setupMemoriesAPI(webServer);
   registerStorageAPI(&webServer);
+  registerScreenshotAPI(&webServer);
 
   // Setup WebSocket for practice mode
   practiceWebSocket.onEvent(onPracticeWebSocketEvent);

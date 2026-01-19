@@ -3529,8 +3529,9 @@ static void cwa_practice_type_select_handler(lv_event_t* e) {
 
     Serial.printf("[CWAScreen] Selected practice type: %d, session: %d\n", practiceType, cwaSelectedSession);
 
-    // Check if locked (sending/daily drill locked for sessions 1-10)
-    bool advancedLocked = (cwaSelectedSession <= 10);
+    // Check if locked (sending/daily drill locked for Beginner sessions 1-10)
+    // Fundamental and Intermediate tracks have all practice types unlocked
+    bool advancedLocked = (cwaSelectedTrack == TRACK_BEGINNER && cwaSelectedSession <= 10);
     bool currentTypeLocked = advancedLocked && (practiceType != PRACTICE_COPY);
 
     if (currentTypeLocked) {
@@ -3609,17 +3610,17 @@ lv_obj_t* createCWAcademyTrackSelectScreen() {
     lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(content, 0, 0);
 
-    // Track buttons (4 tracks) - Beginner and Intermediate available
+    // Track buttons (4 tracks) - Beginner, Fundamental, and Intermediate available
     // Using correct CWA track names: Beginner, Fundamental, Intermediate, Advanced
     const char* track_texts[] = {
         "Beginner - Learn CW from zero",
-        "Fundamental - Coming Soon",
+        "Fundamental - ICR 25/6-11 WPM",
         "Intermediate - Speed & Skills",
         "Advanced - Coming Soon"
     };
 
     for (int i = 0; i < 4; i++) {
-        bool isComingSoon = (i == 1 || i == 3);  // Fundamental and Advanced coming soon
+        bool isComingSoon = (i == 3);  // Only Advanced is coming soon now
 
         lv_obj_t* track_btn = lv_btn_create(content);
         lv_obj_set_size(track_btn, lv_pct(100), 50);
@@ -3736,6 +3737,11 @@ lv_obj_t* createCWAcademySessionSelectScreen() {
             const struct CWAIntermediateSession& session = cwaIntermediateSessionData[i];
             snprintf(session_text, sizeof(session_text), "%d. %s [%d WPM]",
                      i + 1, session.description, session.targetWPM);
+        } else if (cwaSelectedTrack == TRACK_FUNDAMENTAL) {
+            // Fundamental: show description with Farnsworth WPM (char/effective)
+            const struct CWAFundamentalSession& session = cwaFundamentalSessionData[i];
+            snprintf(session_text, sizeof(session_text), "%d. %s [%d/%d WPM]",
+                     i + 1, session.description, session.characterWPM, session.effectiveWPM);
         } else {
             // Beginner: show session description and new characters
             const struct CWASession& session = cwaSessionData[i];
@@ -3812,7 +3818,9 @@ lv_obj_t* createCWAcademyPracticeTypeSelectScreen() {
     lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(content, 0, 0);
 
-    bool advancedLocked = (cwaSelectedSession <= 10);
+    // Beginner track: lock sending/daily drill for sessions 1-10
+    // Fundamental and Intermediate tracks: all practice types unlocked
+    bool advancedLocked = (cwaSelectedTrack == TRACK_BEGINNER && cwaSelectedSession <= 10);
 
     // Practice type buttons (3 types) - use lv_btn for proper keyboard navigation
     for (int i = 0; i < 3; i++) {
@@ -3916,8 +3924,9 @@ lv_obj_t* createCWAcademyMessageTypeSelectScreen() {
 
     // Message type buttons - different types shown based on track
     // Beginner: Characters, Words, Abbreviations, Numbers, Callsigns, Phrases (indices 0-5)
+    // Fundamental: Characters, Words, Abbreviations, Numbers, Callsigns, Phrases, Code Groups (0-5, 10)
     // Intermediate: Words, Prefixes, Suffixes, Callsigns, QSO Exchange, POTA Exchange (indices 1, 6, 7, 4, 8, 9)
-    int messageTypeIndices[10];
+    int messageTypeIndices[12];
     int numMessageTypes;
 
     if (cwaSelectedTrack == TRACK_INTERMEDIATE) {
@@ -3929,6 +3938,16 @@ lv_obj_t* createCWAcademyMessageTypeSelectScreen() {
         messageTypeIndices[4] = MESSAGE_QSO_EXCHANGE; // 8 - QSO Exchange
         messageTypeIndices[5] = MESSAGE_POTA_EXCHANGE;// 9 - POTA Exchange
         numMessageTypes = 6;
+    } else if (cwaSelectedTrack == TRACK_FUNDAMENTAL) {
+        // Fundamental track message types (all basic + Code Groups for ICR)
+        messageTypeIndices[0] = MESSAGE_CHARACTERS;   // 0 - Characters
+        messageTypeIndices[1] = MESSAGE_WORDS;        // 1 - Words
+        messageTypeIndices[2] = MESSAGE_ABBREVIATIONS;// 2 - Abbreviations
+        messageTypeIndices[3] = MESSAGE_NUMBERS;      // 3 - Numbers
+        messageTypeIndices[4] = MESSAGE_CALLSIGNS;    // 4 - Callsigns
+        messageTypeIndices[5] = MESSAGE_PHRASES;      // 5 - Phrases
+        messageTypeIndices[6] = MESSAGE_CODE_GROUPS;  // 10 - Code Groups (ICR training)
+        numMessageTypes = 7;
     } else {
         // Beginner track message types
         for (int i = 0; i < 6; i++) {

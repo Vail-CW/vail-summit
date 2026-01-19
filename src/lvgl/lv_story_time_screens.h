@@ -85,7 +85,7 @@ static void cleanupStoryTimeScreenPointers() {
 
 static void st_menu_select_handler(lv_event_t* e) {
     int target = (int)(intptr_t)lv_obj_get_user_data(lv_event_get_target(e));
-    beep(TONE_SELECT, BEEP_MEDIUM);
+    // Note: onLVGLMenuSelect already plays TONE_SELECT beep
     onLVGLMenuSelect(target);
 }
 
@@ -139,6 +139,7 @@ lv_obj_t* createStoryTimeMenuScreen() {
         lv_obj_set_user_data(btn, (void*)(intptr_t)menu_targets[i]);
         lv_obj_add_event_cb(btn, st_menu_select_handler, LV_EVENT_CLICKED, NULL);
         lv_obj_add_event_cb(btn, st_menu_key_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(btn, linear_nav_handler, LV_EVENT_KEY, NULL);
         applyButtonStyle(btn);
 
         lv_obj_t* label = lv_label_create(btn);
@@ -179,7 +180,7 @@ static void st_difficulty_select_handler(lv_event_t* e) {
     stSession.selectedDifficulty = (StoryDifficulty)diff;
     st_selected_diff_index = diff;
     st_scroll_index = 0;
-    beep(TONE_SELECT, BEEP_MEDIUM);
+    // Note: onLVGLMenuSelect already plays TONE_SELECT beep
     onLVGLMenuSelect(LVGL_MODE_STORY_TIME_LIST);
 }
 
@@ -223,6 +224,7 @@ lv_obj_t* createStoryTimeDifficultyScreen() {
         lv_obj_set_user_data(btn, (void*)(intptr_t)i);
         lv_obj_add_event_cb(btn, st_difficulty_select_handler, LV_EVENT_CLICKED, NULL);
         lv_obj_add_event_cb(btn, st_menu_key_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(btn, linear_nav_handler, LV_EVENT_KEY, NULL);
         applyButtonStyle(btn);
 
         // Difficulty name
@@ -264,7 +266,7 @@ static void st_story_select_handler(lv_event_t* e) {
     if (story) {
         int globalIndex = getGlobalStoryIndex(stSession.selectedDifficulty, index);
         stSelectStory(story, globalIndex);
-        beep(TONE_SELECT, BEEP_MEDIUM);
+        // Note: onLVGLMenuSelect already plays TONE_SELECT beep
         onLVGLMenuSelect(LVGL_MODE_STORY_TIME_LISTEN);
     }
 }
@@ -315,6 +317,7 @@ lv_obj_t* createStoryTimeListScreen() {
         lv_obj_set_user_data(btn, (void*)(intptr_t)i);
         lv_obj_add_event_cb(btn, st_story_select_handler, LV_EVENT_CLICKED, NULL);
         lv_obj_add_event_cb(btn, st_menu_key_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(btn, linear_nav_handler, LV_EVENT_KEY, NULL);
         applyButtonStyle(btn);
 
         // Story title
@@ -402,10 +405,10 @@ static void st_restart_handler(lv_event_t* e) {
 
 static void st_quiz_handler(lv_event_t* e) {
     if (stSession.hasListenedOnce) {
-        beep(TONE_SELECT, BEEP_MEDIUM);
         stStopPlayback();
         stSession.currentQuestion = 0;
         stSession.correctAnswers = 0;
+        // Note: onLVGLMenuSelect already plays TONE_SELECT beep
         onLVGLMenuSelect(LVGL_MODE_STORY_TIME_QUIZ);
     } else {
         beep(300, 150);  // Error beep - must listen first
@@ -505,6 +508,7 @@ lv_obj_t* createStoryTimeListenScreen() {
     lv_obj_set_pos(play_btn, 30, btn_y);
     lv_obj_add_event_cb(play_btn, st_play_handler, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(play_btn, st_listen_key_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(play_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
     applyButtonStyle(play_btn);
     lv_obj_t* play_lbl = lv_label_create(play_btn);
     lv_label_set_text(play_lbl, LV_SYMBOL_PLAY " Play");
@@ -516,6 +520,7 @@ lv_obj_t* createStoryTimeListenScreen() {
     lv_obj_set_pos(restart_btn, SCREEN_WIDTH - 170, btn_y);
     lv_obj_add_event_cb(restart_btn, st_restart_handler, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(restart_btn, st_listen_key_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(restart_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
     applyButtonStyle(restart_btn);
     lv_obj_t* restart_lbl = lv_label_create(restart_btn);
     lv_label_set_text(restart_lbl, LV_SYMBOL_REFRESH " Restart");
@@ -528,6 +533,7 @@ lv_obj_t* createStoryTimeListenScreen() {
     lv_obj_set_pos(quiz_btn, 30, btn_y + 55);
     lv_obj_add_event_cb(quiz_btn, st_quiz_handler, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(quiz_btn, st_listen_key_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(quiz_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
     applyButtonStyle(quiz_btn);
     lv_obj_t* quiz_lbl = lv_label_create(quiz_btn);
     if (stSession.hasListenedOnce) {
@@ -681,6 +687,7 @@ lv_obj_t* createStoryTimeQuizScreen() {
         lv_obj_set_user_data(btn, (void*)(intptr_t)i);
         lv_obj_add_event_cb(btn, st_answer_handler, LV_EVENT_CLICKED, NULL);
         lv_obj_add_event_cb(btn, st_quiz_key_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(btn, linear_nav_handler, LV_EVENT_KEY, NULL);
         applyButtonStyle(btn);
 
         // Letter label
@@ -717,15 +724,13 @@ lv_obj_t* createStoryTimeQuizScreen() {
 // ============================================
 
 static void st_retry_handler(lv_event_t* e) {
-    beep(TONE_SELECT, BEEP_MEDIUM);
     // Reset quiz state and go back to listen
     stSession.hasListenedOnce = true;  // Keep this so they can go straight to quiz
+    // Note: onLVGLMenuSelect already plays TONE_SELECT beep
     onLVGLMenuSelect(LVGL_MODE_STORY_TIME_LISTEN);
 }
 
 static void st_next_handler(lv_event_t* e) {
-    beep(TONE_SELECT, BEEP_MEDIUM);
-
     // Find next story at same difficulty
     int currentDiffIndex = getStoryIndexInDifficulty(
         stSession.selectedDifficulty, stSession.storyIndex);
@@ -737,17 +742,19 @@ static void st_next_handler(lv_event_t* e) {
         if (next) {
             int globalIndex = getGlobalStoryIndex(stSession.selectedDifficulty, currentDiffIndex + 1);
             stSelectStory(next, globalIndex);
+            // Note: onLVGLMenuSelect already plays TONE_SELECT beep
             onLVGLMenuSelect(LVGL_MODE_STORY_TIME_LISTEN);
             return;
         }
     }
 
     // No next story, go to list
+    // Note: onLVGLMenuSelect already plays TONE_SELECT beep
     onLVGLMenuSelect(LVGL_MODE_STORY_TIME_LIST);
 }
 
 static void st_back_to_list_handler(lv_event_t* e) {
-    beep(TONE_SELECT, BEEP_MEDIUM);
+    // Note: onLVGLMenuSelect already plays TONE_SELECT beep
     onLVGLMenuSelect(LVGL_MODE_STORY_TIME_LIST);
 }
 
@@ -828,6 +835,7 @@ lv_obj_t* createStoryTimeResultsScreen() {
         lv_obj_set_pos(retry_btn, 30, btn_y);
         lv_obj_add_event_cb(retry_btn, st_retry_handler, LV_EVENT_CLICKED, NULL);
         lv_obj_add_event_cb(retry_btn, st_menu_key_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(retry_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
         applyButtonStyle(retry_btn);
         lv_obj_t* retry_lbl = lv_label_create(retry_btn);
         lv_label_set_text(retry_lbl, "Retry Story");
@@ -840,6 +848,7 @@ lv_obj_t* createStoryTimeResultsScreen() {
     lv_obj_set_pos(next_btn, perfect ? (SCREEN_WIDTH - 140) / 2 : SCREEN_WIDTH - 170, btn_y);
     lv_obj_add_event_cb(next_btn, st_next_handler, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(next_btn, st_menu_key_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(next_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
     applyButtonStyle(next_btn);
     lv_obj_t* next_lbl = lv_label_create(next_btn);
     lv_label_set_text(next_lbl, "Next Story");
@@ -851,6 +860,7 @@ lv_obj_t* createStoryTimeResultsScreen() {
     lv_obj_set_pos(list_btn, 30, btn_y + 50);
     lv_obj_add_event_cb(list_btn, st_back_to_list_handler, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(list_btn, st_menu_key_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(list_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
     applyButtonStyle(list_btn);
     lv_obj_t* list_lbl = lv_label_create(list_btn);
     lv_label_set_text(list_lbl, "Back to Story List");
@@ -952,6 +962,7 @@ lv_obj_t* createStoryTimeProgressScreen() {
     lv_obj_set_style_outline_width(focus, 0, 0);
     lv_obj_add_flag(focus, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(focus, st_menu_key_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(focus, linear_nav_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(focus);
 
     // Footer
@@ -1061,6 +1072,7 @@ lv_obj_t* createStoryTimeSettingsScreen() {
     lv_obj_align(wpm_dec, LV_ALIGN_RIGHT_MID, -120, 0);
     lv_obj_add_event_cb(wpm_dec, st_wpm_dec_handler, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(wpm_dec, st_menu_key_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(wpm_dec, linear_nav_handler, LV_EVENT_KEY, NULL);
     applyButtonStyle(wpm_dec);
     lv_obj_t* dec_lbl = lv_label_create(wpm_dec);
     lv_label_set_text(dec_lbl, "-");
@@ -1079,6 +1091,7 @@ lv_obj_t* createStoryTimeSettingsScreen() {
     lv_obj_align(wpm_inc, LV_ALIGN_RIGHT_MID, -10, 0);
     lv_obj_add_event_cb(wpm_inc, st_wpm_inc_handler, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(wpm_inc, st_menu_key_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(wpm_inc, linear_nav_handler, LV_EVENT_KEY, NULL);
     applyButtonStyle(wpm_inc);
     lv_obj_t* inc_lbl = lv_label_create(wpm_inc);
     lv_label_set_text(inc_lbl, "+");
@@ -1102,6 +1115,7 @@ lv_obj_t* createStoryTimeSettingsScreen() {
     lv_obj_align(tone_dec, LV_ALIGN_RIGHT_MID, -120, 0);
     lv_obj_add_event_cb(tone_dec, st_tone_dec_handler, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(tone_dec, st_menu_key_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(tone_dec, linear_nav_handler, LV_EVENT_KEY, NULL);
     applyButtonStyle(tone_dec);
     lv_obj_t* tone_dec_lbl = lv_label_create(tone_dec);
     lv_label_set_text(tone_dec_lbl, "-");
@@ -1120,6 +1134,7 @@ lv_obj_t* createStoryTimeSettingsScreen() {
     lv_obj_align(tone_inc, LV_ALIGN_RIGHT_MID, -10, 0);
     lv_obj_add_event_cb(tone_inc, st_tone_inc_handler, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(tone_inc, st_menu_key_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(tone_inc, linear_nav_handler, LV_EVENT_KEY, NULL);
     applyButtonStyle(tone_inc);
     lv_obj_t* tone_inc_lbl = lv_label_create(tone_inc);
     lv_label_set_text(tone_inc_lbl, "+");

@@ -16,6 +16,7 @@
 bool webFilesDownloadPromptShown = false;
 bool webFilesDownloading = false;
 bool webFilesPromptPending = false;  // Flag set by WiFi event, checked by main loop
+bool webFilesUpdateAvailable = false;  // True if checking found an update
 
 // Preferences for tracking first boot
 Preferences webFilesPrefs;
@@ -29,8 +30,9 @@ extern LGFX tft;
 // ============================================
 
 /**
- * Check if this is first WiFi connection with SD card but no web files
- * @return true if should prompt for web files download
+ * Check if this is first WiFi connection with SD card but no web files,
+ * OR if an update is available for existing web files
+ * @return true if should prompt for web files download/update
  */
 bool shouldPromptForWebFilesDownload() {
   // Don't prompt if already shown this session
@@ -54,12 +56,38 @@ bool shouldPromptForWebFilesDownload() {
 
   // Check if web files already exist
   String indexPath = String(WEB_FILES_PATH) + "index.html";
-  if (SD.exists(indexPath.c_str())) {
-    Serial.println("Web files already exist on SD card");
+  bool filesExist = SD.exists(indexPath.c_str());
+
+  if (filesExist) {
+    // Files exist - check if an update is available
+    Serial.println("Web files exist - checking for updates...");
+
+    // Check if user declined updates for this version
+    webFilesPrefs.begin("webfiles", true);
+    String declinedVersion = webFilesPrefs.getString("declined_ver", "");
+    webFilesPrefs.end();
+
+    // Check remote version
+    if (isWebFilesUpdateAvailable()) {
+      String remoteVersion = fetchRemoteWebFilesVersion();
+      remoteVersion.trim();
+
+      // If user declined this specific version, don't prompt again
+      if (declinedVersion == remoteVersion) {
+        Serial.printf("User declined update to version %s\n", remoteVersion.c_str());
+        return false;
+      }
+
+      // Update available and not declined
+      webFilesUpdateAvailable = true;
+      return true;
+    }
+
+    Serial.println("Web files are up to date");
     return false;
   }
 
-  // Check if user has declined before (stored in preferences)
+  // Files don't exist - check if user has declined initial install
   webFilesPrefs.begin("webfiles", true);
   bool declined = webFilesPrefs.getBool("declined", false);
   webFilesPrefs.end();
@@ -69,15 +97,36 @@ bool shouldPromptForWebFilesDownload() {
     return false;
   }
 
+  webFilesUpdateAvailable = false;  // This is a fresh install, not an update
   return true;
 }
 
 /**
+ * Check if the pending prompt is for an update (vs new install)
+ * @return true if this is an update prompt
+ */
+bool isWebFilesUpdatePrompt() {
+  return webFilesUpdateAvailable;
+}
+
+/**
  * Mark that user declined the download prompt
+ * For updates, stores the declined version so we don't prompt again for the same version
  */
 void declineWebFilesDownload() {
   webFilesPrefs.begin("webfiles", false);
-  webFilesPrefs.putBool("declined", true);
+
+  if (webFilesUpdateAvailable) {
+    // For updates, store the declined version
+    String remoteVersion = fetchRemoteWebFilesVersion();
+    remoteVersion.trim();
+    webFilesPrefs.putString("declined_ver", remoteVersion);
+    Serial.printf("User declined update to version %s\n", remoteVersion.c_str());
+  } else {
+    // For fresh installs, mark as declined entirely
+    webFilesPrefs.putBool("declined", true);
+  }
+
   webFilesPrefs.end();
   webFilesDownloadPromptShown = true;
 }

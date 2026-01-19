@@ -119,8 +119,11 @@ void showWebFilesDownloadScreen() {
     // Clear navigation group for this screen
     clearNavigationGroup();
 
+    // Check if this is an update or fresh install
+    bool isUpdate = isWebFilesUpdatePrompt();
+
     // Title bar
-    createWebDownloadTitleBar(web_download_screen, "Web Interface Setup");
+    createWebDownloadTitleBar(web_download_screen, isUpdate ? "Web Interface Update" : "Web Interface Setup");
 
     // Main content card
     lv_obj_t* card = lv_obj_create(web_download_screen);
@@ -131,18 +134,26 @@ void showWebFilesDownloadScreen() {
 
     // Info icon
     lv_obj_t* icon = lv_label_create(card);
-    lv_label_set_text(icon, LV_SYMBOL_DOWNLOAD);
+    lv_label_set_text(icon, isUpdate ? LV_SYMBOL_REFRESH : LV_SYMBOL_DOWNLOAD);
     lv_obj_set_style_text_font(icon, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(icon, LV_COLOR_ACCENT_CYAN, 0);
     lv_obj_align(icon, LV_ALIGN_TOP_LEFT, 10, 10);
 
-    // Message text
+    // Message text - different for update vs fresh install
     lv_obj_t* msg = lv_label_create(card);
-    lv_label_set_text(msg,
-        "SD card detected but web interface\n"
-        "files are missing.\n\n"
-        "Download web interface files\n"
-        "from the internet?");
+    if (isUpdate) {
+        lv_label_set_text(msg,
+            "A new version of the web interface\n"
+            "is available.\n\n"
+            "Download the updated web files\n"
+            "from the internet?");
+    } else {
+        lv_label_set_text(msg,
+            "SD card detected but web interface\n"
+            "files are missing.\n\n"
+            "Download web interface files\n"
+            "from the internet?");
+    }
     lv_obj_add_style(msg, getStyleLabelBody(), 0);
     lv_obj_set_style_text_line_space(msg, 4, 0);
     lv_obj_align(msg, LV_ALIGN_TOP_LEFT, 50, 10);
@@ -176,8 +187,11 @@ void showWebFilesDownloadScreen() {
     lv_obj_center(btn_skip_label);
     addNavigableWidget(btn_skip);
 
-    // Footer
-    web_download_footer = createWebDownloadFooter(web_download_screen, "Y: Download Now   N: Skip (don't ask again)");
+    // Footer - different text for update vs fresh install
+    const char* footerText = isUpdate
+        ? "Y: Update Now   N: Skip this version"
+        : "Y: Download Now   N: Skip (don't ask again)";
+    web_download_footer = createWebDownloadFooter(web_download_screen, footerText);
 
     // Load screen
     loadScreen(web_download_screen, SCREEN_ANIM_FADE);

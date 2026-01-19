@@ -116,6 +116,51 @@ const CWAIntermediateSession cwaIntermediateSessionData[] = {
 };
 
 // ============================================
+// Fundamental Track Session Data
+// ============================================
+
+// Fundamental session structure - includes both character and effective WPM for Farnsworth
+struct CWAFundamentalSession {
+  int sessionNum;           // Session number (1-16)
+  int characterWPM;         // Character speed (always 25 WPM for Farnsworth)
+  int effectiveWPM;         // Effective/Farnsworth speed (6-11 WPM)
+  const char* description;  // Session description
+  const char* objective;    // Learning focus
+};
+
+// Fundamental track effective WPM progression (character speed always 25 WPM)
+// Sessions 1-2: 6 WPM, 3-5: 7 WPM, 6-8: 8 WPM, 9-11: 9 WPM, 12-14: 10 WPM, 15-16: 11 WPM
+const int cwaFundamentalEffectiveWPM[] = {
+  6, 6,           // Sessions 1-2
+  7, 7, 7,        // Sessions 3-5
+  8, 8, 8,        // Sessions 6-8
+  9, 9, 9,        // Sessions 9-11
+  10, 10, 10,     // Sessions 12-14
+  11, 11          // Sessions 15-16
+};
+
+const int CWA_FUNDAMENTAL_CHAR_WPM = 25;  // Fixed character speed for Farnsworth
+
+const CWAFundamentalSession cwaFundamentalSessionData[] = {
+  {1,  25, 6,  "ICR Foundation",      "Build instant recognition at 6 WPM"},
+  {2,  25, 6,  "Code Groups",         "5-char random groups, solidify ICR"},
+  {3,  25, 7,  "Speed Increase",      "Push to 7 WPM effective"},
+  {4,  25, 7,  "Word Building",       "Common 3-4 letter words"},
+  {5,  25, 7,  "Consolidation",       "Comfortable at 7 WPM"},
+  {6,  25, 8,  "8 WPM Target",        "Increase effective speed"},
+  {7,  25, 8,  "Longer Words",        "5-6 letter words"},
+  {8,  25, 8,  "Abbreviations",       "Common CW abbreviations"},
+  {9,  25, 9,  "9 WPM Target",        "Building toward 10 WPM"},
+  {10, 25, 9,  "QSO Elements",        "Callsigns, names, QTH"},
+  {11, 25, 9,  "QSO Practice 1",      "Simple exchanges"},
+  {12, 25, 10, "10 WPM Target",       "Practical operating speed"},
+  {13, 25, 10, "QSO Practice 2",      "Full exchanges"},
+  {14, 25, 10, "QSO Practice 3",      "Varied QSO formats"},
+  {15, 25, 11, "11 WPM Challenge",    "Push boundaries"},
+  {16, 25, 11, "Graduation",          "Ready for Intermediate"}
+};
+
+// ============================================
 // Practice Types and Message Types
 // ============================================
 
@@ -152,7 +197,9 @@ enum CWAMessageType {
   MESSAGE_PREFIXES = 6,       // DIS, IM, IN, IR, RE, UN prefix words
   MESSAGE_SUFFIXES = 7,       // ED, ES, ING, LY suffix words
   MESSAGE_QSO_EXCHANGE = 8,   // Callsign + Name + QTH format
-  MESSAGE_POTA_EXCHANGE = 9   // Callsign + Park ID format
+  MESSAGE_POTA_EXCHANGE = 9,  // Callsign + Park ID format
+  // Fundamental track message types
+  MESSAGE_CODE_GROUPS = 10    // Random 5-character groups for ICR training
 };
 
 const char* cwaMessageTypeNames[] = {
@@ -166,7 +213,9 @@ const char* cwaMessageTypeNames[] = {
   "Prefix Words",
   "Suffix Words",
   "QSO Exchange",
-  "POTA Exchange"
+  "POTA Exchange",
+  // Fundamental types
+  "Code Groups"
 };
 
 const char* cwaMessageTypeDescriptions[] = {
@@ -180,11 +229,14 @@ const char* cwaMessageTypeDescriptions[] = {
   "DIS/IM/IN/RE/UN words",
   "ED/ES/ING/LY words",
   "Call, Name, QTH",
-  "Call, Park ID"
+  "Call, Park ID",
+  // Fundamental descriptions
+  "Random 5-char groups"
 };
 
 const int CWA_BEGINNER_MESSAGE_TYPES = 6;
-const int CWA_TOTAL_MESSAGE_TYPES = 10;
+const int CWA_FUNDAMENTAL_MESSAGE_TYPES = 7;  // 0-5 plus CODE_GROUPS (index remapped)
+const int CWA_TOTAL_MESSAGE_TYPES = 11;
 
 // ============================================
 // Session Definitions (Beginner Track)
@@ -278,8 +330,8 @@ String selectRandomItems(const char** arr, int numItems) {
 }
 
 /*
- * Get the WPM for the current session based on track
- * Intermediate track uses session-specific WPM; others use global cwSpeed
+ * Get the effective WPM for the current session based on track
+ * Intermediate and Fundamental tracks use session-specific WPM; Beginner uses global cwSpeed
  */
 int getSessionWPM() {
   if (cwaSelectedTrack == TRACK_INTERMEDIATE) {
@@ -287,8 +339,25 @@ int getSessionWPM() {
     if (sessionIdx >= 0 && sessionIdx < 16) {
       return cwaIntermediateWPM[sessionIdx];
     }
+  } else if (cwaSelectedTrack == TRACK_FUNDAMENTAL) {
+    int sessionIdx = cwaSelectedSession - 1;
+    if (sessionIdx >= 0 && sessionIdx < 16) {
+      return cwaFundamentalEffectiveWPM[sessionIdx];
+    }
   }
   return cwSpeed;  // Use global setting for Beginner and other tracks
+}
+
+/*
+ * Get the character WPM for Farnsworth timing
+ * Fundamental track uses 25 WPM character speed with slower effective spacing
+ * Other tracks return the same as getSessionWPM() (no Farnsworth)
+ */
+int getSessionCharacterWPM() {
+  if (cwaSelectedTrack == TRACK_FUNDAMENTAL) {
+    return CWA_FUNDAMENTAL_CHAR_WPM;  // Always 25 WPM for Farnsworth
+  }
+  return getSessionWPM();  // Same as effective for other tracks
 }
 
 /*

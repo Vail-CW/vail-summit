@@ -15,9 +15,11 @@
 // Note: Settings variables are accessed through the settings modules
 // These extern declarations must match the actual types from the settings headers
 
-// Volume settings (from settings_volume.h)
+// Volume settings (from i2s_audio.h)
 extern int getVolume();
 extern void setVolume(int vol);
+extern bool getQuietBootEnabled();
+extern void setQuietBootEnabled(bool enabled);
 
 // Brightness settings (from settings_brightness.h)
 extern int brightnessValue;
@@ -110,6 +112,70 @@ static void volume_slider_key_cb(lv_event_t* e) {
         // Prevent default slider handling
         lv_event_stop_bubbling(e);
     }
+
+    // DOWN navigates to quiet boot toggle
+    if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
+        lv_group_focus_next(getLVGLInputGroup());
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // UP from slider - nothing above, block navigation
+    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
+        lv_event_stop_processing(e);
+        return;
+    }
+}
+
+// Track quiet boot state locally for the toggle button
+static bool quiet_boot_local_state = false;
+static lv_obj_t* quiet_boot_label = NULL;
+
+// Update the quiet boot toggle button display
+static void update_quiet_boot_display() {
+    if (quiet_boot_label != NULL) {
+        lv_label_set_text(quiet_boot_label, quiet_boot_local_state ? "ON" : "OFF");
+        lv_obj_set_style_text_color(quiet_boot_label,
+            quiet_boot_local_state ? LV_COLOR_ACCENT_GREEN : LV_COLOR_WARNING, 0);
+    }
+}
+
+// Key handler for quiet boot toggle button - ENTER to toggle, UP/DOWN to navigate
+static void quiet_boot_toggle_key_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
+
+    // ENTER toggles the setting
+    if (key == LV_KEY_ENTER) {
+        quiet_boot_local_state = !quiet_boot_local_state;
+        setQuietBootEnabled(quiet_boot_local_state);
+        update_quiet_boot_display();
+        beep(TONE_SELECT, BEEP_SHORT);
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // UP navigates back to slider
+    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
+        lv_group_focus_prev(getLVGLInputGroup());
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // DOWN from toggle - nothing below, block navigation
+    if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // Block LEFT/RIGHT
+    if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // Block all other keys
+    lv_event_stop_processing(e);
 }
 
 lv_obj_t* createVolumeSettingsScreen() {
@@ -133,12 +199,12 @@ lv_obj_t* createVolumeSettingsScreen() {
 
     // Content area
     lv_obj_t* content = lv_obj_create(screen);
-    lv_obj_set_size(content, SCREEN_WIDTH - 60, 160);
+    lv_obj_set_size(content, SCREEN_WIDTH - 60, 180);
     lv_obj_center(content);
     lv_obj_set_layout(content, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(content, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(content, 20, 0);
+    lv_obj_set_style_pad_row(content, 12, 0);
     applyCardStyle(content);
 
     // Volume value (large display) - use theme font
@@ -159,6 +225,44 @@ lv_obj_t* createVolumeSettingsScreen() {
 
     // Make slider navigable
     addNavigableWidget(volume_slider);
+
+    // Boot at Low Volume toggle row (using button instead of switch to avoid LVGL quirks)
+    lv_obj_t* toggle_row = lv_obj_create(content);
+    lv_obj_set_size(toggle_row, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_layout(toggle_row, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(toggle_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(toggle_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_bg_opa(toggle_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(toggle_row, 0, 0);
+    lv_obj_set_style_pad_all(toggle_row, 0, 0);
+
+    lv_obj_t* toggle_text = lv_label_create(toggle_row);
+    lv_label_set_text(toggle_text, "Boot at Low Volume");
+    lv_obj_add_style(toggle_text, getStyleLabelBody(), 0);
+
+    // Create a simple button with ON/OFF label instead of using lv_switch
+    lv_obj_t* toggle_btn = lv_btn_create(toggle_row);
+    lv_obj_set_size(toggle_btn, 50, 28);
+    lv_obj_set_style_bg_color(toggle_btn, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_bg_color(toggle_btn, lv_color_hex(0x555555), LV_STATE_FOCUSED);
+    lv_obj_set_style_radius(toggle_btn, 4, 0);
+    lv_obj_set_style_border_width(toggle_btn, 1, 0);
+    lv_obj_set_style_border_color(toggle_btn, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_border_color(toggle_btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+    lv_obj_set_style_pad_all(toggle_btn, 4, 0);
+
+    // Initialize local state from saved preference
+    quiet_boot_local_state = getQuietBootEnabled();
+
+    // Label inside button showing ON/OFF
+    quiet_boot_label = lv_label_create(toggle_btn);
+    lv_obj_center(quiet_boot_label);
+    lv_obj_set_style_text_font(quiet_boot_label, getThemeFonts()->font_small, 0);
+    update_quiet_boot_display();
+
+    // Add key handler
+    lv_obj_add_event_cb(toggle_btn, quiet_boot_toggle_key_handler, LV_EVENT_KEY, NULL);
+    addNavigableWidget(toggle_btn);
 
     // Footer
     lv_obj_t* footer = lv_obj_create(screen);

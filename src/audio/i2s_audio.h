@@ -31,10 +31,12 @@ static unsigned long tone_duration = 0;
 static float phase = 0.0;  // Phase accumulator for continuous tone
 static int current_frequency = 0;
 static int audio_volume = DEFAULT_VOLUME;  // Volume 0-100%
+static bool quiet_boot_enabled = false;    // Boot at low volume (10%)
 static Preferences volumePrefs;
 
 /*
  * Load volume from preferences
+ * Also loads quiet boot setting and applies 10% override if enabled
  */
 void loadVolume() {
   volumePrefs.begin("audio", false);
@@ -42,8 +44,18 @@ void loadVolume() {
   if (audio_volume < VOLUME_MIN || audio_volume > VOLUME_MAX) {
     audio_volume = DEFAULT_VOLUME;
   }
+  // Load quiet boot setting
+  quiet_boot_enabled = volumePrefs.getBool("quietboot", false);
   volumePrefs.end();
+
   Serial.printf("Loaded volume: %d%%\n", audio_volume);
+  Serial.printf("Quiet boot: %s\n", quiet_boot_enabled ? "enabled" : "disabled");
+
+  // Apply quiet boot override (10% volume on startup)
+  if (quiet_boot_enabled) {
+    audio_volume = 10;
+    Serial.println("Quiet boot active: volume set to 10%");
+  }
 }
 
 /*
@@ -70,6 +82,41 @@ void setVolume(int vol) {
  */
 int getVolume() {
   return audio_volume;
+}
+
+/*
+ * Load quiet boot setting from preferences
+ */
+void loadQuietBoot() {
+  volumePrefs.begin("audio", false);
+  quiet_boot_enabled = volumePrefs.getBool("quietboot", false);
+  volumePrefs.end();
+  Serial.printf("Loaded quiet boot: %s\n", quiet_boot_enabled ? "enabled" : "disabled");
+}
+
+/*
+ * Save quiet boot setting to preferences
+ */
+void saveQuietBoot(bool enabled) {
+  quiet_boot_enabled = enabled;
+  volumePrefs.begin("audio", false);
+  volumePrefs.putBool("quietboot", enabled);
+  volumePrefs.end();
+  Serial.printf("Saved quiet boot: %s\n", enabled ? "enabled" : "disabled");
+}
+
+/*
+ * Get quiet boot setting
+ */
+bool getQuietBootEnabled() {
+  return quiet_boot_enabled;
+}
+
+/*
+ * Set quiet boot setting
+ */
+void setQuietBootEnabled(bool enabled) {
+  saveQuietBoot(enabled);
 }
 
 /*

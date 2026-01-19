@@ -333,6 +333,77 @@ String getWebFilesVersion() {
 }
 
 /**
+ * Fetch the latest web files version from GitHub manifest
+ * @return Version string or empty if fetch failed
+ */
+String fetchRemoteWebFilesVersion() {
+  if (WiFi.status() != WL_CONNECTED) {
+    return "";
+  }
+
+  String manifestUrl = String(WEB_FILES_BASE_URL) + WEB_FILES_MANIFEST;
+  Serial.printf("Checking remote version: %s\n", manifestUrl.c_str());
+
+  HTTPClient http;
+  http.begin(manifestUrl);
+  http.setTimeout(10000);  // 10 second timeout
+
+  int httpCode = http.GET();
+
+  if (httpCode != 200) {
+    Serial.printf("Failed to fetch manifest (HTTP %d)\n", httpCode);
+    http.end();
+    return "";
+  }
+
+  String manifestJson = http.getString();
+  http.end();
+
+  // Parse just the version field
+  StaticJsonDocument<512> doc;
+  DeserializationError error = deserializeJson(doc, manifestJson);
+
+  if (error) {
+    Serial.printf("Failed to parse manifest: %s\n", error.c_str());
+    return "";
+  }
+
+  const char* version = doc["version"] | "";
+  Serial.printf("Remote web files version: %s\n", version);
+  return String(version);
+}
+
+/**
+ * Check if web files need updating by comparing local and remote versions
+ * @return true if update is available (remote version differs from local)
+ */
+bool isWebFilesUpdateAvailable() {
+  String localVersion = getWebFilesVersion();
+  if (localVersion.isEmpty()) {
+    // No local version means files don't exist or version.txt missing
+    return false;  // Let webFilesExist() handle missing files case
+  }
+
+  String remoteVersion = fetchRemoteWebFilesVersion();
+  if (remoteVersion.isEmpty()) {
+    // Couldn't fetch remote version, assume no update
+    return false;
+  }
+
+  // Trim whitespace for comparison
+  localVersion.trim();
+  remoteVersion.trim();
+
+  bool needsUpdate = (localVersion != remoteVersion);
+  if (needsUpdate) {
+    Serial.printf("Web files update available: %s -> %s\n",
+                  localVersion.c_str(), remoteVersion.c_str());
+  }
+
+  return needsUpdate;
+}
+
+/**
  * Delete all web files from SD card
  * @return true if successful
  */

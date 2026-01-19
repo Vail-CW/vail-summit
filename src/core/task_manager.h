@@ -102,7 +102,9 @@ struct MorsePlaybackRequest {
     volatile bool cancelled;        // Cancellation requested
     char text[MORSE_PLAYBACK_MAX_LENGTH];  // Text to play
     volatile int textLength;        // Length of text
-    volatile int wpm;               // Words per minute
+    volatile int wpm;               // Words per minute (character speed)
+    volatile int effectiveWPM;      // Effective WPM for Farnsworth (spacing speed)
+    volatile bool useFarnsworth;    // Use Farnsworth timing (different element vs spacing speed)
     volatile int toneHz;            // Tone frequency
     volatile int charIndex;         // Current character in text
     volatile int elementIndex;      // Current element in character pattern
@@ -112,7 +114,7 @@ struct MorsePlaybackRequest {
 };
 
 static volatile MorsePlaybackRequest morsePlayback = {
-    false, false, "", 0, 0, 0, 0, 0, MORSE_IDLE, 0, false
+    false, false, "", 0, 0, 0, false, 0, 0, 0, MORSE_IDLE, 0, false
 };
 
 // Morse code lookup table (matches morse_code.h)
@@ -300,6 +302,8 @@ void requestPlayMorseString(const char* str, int wpm, int toneHz = TONE_SIDETONE
 
             morsePlayback.textLength = len;
             morsePlayback.wpm = wpm;
+            morsePlayback.effectiveWPM = wpm;  // No Farnsworth - same as wpm
+            morsePlayback.useFarnsworth = false;
             morsePlayback.toneHz = toneHz;
             morsePlayback.charIndex = 0;
             morsePlayback.elementIndex = 0;
@@ -310,6 +314,53 @@ void requestPlayMorseString(const char* str, int wpm, int toneHz = TONE_SIDETONE
             morsePlayback.active = true;
 
             Serial.printf("[MorsePlayback] Started: '%s' @ %d WPM, %d Hz\n", str, wpm, toneHz);
+            xSemaphoreGive(audioMutex);
+        }
+    }
+}
+
+/*
+ * Request to play a morse string with Farnsworth timing asynchronously
+ * characterWPM: speed for dits/dahs within a character (typically 25 WPM)
+ * effectiveWPM: overall speed, determines inter-character/word spacing (typically 6-11 WPM)
+ * Non-blocking - returns immediately, audio task handles playback
+ */
+void requestPlayMorseStringFarnsworth(const char* str, int characterWPM, int effectiveWPM, int toneHz = TONE_SIDETONE) {
+    if (str == nullptr || strlen(str) == 0) return;
+
+    if (xSemaphoreTake(audioMutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+        // Stop any current playback
+        morsePlayback.cancelled = true;
+
+        // Wait a moment for audio task to see cancellation
+        xSemaphoreGive(audioMutex);
+        vTaskDelay(pdMS_TO_TICKS(10));
+
+        // Now set up new playback
+        if (xSemaphoreTake(audioMutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+            // Copy text (safely)
+            int len = strlen(str);
+            if (len > MORSE_PLAYBACK_MAX_LENGTH - 1) {
+                len = MORSE_PLAYBACK_MAX_LENGTH - 1;
+            }
+            strncpy((char*)morsePlayback.text, str, len);
+            ((char*)morsePlayback.text)[len] = '\0';
+
+            morsePlayback.textLength = len;
+            morsePlayback.wpm = characterWPM;           // Character element speed
+            morsePlayback.effectiveWPM = effectiveWPM;  // Spacing speed
+            morsePlayback.useFarnsworth = (characterWPM != effectiveWPM);
+            morsePlayback.toneHz = toneHz;
+            morsePlayback.charIndex = 0;
+            morsePlayback.elementIndex = 0;
+            morsePlayback.state = MORSE_IDLE;  // Will start on next audio task cycle
+            morsePlayback.stateEndTime = 0;
+            morsePlayback.complete = false;
+            morsePlayback.cancelled = false;
+            morsePlayback.active = true;
+
+            Serial.printf("[MorsePlayback] Farnsworth started: '%s' @ %d/%d WPM, %d Hz\n",
+                          str, characterWPM, effectiveWPM, toneHz);
             xSemaphoreGive(audioMutex);
         }
     }
@@ -485,11 +536,22 @@ void processMorsePlayback() {
     }
 
     unsigned long now = millis();
-    int ditDuration = 1200 / morsePlayback.wpm;
-    int dahDuration = ditDuration * 3;
-    int elementGap = ditDuration;
-    int letterGap = ditDuration * 3;
-    int wordGap = ditDuration * 7;
+
+    // Calculate timing based on WPM
+    // Standard: 1 unit = 1200/WPM ms
+    int charUnit = 1200 / morsePlayback.wpm;  // For dits/dahs within character
+    int spaceUnit = charUnit;  // Default same as character
+
+    // Farnsworth timing: use slower effective WPM for inter-character/word spacing
+    if (morsePlayback.useFarnsworth && morsePlayback.effectiveWPM > 0) {
+        spaceUnit = 1200 / morsePlayback.effectiveWPM;
+    }
+
+    int ditDuration = charUnit;
+    int dahDuration = charUnit * 3;
+    int elementGap = charUnit;       // Gap between elements within a character (always use char speed)
+    int letterGap = spaceUnit * 3;   // Gap between characters (Farnsworth stretches this)
+    int wordGap = spaceUnit * 7;     // Gap between words (Farnsworth stretches this)
 
     // State machine
     switch (morsePlayback.state) {

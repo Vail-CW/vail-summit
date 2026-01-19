@@ -136,6 +136,65 @@ void focusWidget(lv_obj_t* widget) {
 }
 
 // ============================================
+// Linear Navigation Handler
+// ============================================
+
+/*
+ * Linear navigation handler for vertical button lists
+ * - Blocks TAB to prevent unwanted focus cycling
+ * - Blocks LEFT/RIGHT (not meaningful for vertical lists)
+ * - Explicitly handles UP/DOWN navigation and scrolls into view
+ *
+ * Usage: Add to buttons before addNavigableWidget():
+ *   lv_obj_add_event_cb(btn, linear_nav_handler, LV_EVENT_KEY, NULL);
+ *   addNavigableWidget(btn);
+ */
+static void linear_nav_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+
+    uint32_t key = lv_event_get_key(e);
+    lv_group_t* group = getLVGLInputGroup();
+
+    // Block TAB key - only arrow keys should navigate
+    if (key == '\t' || key == LV_KEY_NEXT) {
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // Block LEFT/RIGHT for pure vertical lists
+    if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // Explicitly handle UP - move to previous item
+    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
+        if (group) {
+            lv_group_focus_prev(group);
+            lv_obj_t* focused = lv_group_get_focused(group);
+            if (focused) {
+                lv_obj_scroll_to_view(focused, LV_ANIM_ON);
+            }
+        }
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // Explicitly handle DOWN - move to next item
+    if (key == LV_KEY_DOWN) {
+        if (group) {
+            lv_group_focus_next(group);
+            lv_obj_t* focused = lv_group_get_focused(group);
+            if (focused) {
+                lv_obj_scroll_to_view(focused, LV_ANIM_ON);
+            }
+        }
+        lv_event_stop_processing(e);
+        return;
+    }
+}
+
+// ============================================
 // Screen Management
 // ============================================
 
