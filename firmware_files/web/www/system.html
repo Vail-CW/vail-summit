@@ -202,7 +202,7 @@
                 <span id="screenshotStatus" style="align-self: center; opacity: 0.7;"></span>
             </div>
             <p style="margin-top: 10px; opacity: 0.6; font-size: 0.85rem;">
-                Captures the current display as a BMP image (~461 KB)
+                Captures the current display as a PNG image
             </p>
         </div>
 
@@ -295,17 +295,43 @@
                 }
 
                 const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'vail-summit-screenshot-' + new Date().toISOString().slice(0,19).replace(/:/g,'-') + '.bmp';
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                a.remove();
 
-                status.textContent = '✅ Screenshot saved!';
-                setTimeout(() => { status.textContent = ''; }, 3000);
+                // Convert BMP to PNG using canvas
+                const img = new Image();
+                const bmpUrl = window.URL.createObjectURL(blob);
+
+                img.onload = function() {
+                    // Create canvas and draw the image
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+
+                    // Convert to PNG and download
+                    canvas.toBlob(function(pngBlob) {
+                        const pngUrl = window.URL.createObjectURL(pngBlob);
+                        const a = document.createElement('a');
+                        a.href = pngUrl;
+                        a.download = 'vail-summit-screenshot-' + new Date().toISOString().slice(0,19).replace(/:/g,'-') + '.png';
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(pngUrl);
+                        window.URL.revokeObjectURL(bmpUrl);
+                        a.remove();
+
+                        status.textContent = '✅ Screenshot saved!';
+                        setTimeout(() => { status.textContent = ''; }, 3000);
+                    }, 'image/png');
+                };
+
+                img.onerror = function() {
+                    window.URL.revokeObjectURL(bmpUrl);
+                    throw new Error('Failed to load screenshot image');
+                };
+
+                img.src = bmpUrl;
+
             } catch (error) {
                 console.error('Screenshot error:', error);
                 status.textContent = '❌ ' + error.message;
