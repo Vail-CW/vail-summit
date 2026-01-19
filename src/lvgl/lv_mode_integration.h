@@ -27,6 +27,7 @@
 #include "lv_band_plans.h"
 #include "lv_pota_screens.h"
 #include "lv_story_time_screens.h"
+#include "lv_web_download_screen.h"
 #include "../core/config.h"
 #include "../core/hardware_init.h"
 #include "../storage/sd_card.h"
@@ -145,6 +146,9 @@
 #define LVGL_MODE_STORY_TIME_RESULTS     94
 #define LVGL_MODE_STORY_TIME_PROGRESS    95
 #define LVGL_MODE_STORY_TIME_SETTINGS    96
+
+// Web Files update mode
+#define LVGL_MODE_WEB_FILES_UPDATE       97
 
 // LICW Training modes
 #define LVGL_MODE_LICW_CAROUSEL_SELECT   120
@@ -694,6 +698,51 @@ bool handleGlobalHotkey(char key) {
  */
 void onLVGLMenuSelect(int target_mode) {
     Serial.printf("[ModeIntegration] Menu selected mode: %d\n", target_mode);
+
+    // Web Files update mode - uses its own screen management
+    if (target_mode == LVGL_MODE_WEB_FILES_UPDATE) {
+        // Play selection beep
+        beep(TONE_SELECT, BEEP_MEDIUM);
+        // Check requirements: WiFi and SD card
+        if (!WiFi.isConnected()) {
+            beep(400, 200);  // Error beep
+            Serial.println("[ModeIntegration] Web Files update requires WiFi");
+            static const char* btns[] = {"OK", ""};
+            lv_obj_t* msgbox = lv_msgbox_create(NULL, "WiFi Required",
+                "Please connect to WiFi\nfirst to download web files.", btns, false);
+            lv_obj_center(msgbox);
+            lv_obj_add_style(msgbox, getStyleMsgbox(), 0);
+            lv_obj_t* btns_obj = lv_msgbox_get_btns(msgbox);
+            addNavigableWidget(btns_obj);
+            lv_obj_add_event_cb(msgbox, [](lv_event_t* e) {
+                lv_obj_t* obj = lv_event_get_current_target(e);
+                lv_msgbox_close(obj);
+            }, LV_EVENT_VALUE_CHANGED, NULL);
+            return;
+        }
+        if (!sdCardAvailable) {
+            initSDCard();
+        }
+        if (!sdCardAvailable) {
+            beep(400, 200);  // Error beep
+            Serial.println("[ModeIntegration] Web Files update requires SD card");
+            static const char* btns[] = {"OK", ""};
+            lv_obj_t* msgbox = lv_msgbox_create(NULL, "SD Card Required",
+                "Please insert an SD card\nto store web files.", btns, false);
+            lv_obj_center(msgbox);
+            lv_obj_add_style(msgbox, getStyleMsgbox(), 0);
+            lv_obj_t* btns_obj = lv_msgbox_get_btns(msgbox);
+            addNavigableWidget(btns_obj);
+            lv_obj_add_event_cb(msgbox, [](lv_event_t* e) {
+                lv_obj_t* obj = lv_event_get_current_target(e);
+                lv_msgbox_close(obj);
+            }, LV_EVENT_VALUE_CHANGED, NULL);
+            return;
+        }
+        // Requirements met, show the download screen
+        showWebFilesDownloadScreen();
+        return;
+    }
 
     // Check SD card requirement for QSO log entry
     if (target_mode == LVGL_MODE_QSO_LOG_ENTRY) {

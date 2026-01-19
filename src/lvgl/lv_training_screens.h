@@ -3487,8 +3487,8 @@ static void cwa_track_select_handler(lv_event_t* e) {
 
     Serial.printf("[CWAScreen] Selected track: %d\n", track);
 
-    // Beginner (0) and Intermediate (2) are available; Fundamental (1) and Advanced (3) coming soon
-    if (track == 1 || track == 3) {
+    // Beginner (0), Fundamental (1), and Intermediate (2) are available; Advanced (3) coming soon
+    if (track == 3) {
         beep(600, 150);  // Error beep
         Serial.println("[CWAScreen] Track not yet available");
         return;

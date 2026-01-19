@@ -91,9 +91,10 @@ static const LVMenuItem deviceSettingsMenuItems[] = {
 // WiFi submenu items
 static const LVMenuItem wifiSubmenuItems[] = {
     {LV_SYMBOL_WIFI, "WiFi Setup", 25},        // MODE_WIFI_SETTINGS
-    {LV_SYMBOL_EYE_CLOSE, "Web Password", 30}  // MODE_WEB_PASSWORD_SETTINGS
+    {LV_SYMBOL_EYE_CLOSE, "Web Password", 30}, // MODE_WEB_PASSWORD_SETTINGS
+    {LV_SYMBOL_DOWNLOAD, "Web Files", 97}      // LVGL_MODE_WEB_FILES_UPDATE
 };
-#define WIFI_SUBMENU_COUNT 2
+#define WIFI_SUBMENU_COUNT 3
 
 // General submenu items
 static const LVMenuItem generalSubmenuItems[] = {
