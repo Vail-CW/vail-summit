@@ -146,7 +146,7 @@ VAIL SUMMIT firmware can be updated via:
 **Deployment Workflow:**
 1. Code is developed and tested on the `main` branch
 2. Firmware is compiled using GitHub Actions workflow (recommended) or Arduino CLI manually
-3. Binary files (`bootloader.bin`, `partitions.bin`, `vail-summit.bin`) are committed to `main` branch at `docs/firmware_files/summit/`
+3. Binary files (`bootloader.bin`, `partitions.bin`, `vail-summit.bin`) are committed to `main` branch at `firmware_files/`
 4. Users can flash firmware via web updater at `https://update.vailadapter.com`
 
 ### Building Firmware for Distribution
@@ -187,11 +187,11 @@ arduino-cli compile --fqbn esp32:esp32:adafruit_feather_esp32s3 --output-dir bui
 # - vail-summit.ino.bin (application at 0x10000)
 
 # Copy to firmware directory on main branch
-mkdir -p docs/firmware_files/summit
-cp build/vail-summit.ino.bootloader.bin docs/firmware_files/summit/bootloader.bin
-cp build/vail-summit.ino.partitions.bin docs/firmware_files/summit/partitions.bin
-cp build/vail-summit.ino.bin docs/firmware_files/summit/vail-summit.bin
-git add docs/firmware_files/summit/*.bin
+mkdir -p firmware_files
+cp build/vail-summit.ino.bootloader.bin firmware_files/bootloader.bin
+cp build/vail-summit.ino.partitions.bin firmware_files/partitions.bin
+cp build/vail-summit.ino.bin firmware_files/vail-summit.bin
+git add firmware_files/*.bin
 git commit -m "Update Summit firmware [skip ci]"
 git push origin main
 ```

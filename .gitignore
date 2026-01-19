@@ -3,12 +3,18 @@
 .vscode/
 .idea/
 
+# Project-specific files (not for distribution)
+CLAUDE.md
+
 # Build artifacts
 build/
-*.bin
 *.elf
 *.hex
 *.map
+
+# Ignore .bin files except in firmware_files/
+*.bin
+!firmware_files/*.bin
 
 # Standalone Arduino CLI environment (large, regeneratable)
 # The actual files are at C:\vail-cli, this is a symlink

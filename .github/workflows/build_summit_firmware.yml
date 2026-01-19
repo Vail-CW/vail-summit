@@ -111,13 +111,13 @@ jobs:
 
       - name: Copy binaries to firmware directory
         run: |
-          mkdir -p docs/firmware_files/summit
-          cp build/bootloader.bin docs/firmware_files/summit/
-          cp build/partitions.bin docs/firmware_files/summit/
-          cp build/vail-summit.bin docs/firmware_files/summit/
+          mkdir -p firmware_files
+          cp build/bootloader.bin firmware_files/
+          cp build/partitions.bin firmware_files/
+          cp build/vail-summit.bin firmware_files/
 
-          echo "Files copied to docs/firmware_files/summit/:"
-          ls -lh docs/firmware_files/summit/
+          echo "Files copied to firmware_files/:"
+          ls -lh firmware_files/
 
       - name: Commit and push firmware
         env:
@@ -125,7 +125,7 @@ jobs:
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add docs/firmware_files/summit/*.bin
+          git add firmware_files/*.bin
 
           # Check if there are changes to commit
           if git diff --staged --quiet; then
