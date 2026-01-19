@@ -48,13 +48,13 @@ const char* getBLEStateString();
 
 // Server callbacks for connection state tracking
 class BLECoreServerCallbacks : public NimBLEServerCallbacks {
-  void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
+  void onConnect(NimBLEServer* pServer) override {
     bleCore.connectionState = BLE_STATE_CONNECTED;
     bleCore.lastActivityTime = millis();
     Serial.println("BLE: Client connected");
   }
 
-  void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override {
+  void onDisconnect(NimBLEServer* pServer) override {
     bleCore.connectionState = BLE_STATE_ADVERTISING;
     bleCore.connectedDeviceName = "";
     bleCore.lastActivityTime = millis();

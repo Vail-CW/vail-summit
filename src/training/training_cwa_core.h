@@ -73,6 +73,49 @@ const CWASession cwaSessionData[] = {
 const int CWA_TOTAL_SESSIONS = 16;
 
 // ============================================
+// Intermediate Track Session Data
+// ============================================
+
+// Intermediate session structure - includes WPM targets
+struct CWAIntermediateSession {
+  int sessionNum;           // Session number (1-16)
+  int targetWPM;            // Target WPM for this session
+  const char* description;  // Session description
+  const char* objective;    // Learning focus
+};
+
+// WPM progression per session (from CWA Intermediate curriculum)
+// Sessions 1-3: 10-13 WPM, Sessions 4-6: 13-15 WPM, Sessions 7-10: 15 WPM
+// Sessions 11-13: 18 WPM, Sessions 14-15: 20 WPM, Session 16: 25 WPM
+const int cwaIntermediateWPM[] = {
+  10, 10, 13,      // Sessions 1-3
+  13, 13, 13,      // Sessions 4-6
+  15, 15, 15, 15,  // Sessions 7-10
+  18, 18, 18,      // Sessions 11-13
+  20, 20,          // Sessions 14-15
+  25               // Session 16
+};
+
+const CWAIntermediateSession cwaIntermediateSessionData[] = {
+  {1,  10, "Words & Prefixes",     "Build 10-13 WPM foundation"},
+  {2,  10, "Suffixes & QSO",       "Recognize suffix sounds"},
+  {3,  13, "Speed Increase",       "Push to 13 WPM"},
+  {4,  13, "Words 202",            "Comfortable at 13 WPM"},
+  {5,  13, "QSO Practice",         "Exchange practice"},
+  {6,  13, "POTA Intro",           "Park exchange format"},
+  {7,  15, "15 WPM Target",        "Sustained 15 WPM"},
+  {8,  15, "Prefix Mastery",       "Hear prefixes as sounds"},
+  {9,  15, "Full QSO",             "Complete exchanges"},
+  {10, 15, "Consolidation",        "Solid 15 WPM"},
+  {11, 18, "Head Copy Intro",      "18 WPM, less writing"},
+  {12, 18, "CWT Introduction",     "Contest exchange format"},
+  {13, 18, "Speed Push",           "Push boundaries"},
+  {14, 20, "20 WPM Target",        "Operating speed"},
+  {15, 20, "Advanced QSO",         "Complex exchanges"},
+  {16, 25, "25 WPM Challenge",     "Taste of high speed"}
+};
+
+// ============================================
 // Practice Types and Message Types
 // ============================================
 
@@ -104,7 +147,12 @@ enum CWAMessageType {
   MESSAGE_ABBREVIATIONS = 2,
   MESSAGE_NUMBERS = 3,
   MESSAGE_CALLSIGNS = 4,
-  MESSAGE_PHRASES = 5
+  MESSAGE_PHRASES = 5,
+  // Intermediate track message types
+  MESSAGE_PREFIXES = 6,       // DIS, IM, IN, IR, RE, UN prefix words
+  MESSAGE_SUFFIXES = 7,       // ED, ES, ING, LY suffix words
+  MESSAGE_QSO_EXCHANGE = 8,   // Callsign + Name + QTH format
+  MESSAGE_POTA_EXCHANGE = 9   // Callsign + Park ID format
 };
 
 const char* cwaMessageTypeNames[] = {
@@ -113,7 +161,12 @@ const char* cwaMessageTypeNames[] = {
   "CW Abbreviations",
   "Numbers",
   "Callsigns",
-  "Phrases"
+  "Phrases",
+  // Intermediate types
+  "Prefix Words",
+  "Suffix Words",
+  "QSO Exchange",
+  "POTA Exchange"
 };
 
 const char* cwaMessageTypeDescriptions[] = {
@@ -122,10 +175,16 @@ const char* cwaMessageTypeDescriptions[] = {
   "Ham radio terms",
   "Number practice",
   "Call signs",
-  "Sentences"
+  "Sentences",
+  // Intermediate descriptions
+  "DIS/IM/IN/RE/UN words",
+  "ED/ES/ING/LY words",
+  "Call, Name, QTH",
+  "Call, Park ID"
 };
 
-const int CWA_TOTAL_MESSAGE_TYPES = 6;
+const int CWA_BEGINNER_MESSAGE_TYPES = 6;
+const int CWA_TOTAL_MESSAGE_TYPES = 10;
 
 // ============================================
 // Session Definitions (Beginner Track)
@@ -216,6 +275,20 @@ String selectRandomItems(const char** arr, int numItems) {
     result += arr[index];
   }
   return result;
+}
+
+/*
+ * Get the WPM for the current session based on track
+ * Intermediate track uses session-specific WPM; others use global cwSpeed
+ */
+int getSessionWPM() {
+  if (cwaSelectedTrack == TRACK_INTERMEDIATE) {
+    int sessionIdx = cwaSelectedSession - 1;
+    if (sessionIdx >= 0 && sessionIdx < 16) {
+      return cwaIntermediateWPM[sessionIdx];
+    }
+  }
+  return cwSpeed;  // Use global setting for Beginner and other tracks
 }
 
 /*

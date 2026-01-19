@@ -36,6 +36,10 @@ extern const char* cwaTrackNames[];
 extern const char* cwaTrackDescriptions[];
 extern const struct CWASession cwaSessionData[];
 
+// CW Academy Intermediate track data (from training_cwa_core.h)
+extern const struct CWAIntermediateSession cwaIntermediateSessionData[];
+extern const int cwaIntermediateWPM[];
+
 // CW Academy practice types (from training_cwa_core.h)
 extern CWAPracticeType cwaSelectedPracticeType;
 extern const char* cwaPracticeTypeNames[];
@@ -3483,8 +3487,8 @@ static void cwa_track_select_handler(lv_event_t* e) {
 
     Serial.printf("[CWAScreen] Selected track: %d\n", track);
 
-    // Only Beginner track (0) is available, others coming soon
-    if (track > 0) {
+    // Beginner (0) and Intermediate (2) are available; Fundamental (1) and Advanced (3) coming soon
+    if (track == 1 || track == 3) {
         beep(600, 150);  // Error beep
         Serial.println("[CWAScreen] Track not yet available");
         return;
@@ -3605,17 +3609,17 @@ lv_obj_t* createCWAcademyTrackSelectScreen() {
     lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(content, 0, 0);
 
-    // Track buttons (4 tracks) - only Beginner is available, others coming soon
+    // Track buttons (4 tracks) - Beginner and Intermediate available
     // Using correct CWA track names: Beginner, Fundamental, Intermediate, Advanced
     const char* track_texts[] = {
         "Beginner - Learn CW from zero",
         "Fundamental - Coming Soon",
-        "Intermediate - Coming Soon",
+        "Intermediate - Speed & Skills",
         "Advanced - Coming Soon"
     };
 
     for (int i = 0; i < 4; i++) {
-        bool isComingSoon = (i > 0);  // Only Beginner (index 0) is available
+        bool isComingSoon = (i == 1 || i == 3);  // Fundamental and Advanced coming soon
 
         lv_obj_t* track_btn = lv_btn_create(content);
         lv_obj_set_size(track_btn, lv_pct(100), 50);
@@ -3723,14 +3727,23 @@ lv_obj_t* createCWAcademySessionSelectScreen() {
         addNavigableWidget(session_btn);
         cwa_session_btns[i] = session_btn;
 
-        // Session number and description - single line format
+        // Session number and description - format depends on track
         lv_obj_t* session_label = lv_label_create(session_btn);
         char session_text[80];
-        const struct CWASession& session = cwaSessionData[i];
-        if (strlen(session.newChars) > 0) {
-            snprintf(session_text, sizeof(session_text), "%d. %s  [+%s]", i + 1, session.description, session.newChars);
+
+        if (cwaSelectedTrack == TRACK_INTERMEDIATE) {
+            // Intermediate: show session description and target WPM
+            const struct CWAIntermediateSession& session = cwaIntermediateSessionData[i];
+            snprintf(session_text, sizeof(session_text), "%d. %s [%d WPM]",
+                     i + 1, session.description, session.targetWPM);
         } else {
-            snprintf(session_text, sizeof(session_text), "%d. %s", i + 1, session.description);
+            // Beginner: show session description and new characters
+            const struct CWASession& session = cwaSessionData[i];
+            if (strlen(session.newChars) > 0) {
+                snprintf(session_text, sizeof(session_text), "%d. %s  [+%s]", i + 1, session.description, session.newChars);
+            } else {
+                snprintf(session_text, sizeof(session_text), "%d. %s", i + 1, session.description);
+            }
         }
         lv_label_set_text(session_label, session_text);
         lv_obj_set_style_text_font(session_label, getThemeFonts()->font_body, 0);
@@ -3901,15 +3914,39 @@ lv_obj_t* createCWAcademyMessageTypeSelectScreen() {
     lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(content, 0, 0);
 
-    // Message type buttons (6 types) - use lv_btn for proper keyboard navigation
-    for (int i = 0; i < 6; i++) {
+    // Message type buttons - different types shown based on track
+    // Beginner: Characters, Words, Abbreviations, Numbers, Callsigns, Phrases (indices 0-5)
+    // Intermediate: Words, Prefixes, Suffixes, Callsigns, QSO Exchange, POTA Exchange (indices 1, 6, 7, 4, 8, 9)
+    int messageTypeIndices[10];
+    int numMessageTypes;
+
+    if (cwaSelectedTrack == TRACK_INTERMEDIATE) {
+        // Intermediate track message types (skip Characters - all chars known)
+        messageTypeIndices[0] = MESSAGE_WORDS;        // 1 - Words
+        messageTypeIndices[1] = MESSAGE_PREFIXES;     // 6 - Prefix Words
+        messageTypeIndices[2] = MESSAGE_SUFFIXES;     // 7 - Suffix Words
+        messageTypeIndices[3] = MESSAGE_CALLSIGNS;    // 4 - Callsigns
+        messageTypeIndices[4] = MESSAGE_QSO_EXCHANGE; // 8 - QSO Exchange
+        messageTypeIndices[5] = MESSAGE_POTA_EXCHANGE;// 9 - POTA Exchange
+        numMessageTypes = 6;
+    } else {
+        // Beginner track message types
+        for (int i = 0; i < 6; i++) {
+            messageTypeIndices[i] = i;
+        }
+        numMessageTypes = 6;
+    }
+
+    for (int i = 0; i < numMessageTypes; i++) {
+        int msgTypeIdx = messageTypeIndices[i];
+
         lv_obj_t* msg_btn = lv_btn_create(content);
         lv_obj_set_size(msg_btn, lv_pct(100), 40);
         lv_obj_add_style(msg_btn, getStyleMenuCard(), 0);
         lv_obj_add_style(msg_btn, getStyleMenuCardFocused(), LV_STATE_FOCUSED);
 
-        // Store message type and add event handlers
-        lv_obj_set_user_data(msg_btn, (void*)(intptr_t)i);
+        // Store actual message type index (not button index) in user_data
+        lv_obj_set_user_data(msg_btn, (void*)(intptr_t)msgTypeIdx);
         lv_obj_add_event_cb(msg_btn, cwa_message_type_select_handler, LV_EVENT_CLICKED, NULL);
         lv_obj_add_event_cb(msg_btn, cwa_linear_nav_handler, LV_EVENT_KEY, NULL);
 
@@ -3919,7 +3956,7 @@ lv_obj_t* createCWAcademyMessageTypeSelectScreen() {
         // Message type - single line format: "Name - Description"
         lv_obj_t* msg_label = lv_label_create(msg_btn);
         char msg_text[64];
-        snprintf(msg_text, sizeof(msg_text), "%s - %s", cwaMessageTypeNames[i], cwaMessageTypeDescriptions[i]);
+        snprintf(msg_text, sizeof(msg_text), "%s - %s", cwaMessageTypeNames[msgTypeIdx], cwaMessageTypeDescriptions[msgTypeIdx]);
         lv_label_set_text(msg_label, msg_text);
         lv_obj_set_style_text_font(msg_label, getThemeFonts()->font_body, 0);
         lv_obj_set_width(msg_label, lv_pct(100));

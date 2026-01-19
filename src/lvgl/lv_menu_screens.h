@@ -66,9 +66,11 @@ static const LVMenuItem trainingMenuItems[] = {
 static const LVMenuItem gamesMenuItems[] = {
     {LV_SYMBOL_PLAY, "Morse Shooter", 16},     // MODE_MORSE_SHOOTER
     {LV_SYMBOL_LOOP, "Memory Chain", 17},      // MODE_MORSE_MEMORY
-    {LV_SYMBOL_AUDIO, "Spark Watch", 78}       // MODE_SPARK_WATCH
+    {LV_SYMBOL_AUDIO, "Spark Watch", 78},      // MODE_SPARK_WATCH
+    {LV_SYMBOL_FILE, "Story Time", 89},        // LVGL_MODE_STORY_TIME
+    {LV_SYMBOL_CHARGE, "CW Speeder", 134}      // LVGL_MODE_CW_SPEEDER_SELECT
 };
-#define GAMES_MENU_COUNT 3
+#define GAMES_MENU_COUNT 5
 
 // Settings submenu items
 static const LVMenuItem settingsMenuItems[] = {

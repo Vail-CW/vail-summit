@@ -26,6 +26,7 @@
 #include "lv_band_conditions.h"
 #include "lv_band_plans.h"
 #include "lv_pota_screens.h"
+#include "lv_story_time_screens.h"
 #include "../core/config.h"
 #include "../core/hardware_init.h"
 #include "../storage/sd_card.h"
@@ -135,6 +136,16 @@
 #define LVGL_MODE_SPARK_WATCH_SETTINGS   87
 #define LVGL_MODE_SPARK_WATCH_STATS      88
 
+// Story Time game modes
+#define LVGL_MODE_STORY_TIME             89
+#define LVGL_MODE_STORY_TIME_DIFFICULTY  90
+#define LVGL_MODE_STORY_TIME_LIST        91
+#define LVGL_MODE_STORY_TIME_LISTEN      92
+#define LVGL_MODE_STORY_TIME_QUIZ        93
+#define LVGL_MODE_STORY_TIME_RESULTS     94
+#define LVGL_MODE_STORY_TIME_PROGRESS    95
+#define LVGL_MODE_STORY_TIME_SETTINGS    96
+
 // LICW Training modes
 #define LVGL_MODE_LICW_CAROUSEL_SELECT   120
 #define LVGL_MODE_LICW_LESSON_SELECT     121
@@ -150,6 +161,10 @@
 #define LVGL_MODE_LICW_PROGRESS          131
 #define LVGL_MODE_LICW_CFP_PRACTICE      132
 #define LVGL_MODE_LICW_ADVERSE_COPY      133
+
+// CW Speeder game modes
+#define LVGL_MODE_CW_SPEEDER_SELECT      134
+#define LVGL_MODE_CW_SPEEDER             135
 
 // ============================================
 // Forward declarations from main file
@@ -171,6 +186,7 @@ extern void startMorseShooter(LGFX& tft);
 extern void loadShooterPrefs();  // Load shooter settings before showing settings screen
 extern void memoryChainStart();  // New Memory Chain implementation
 extern void startSparkWatch();
+extern void storyTimeStart();
 extern void startRadioOutput(LGFX& tft);
 extern void startCWMemoriesMode(LGFX& tft);
 extern void startBTHID(LGFX& tft);
@@ -200,6 +216,9 @@ extern void startLicenseQuiz(LGFX& tft, int licenseType);
 extern void startLicenseStats(LGFX& tft);
 extern void updateLicenseQuizDisplay();
 extern void startVailMaster(LGFX& tft);
+// CW Speeder game functions (defined in game_cw_speeder.h)
+extern void cwSpeedSelectStart();
+extern void cwSpeedGameStart();
 // CW Academy state reset functions (defined in training_cwa_core.h)
 extern void resetCWACopyPracticeState();
 extern void resetCWASendingPracticeState();
@@ -340,6 +359,10 @@ lv_obj_t* createScreenForModeInt(int mode) {
     lv_obj_t* potaScreen = createPOTAScreenForMode(mode);
     if (potaScreen != NULL) return potaScreen;
 
+    // Story Time screens
+    lv_obj_t* storyTimeScreen = createStoryTimeScreenForMode(mode);
+    if (storyTimeScreen != NULL) return storyTimeScreen;
+
     // Placeholder screens for unimplemented features
     switch (mode) {
         case LVGL_MODE_BAND_PLANS:
@@ -462,6 +485,20 @@ void initializeModeInt(int mode) {
         case LVGL_MODE_SPARK_WATCH:
             Serial.println("[ModeInit] Starting Spark Watch");
             startSparkWatch();
+            break;
+        case LVGL_MODE_STORY_TIME:
+            Serial.println("[ModeInit] Starting Story Time");
+            storyTimeStart();
+            break;
+
+        // CW Speeder game
+        case LVGL_MODE_CW_SPEEDER_SELECT:
+            Serial.println("[ModeInit] Starting CW Speeder - Word Select");
+            cwSpeedSelectStart();
+            break;
+        case LVGL_MODE_CW_SPEEDER:
+            Serial.println("[ModeInit] Starting CW Speeder - Game");
+            cwSpeedGameStart();
             break;
 
         // Network/radio modes
@@ -789,6 +826,8 @@ int getParentModeInt(int mode) {
         case LVGL_MODE_MORSE_SHOOTER:
         case LVGL_MODE_MORSE_MEMORY:
         case LVGL_MODE_SPARK_WATCH:
+        case LVGL_MODE_STORY_TIME:
+        case LVGL_MODE_CW_SPEEDER_SELECT:
             return LVGL_MODE_GAMES_MENU;
 
         // Spark Watch sub-screens
@@ -815,6 +854,24 @@ int getParentModeInt(int mode) {
         case LVGL_MODE_SPARK_WATCH_RESULTS:
         case LVGL_MODE_SPARK_WATCH_DEBRIEFING:
             return LVGL_MODE_SPARK_WATCH_GAMEPLAY;
+
+        // Story Time sub-screens
+        case LVGL_MODE_STORY_TIME_DIFFICULTY:
+        case LVGL_MODE_STORY_TIME_PROGRESS:
+        case LVGL_MODE_STORY_TIME_SETTINGS:
+            return LVGL_MODE_STORY_TIME;
+
+        case LVGL_MODE_STORY_TIME_LIST:
+            return LVGL_MODE_STORY_TIME_DIFFICULTY;
+
+        case LVGL_MODE_STORY_TIME_LISTEN:
+            return LVGL_MODE_STORY_TIME_LIST;
+
+        case LVGL_MODE_STORY_TIME_QUIZ:
+            return LVGL_MODE_STORY_TIME_LISTEN;
+
+        case LVGL_MODE_STORY_TIME_RESULTS:
+            return LVGL_MODE_STORY_TIME_QUIZ;
 
         // Settings submenu items
         case LVGL_MODE_DEVICE_SETTINGS_MENU:
@@ -916,6 +973,10 @@ int getParentModeInt(int mode) {
         case LVGL_MODE_LICW_SETTINGS:
         case LVGL_MODE_LICW_PROGRESS:
             return LVGL_MODE_LICW_CAROUSEL_SELECT;
+
+        // CW Speeder
+        case LVGL_MODE_CW_SPEEDER:
+            return LVGL_MODE_CW_SPEEDER_SELECT;
 
         default:
             return LVGL_MODE_MAIN_MENU;

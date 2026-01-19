@@ -10,12 +10,38 @@ This project uses a **standalone Arduino CLI environment** with pinned library a
 
 **NEVER use a system-installed Arduino CLI or Arduino IDE** - always use the bundled version to ensure correct library versions.
 
-### Building on Windows
+### Building on Windows (Recommended Method)
 
-Use the provided PowerShell build script:
+Due to Windows path length limitations (260 char limit), the standard build script often fails. **Use the short-path method instead:**
+
+#### One-Time Setup: Create Short-Path Build Environment
 
 ```powershell
-# From the project root directory
+# 1. Create junction for project (short path)
+New-Item -ItemType Junction -Path 'C:\vs' -Target 'C:\Users\brett\Documents\Coding Projects\vail-summit'
+
+# 2. Copy arduino-cli to short path (required - the junction alone doesn't help because arduino-cli resolves real paths internally)
+Copy-Item -Path 'C:\vs\arduino-cli\*' -Destination 'C:\acli' -Recurse -Force
+```
+
+#### Compiling (use every time)
+
+```powershell
+cd C:\acli
+.\arduino-cli.exe compile --config-file arduino-cli.yaml --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M,USBMode=hwcdc" --output-dir C:\vs\build --export-binaries C:\vs
+```
+
+#### Uploading
+
+```powershell
+cd C:\acli
+.\arduino-cli.exe upload --config-file arduino-cli.yaml --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M,USBMode=hwcdc" --port COM31 --input-dir C:\vs\build C:\vs
+```
+
+#### Alternative: Standard Build Script (may fail on long paths)
+
+```powershell
+# From the project root directory (may fail with path length errors)
 .\build.ps1              # Compile firmware
 .\build.ps1 upload COM31 # Upload to device on COM31
 .\build.ps1 monitor COM31 # Serial monitor
@@ -24,18 +50,9 @@ Use the provided PowerShell build script:
 .\build.ps1 help         # Show all options
 ```
 
-#### Windows Path Length Issues
-
-If you encounter "filename or extension is too long" errors, enable Windows long paths:
-
-```powershell
-# Run PowerShell as Administrator
-Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name 'LongPathsEnabled' -Value 1
-```
-
-A system restart may be required for this to take effect.
-
 ### Building on Linux/macOS
+
+No path length issues on Linux/macOS:
 
 ```bash
 cd arduino-cli

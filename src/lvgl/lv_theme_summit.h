@@ -35,6 +35,7 @@
 #define LV_COLOR_BORDER_SUBTLE  (getThemeColors()->border_subtle)
 #define LV_COLOR_BORDER_LIGHT   (getThemeColors()->border_light)
 #define LV_COLOR_ACCENT_GREEN   (getThemeColors()->success)
+#define LV_COLOR_ACCENT_MAGENTA lv_color_make(186, 85, 211)  // Purple/Magenta for Expert
 
 // ============================================
 // Theme Styles

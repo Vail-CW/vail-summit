@@ -19,6 +19,9 @@ build/
 # Standalone Arduino CLI environment (large, regeneratable)
 arduino-cli/
 
+# Arduino CLI cache/data (created during builds)
+data/
+
 # OS files
 .DS_Store
 Thumbs.db

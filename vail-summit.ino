@@ -67,6 +67,8 @@ using namespace lgfx::v1::fonts;
 // Games
 #include "src/games/game_morse_shooter.h"
 #include "src/games/game_memory_chain.h"
+#include "src/games/game_story_time.h"
+#include "src/games/game_cw_speeder.h"
 
 // Settings modes
 #include "src/settings/settings_wifi.h"
@@ -536,6 +538,14 @@ void loop() {
     bool ditPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
     bool dahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
     memoryChainHandlePaddle(ditPressed, dahPressed);
+  }
+
+  // Update CW Speeder game if in game mode
+  if (currentMode == LVGL_MODE_CW_SPEEDER) {
+    cwSpeedUpdate();
+    bool ditPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
+    bool dahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
+    cwSpeedHandlePaddle(ditPressed, dahPressed);
   }
 
   // Update Vail Master if in practice mode

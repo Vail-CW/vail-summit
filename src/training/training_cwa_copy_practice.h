@@ -6,9 +6,10 @@
 #ifndef TRAINING_CWA_COPY_PRACTICE_H
 #define TRAINING_CWA_COPY_PRACTICE_H
 
-#include "training_cwa_core.h"  // Same folder
-#include "training_cwa_data.h"  // Same folder
-#include "../core/task_manager.h"  // For async playback
+#include "training_cwa_core.h"           // Same folder
+#include "training_cwa_data.h"           // Same folder - Beginner data
+#include "training_cwa_intermediate_data.h"  // Same folder - Intermediate data
+#include "../core/task_manager.h"        // For async playback
 
 // Forward declaration for header drawing
 extern void drawHeader();
@@ -39,9 +40,105 @@ bool cwaCopyShowingFeedback = false;    // Showing correct/incorrect feedback
 // ============================================
 
 /*
- * Generate random content based on message type and session
+ * Generate content for Intermediate track based on message type and session
  */
-String generateCWAContent() {
+String generateIntermediateContent() {
+  int sessionIndex = cwaSelectedSession - 1;
+  if (sessionIndex < 0) sessionIndex = 0;
+  if (sessionIndex > 15) sessionIndex = 15;
+
+  switch (cwaSelectedMessageType) {
+    case MESSAGE_WORDS: {
+      // Select words from session-appropriate word list
+      const char** words = inter_words_by_series[sessionIndex];
+      int numWords = max(1, cwaCopyCharCount / 5);  // Intermediate words are longer
+      return selectRandomItems(words, numWords);
+    }
+
+    case MESSAGE_PREFIXES: {
+      // Select a random prefix category and return words from it
+      int prefixIdx = random(INTER_PREFIX_COUNT);
+      const char** prefixWords = inter_prefix_arrays[prefixIdx];
+      int numWords = max(1, cwaCopyCharCount / 6);
+      return selectRandomItems(prefixWords, numWords);
+    }
+
+    case MESSAGE_SUFFIXES: {
+      // Select a random suffix category and return words from it
+      int suffixIdx = random(INTER_SUFFIX_COUNT);
+      const char** suffixWords = inter_suffix_arrays[suffixIdx];
+      int numWords = max(1, cwaCopyCharCount / 6);
+      return selectRandomItems(suffixWords, numWords);
+    }
+
+    case MESSAGE_CALLSIGNS: {
+      // Use intermediate callsign list
+      int numCallsigns = max(1, cwaCopyCharCount / 5);
+      return selectRandomItems(inter_qso_callsigns, numCallsigns);
+    }
+
+    case MESSAGE_QSO_EXCHANGE: {
+      // Generate a QSO exchange: CALL NAME QTH
+      int callIdx = random(countArrayItems(inter_qso_callsigns));
+      int nameIdx = random(countArrayItems(inter_qso_names));
+      int qthIdx = random(countArrayItems(inter_qso_qth));
+
+      String exchange = String(inter_qso_callsigns[callIdx]) + " " +
+                        String(inter_qso_names[nameIdx]) + " " +
+                        String(inter_qso_qth[qthIdx]);
+      return exchange;
+    }
+
+    case MESSAGE_POTA_EXCHANGE: {
+      // Generate a POTA exchange: CALL 5NN PARK
+      int callIdx = random(countArrayItems(inter_qso_callsigns));
+      int parkIdx = random(countArrayItems(inter_pota_parks));
+
+      String exchange = String(inter_qso_callsigns[callIdx]) + " 5NN " +
+                        String(inter_pota_parks[parkIdx]);
+      return exchange;
+    }
+
+    case MESSAGE_ABBREVIATIONS: {
+      // For intermediate, use CWT names and numbers as abbreviations
+      if (sessionIndex >= 11) {  // CWT available session 12+
+        int nameIdx = random(countArrayItems(inter_cwt_names));
+        int numIdx = random(countArrayItems(inter_cwt_numbers));
+        return String(inter_cwt_names[nameIdx]) + " " + String(inter_cwt_numbers[numIdx]);
+      }
+      // Fall through to words for earlier sessions
+      const char** words = inter_words_by_series[sessionIndex];
+      return selectRandomItems(words, max(1, cwaCopyCharCount / 5));
+    }
+
+    case MESSAGE_NUMBERS: {
+      // Generate random numbers appropriate for the session
+      String result = "";
+      int numDigits = cwaCopyCharCount;
+      for (int i = 0; i < numDigits; i++) {
+        result += String(random(10));
+      }
+      return result;
+    }
+
+    case MESSAGE_PHRASES: {
+      // Generate a simple phrase from words
+      const char** words = inter_words_by_series[sessionIndex];
+      int numWords = max(2, cwaCopyCharCount / 4);
+      return selectRandomItems(words, numWords);
+    }
+
+    default:
+      // Default to words
+      const char** words = inter_words_by_series[sessionIndex];
+      return selectRandomItems(words, max(1, cwaCopyCharCount / 5));
+  }
+}
+
+/*
+ * Generate random content based on message type and session (Beginner track)
+ */
+String generateBeginnerContent() {
   int sessionIndex = cwaSelectedSession - 1;
 
   if (sessionIndex < 0 || sessionIndex >= 10) {
@@ -130,6 +227,18 @@ String generateCWAContent() {
     default:
       return "";
   }
+}
+
+/*
+ * Generate random content based on track, message type and session
+ */
+String generateCWAContent() {
+  // Route to appropriate content generator based on track
+  if (cwaSelectedTrack == TRACK_INTERMEDIATE) {
+    return generateIntermediateContent();
+  }
+  // Default to Beginner content
+  return generateBeginnerContent();
 }
 
 // ============================================
@@ -261,8 +370,10 @@ void startCWACopyRound(LGFX& tft) {
   drawCWACopyPracticeUI(tft);
 
   // Start async morse playback (returns immediately)
+  // Use session-specific WPM for Intermediate track
+  int playbackWPM = getSessionWPM();
   cwaCopyPlaybackState = CWACOPY_PLAYBACK_PLAYING;
-  requestPlayMorseString(cwaCopyTarget.c_str(), cwSpeed, cwTone);
+  requestPlayMorseString(cwaCopyTarget.c_str(), playbackWPM, cwTone);
   // Note: cwaCopyWaitingForInput will be set to true when playback completes
   // in updateCWACopyPractice()
 }
@@ -377,10 +488,11 @@ int handleCWACopyPracticeInput(char key, LGFX& tft) {
       if (isMorsePlaybackActive()) {
         cancelMorsePlayback();
       }
-      // Replay the morse code (async)
+      // Replay the morse code (async) at session-specific WPM
+      int playbackWPM = getSessionWPM();
       cwaCopyPlaybackState = CWACOPY_PLAYBACK_PLAYING;
       cwaCopyWaitingForInput = false;  // Will be set true when playback completes
-      requestPlayMorseString(cwaCopyTarget.c_str(), cwSpeed, cwTone);
+      requestPlayMorseString(cwaCopyTarget.c_str(), playbackWPM, cwTone);
       beep(TONE_MENU_NAV, BEEP_SHORT);
       return 2;  // Redraw to show "Listening..."
 

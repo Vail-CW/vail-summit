@@ -2,7 +2,7 @@
 
 A portable Morse code training device for ham radio operators, built on the ESP32-S3 platform with a modern UI.
 
-![Version](https://img.shields.io/badge/version-0.31-blue)
+![Version](https://img.shields.io/badge/version-0.32-blue)
 ![Platform](https://img.shields.io/badge/platform-ESP32--S3-green)
 
 > **Hardware Release:** Planned for March/April 2026. Beta test units available now for $75 — contact Brett at [ke9bos@pigletradio.org](mailto:ke9bos@pigletradio.org)
@@ -176,34 +176,40 @@ If WiFi connection fails or for field use:
 - Windows PC (build scripts are Windows-specific)
 - USB cable for ESP32-S3
 
-### Quick Build
+### Quick Build (Windows)
 
-The project includes a standalone Arduino CLI environment with all dependencies pre-configured:
+Due to Windows path length limitations, use the short-path method:
 
-```bash
-# Clone the repository
-git clone https://github.com/Vail-CW/vail-summit.git
-cd vail-summit
+**One-Time Setup:**
+```powershell
+# Create junction for project
+New-Item -ItemType Junction -Path 'C:\vs' -Target 'C:\Users\YOUR_USERNAME\path\to\vail-summit'
 
-# Compile firmware
-.\build.bat
-
-# Upload to device (replace COM31 with your port)
-.\build.bat upload COM31
-
-# Open serial monitor
-.\build.bat monitor COM31
+# Copy arduino-cli to short path
+Copy-Item -Path 'C:\vs\arduino-cli\*' -Destination 'C:\acli' -Recurse -Force
 ```
 
-### Build Commands
+**Compile:**
+```powershell
+cd C:\acli
+.\arduino-cli.exe compile --config-file arduino-cli.yaml --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M,USBMode=hwcdc" --output-dir C:\vs\build --export-binaries C:\vs
+```
+
+**Upload (replace COM31 with your port):**
+```powershell
+cd C:\acli
+.\arduino-cli.exe upload --config-file arduino-cli.yaml --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M,USBMode=hwcdc" --port COM31 --input-dir C:\vs\build C:\vs
+```
+
+### Alternative: build.ps1 (may fail on long paths)
 
 | Command | Description |
 |---------|-------------|
-| `.\build.bat` | Compile firmware |
-| `.\build.bat upload COMx` | Upload to device |
-| `.\build.bat monitor COMx` | Serial monitor |
-| `.\build.bat list` | List available ports |
-| `.\build.bat clean` | Clean build directory |
+| `.\build.ps1` | Compile firmware |
+| `.\build.ps1 upload COMx` | Upload to device |
+| `.\build.ps1 monitor COMx` | Serial monitor |
+| `.\build.ps1 list` | List available ports |
+| `.\build.ps1 clean` | Clean build directory |
 
 For detailed build instructions, Arduino IDE setup, and library information, see [docs/BUILDING.md](docs/BUILDING.md).
 

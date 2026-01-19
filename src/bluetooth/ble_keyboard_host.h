@@ -109,9 +109,8 @@ class BLEKBClientCallbacks : public NimBLEClientCallbacks {
     bleKBHost.lastKeyTime = millis();
   }
 
-  void onDisconnect(NimBLEClient* pClient, int reason) override {
-    Serial.print("BLEKB: Disconnected, reason: ");
-    Serial.println(reason);
+  void onDisconnect(NimBLEClient* pClient) override {
+    Serial.println("BLEKB: Disconnected");
     bleKBHost.state = BLEKB_STATE_DISCONNECTED;
     bleKBHost.pReportChar = nullptr;
 
@@ -123,8 +122,8 @@ class BLEKBClientCallbacks : public NimBLEClientCallbacks {
 };
 
 // Scan callbacks for device discovery
-class BLEKBScanCallbacks : public NimBLEScanCallbacks {
-  void onResult(const NimBLEAdvertisedDevice* advertisedDevice) override {
+class BLEKBScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
+  void onResult(NimBLEAdvertisedDevice* advertisedDevice) override {
     // Check if device advertises HID service
     if (advertisedDevice->haveServiceUUID()) {
       if (advertisedDevice->isAdvertisingService(NimBLEUUID(HID_SERVICE_UUID))) {
@@ -157,13 +156,6 @@ class BLEKBScanCallbacks : public NimBLEScanCallbacks {
         }
       }
     }
-  }
-
-  void onScanEnd(const NimBLEScanResults& results, int reason) override {
-    Serial.print("BLEKB: Scan complete, found ");
-    Serial.print(bleKBHost.foundCount);
-    Serial.println(" HID devices");
-    bleKBHost.state = BLEKB_STATE_SCAN_COMPLETE;
   }
 };
 
@@ -323,7 +315,7 @@ void startBLEKeyboardScan() {
 
   // Configure and start scan
   NimBLEScan* pScan = NimBLEDevice::getScan();
-  pScan->setScanCallbacks(new BLEKBScanCallbacks(), false);
+  pScan->setAdvertisedDeviceCallbacks(new BLEKBScanCallbacks(), false);
   pScan->setActiveScan(true);  // Active scan for device names
   pScan->setInterval(100);
   pScan->setWindow(99);
@@ -398,10 +390,10 @@ bool connectToBLEKeyboardByAddress(const char* address) {
 
   // Get Report characteristic (may be multiple, we need the input report)
   // The characteristic with notify property is the input report
-  const std::vector<NimBLERemoteCharacteristic*>& chars = pService->getCharacteristics(true);
+  std::vector<NimBLERemoteCharacteristic*>* chars = pService->getCharacteristics(true);
   bleKBHost.pReportChar = nullptr;
 
-  for (auto pChar : chars) {
+  for (auto pChar : *chars) {
     if (pChar->getUUID() == NimBLEUUID(HID_REPORT_CHAR_UUID)) {
       if (pChar->canNotify()) {
         bleKBHost.pReportChar = pChar;

@@ -1089,6 +1089,10 @@ void startShooterFromSettings() {
 // Forward declaration - game implementation is in game_memory_chain.h
 lv_obj_t* createMemoryChainScreen();  // Implemented in game_memory_chain.h
 
+// Forward declarations - game implementation is in game_cw_speeder.h
+lv_obj_t* createCWSpeedSelectScreen();  // Implemented in game_cw_speeder.h
+lv_obj_t* createCWSpeedGameScreen();    // Implemented in game_cw_speeder.h
+
 // ============================================
 // Game Over / Pause Overlays
 // ============================================
@@ -1162,6 +1166,12 @@ lv_obj_t* createGameScreenForMode(int mode) {
         case 87: // LVGL_MODE_SPARK_WATCH_SETTINGS
         case 88: // LVGL_MODE_SPARK_WATCH_STATS
             return createSparkWatchScreenForMode(mode);
+
+        // CW Speeder game modes (134-135)
+        case 134: // LVGL_MODE_CW_SPEEDER_SELECT
+            return createCWSpeedSelectScreen();
+        case 135: // LVGL_MODE_CW_SPEEDER
+            return createCWSpeedGameScreen();
 
         default:
             Serial.printf("[GameScreens] Unknown game mode: %d\n", mode);

@@ -169,31 +169,46 @@ The workflow will:
 - Commit and push to `master` (with `[skip ci]` to avoid loops)
 - Upload build artifacts for 30-day retention
 
-#### Option 2: Manual Arduino CLI Build Process
+#### Option 2: Manual Build (Windows - Recommended Method)
+
+Due to Windows path length limitations (260 char limit), use the short-path method:
+
+**One-Time Setup:**
+```powershell
+# Create junction for project (short path)
+New-Item -ItemType Junction -Path 'C:\vs' -Target 'C:\Users\brett\Documents\Coding Projects\vail-summit'
+
+# Copy arduino-cli to short path (required - arduino-cli resolves real paths internally)
+Copy-Item -Path 'C:\vs\arduino-cli\*' -Destination 'C:\acli' -Recurse -Force
+```
+
+**Compiling:**
+```powershell
+cd C:\acli
+.\arduino-cli.exe compile --config-file arduino-cli.yaml --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M,USBMode=hwcdc" --output-dir C:\vs\build --export-binaries C:\vs
+```
+
+**Copy to firmware directory:**
+```powershell
+Copy-Item C:\vs\build\vail-summit.ino.bootloader.bin C:\vs\firmware_files\bootloader.bin
+Copy-Item C:\vs\build\vail-summit.ino.partitions.bin C:\vs\firmware_files\partitions.bin
+Copy-Item C:\vs\build\vail-summit.ino.bin C:\vs\firmware_files\vail-summit.bin
+```
+
+#### Option 3: Manual Build (Linux/macOS)
+
+No path length issues on Linux/macOS:
 
 ```bash
-# The .ino file and .h files are in the root directory
-# Create a folder matching the sketch name
-mkdir -p vail-summit
-cp *.h vail-summit/
-cp vail-summit.ino vail-summit/
+cd arduino-cli
+./arduino-cli compile --config-file arduino-cli.yaml \
+  --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M,USBMode=hwcdc" \
+  --output-dir ../build --export-binaries ..
 
-# Compile for ESP32-S3 Feather
-arduino-cli compile --fqbn esp32:esp32:adafruit_feather_esp32s3 --output-dir build --export-binaries vail-summit/vail-summit.ino
-
-# Generated files in build/:
-# - vail-summit.ino.bootloader.bin (bootloader at 0x0)
-# - vail-summit.ino.partitions.bin (partition table at 0x8000)
-# - vail-summit.ino.bin (application at 0x10000)
-
-# Copy to firmware directory on main branch
-mkdir -p firmware_files
-cp build/vail-summit.ino.bootloader.bin firmware_files/bootloader.bin
-cp build/vail-summit.ino.partitions.bin firmware_files/partitions.bin
-cp build/vail-summit.ino.bin firmware_files/vail-summit.bin
-git add firmware_files/*.bin
-git commit -m "Update Summit firmware [skip ci]"
-git push origin main
+# Copy to firmware directory
+cp ../build/vail-summit.ino.bootloader.bin ../firmware_files/bootloader.bin
+cp ../build/vail-summit.ino.partitions.bin ../firmware_files/partitions.bin
+cp ../build/vail-summit.ino.bin ../firmware_files/vail-summit.bin
 ```
 
 **Firmware Stats:**

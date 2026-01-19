@@ -107,8 +107,8 @@ int getDitDuration() {
 
 // MIDI characteristic callback for receiving data
 class MIDICharacteristicCallbacks : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
-    NimBLEAttValue value = pCharacteristic->getValue();
+  void onWrite(NimBLECharacteristic* pCharacteristic) override {
+    std::string value = pCharacteristic->getValue();
     Serial.print("MIDI onWrite: ");
     Serial.print(value.length());
     Serial.println(" bytes");
@@ -117,13 +117,13 @@ class MIDICharacteristicCallbacks : public NimBLECharacteristicCallbacks {
     }
   }
 
-  void onRead(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
+  void onRead(NimBLECharacteristic* pCharacteristic) override {
     Serial.println("MIDI onRead");
   }
 
   // Note: onNotify() removed - not in NimBLECharacteristicCallbacks base class
 
-  void onStatus(NimBLECharacteristic* pCharacteristic, int code) override {
+  void onStatus(NimBLECharacteristic* pCharacteristic, Status s, int code) override {
     Serial.print("MIDI onStatus: code=");
     Serial.println(code);
   }
