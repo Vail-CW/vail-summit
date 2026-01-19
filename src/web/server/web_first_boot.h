@@ -92,10 +92,15 @@ void resetWebFilesDeclined() {
 }
 
 // ============================================
-// LCD Prompt UI
+// LCD Prompt UI (DEPRECATED - Use LVGL version in lv_web_download_screen.h)
+// These functions are kept for reference but should not be used.
+// The LVGL implementation provides a consistent UI experience.
 // ============================================
 
+#ifdef USE_LEGACY_WEB_DOWNLOAD_UI  // Define this to enable legacy UI (not recommended)
+
 /**
+ * @deprecated Use showWebFilesDownloadScreen() from lv_web_download_screen.h instead
  * Draw the download prompt on LCD
  */
 void drawWebFilesPrompt() {
@@ -144,6 +149,7 @@ void drawWebFilesPrompt() {
 }
 
 /**
+ * @deprecated Use showWebFilesDownloadProgress() from lv_web_download_screen.h instead
  * Draw download progress on LCD
  */
 void drawWebFilesProgress() {
@@ -208,6 +214,7 @@ void drawWebFilesProgress() {
 }
 
 /**
+ * @deprecated Use showWebFilesDownloadComplete() from lv_web_download_screen.h instead
  * Draw download complete message
  */
 void drawWebFilesComplete(bool success) {
@@ -250,10 +257,11 @@ void drawWebFilesComplete(bool success) {
 }
 
 // ============================================
-// Main First Boot Handler
+// Main First Boot Handler (DEPRECATED)
 // ============================================
 
 /**
+ * @deprecated Use showWebFilesDownloadScreen() and handleWebDownloadInput() from lv_web_download_screen.h instead
  * Show first boot download prompt and handle user input
  * This is a blocking function that waits for user response
  * @param getKey Function pointer to get keyboard input
@@ -331,6 +339,12 @@ bool handleFirstBootWebFilesPrompt(char (*getKey)()) {
 
   return false;
 }
+
+#endif // USE_LEGACY_WEB_DOWNLOAD_UI
+
+// ============================================
+// Non-Blocking Prompt Detection (used by LVGL version)
+// ============================================
 
 /**
  * Check and set flag if web files prompt should be shown (non-blocking version)

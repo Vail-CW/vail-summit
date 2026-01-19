@@ -115,6 +115,9 @@ using namespace lgfx::v1::fonts;
 // Web First Boot (must come after sd_card.h)
 #include "src/web/server/web_first_boot.h"
 
+// LVGL Web Download Screen (must come after web_first_boot.h)
+#include "src/lvgl/lv_web_download_screen.h"
+
 // Bluetooth modes
 #include "src/bluetooth/ble_hid.h"
 #include "src/bluetooth/ble_midi.h"
@@ -430,6 +433,23 @@ void loop() {
   // Check for pending web server restart (after file upload)
   if (isWebServerRestartPending()) {
     restartWebServer();
+  }
+
+  // Check for pending web files download prompt (triggered by WiFi connect)
+  if (isWebFilesPromptPending() && !isWebDownloadScreenActive() && currentMode == MODE_MAIN_MENU) {
+    showWebFilesDownloadScreen();
+    clearWebFilesPromptPending();
+  }
+
+  // Handle web download screen input and progress updates
+  if (isWebDownloadScreenActive()) {
+    updateWebDownloadProgressUI();
+
+    // Get keyboard input for download screens
+    char key = getKey();
+    if (key != 0) {
+      handleWebDownloadInput(key);
+    }
   }
 
   // Update status data periodically (NEVER during audio-critical modes)

@@ -159,7 +159,7 @@
 // ============================================
 // GitHub raw URL for downloading web interface files to SD card
 // Update OWNER/REPO/BRANCH when repository is public
-#define WEB_FILES_BASE_URL "https://raw.githubusercontent.com/OWNER/REPO/BRANCH/web/www/"
+#define WEB_FILES_BASE_URL "https://raw.githubusercontent.com/Vail-CW/vail-summit/main/firmware_files/web/www/"
 #define WEB_FILES_MANIFEST "manifest.json"
 #define WEB_FILES_PATH "/www/"  // SD card path for web files
 
