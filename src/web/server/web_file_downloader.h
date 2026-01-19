@@ -332,12 +332,24 @@ String getWebFilesVersion() {
   return readSDFile(versionPath.c_str());
 }
 
+// Cached remote version to avoid multiple HTTP requests per session
+static String cachedRemoteVersion = "";
+static bool remoteVersionFetched = false;
+
 /**
  * Fetch the latest web files version from GitHub manifest
+ * Caches the result to avoid multiple HTTP requests per session
+ * @param forceRefresh If true, fetches fresh even if cached
  * @return Version string or empty if fetch failed
  */
-String fetchRemoteWebFilesVersion() {
+String fetchRemoteWebFilesVersion(bool forceRefresh = false) {
+  // Return cached version if available
+  if (remoteVersionFetched && !forceRefresh) {
+    return cachedRemoteVersion;
+  }
+
   if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi not connected - cannot fetch remote version");
     return "";
   }
 
@@ -353,6 +365,8 @@ String fetchRemoteWebFilesVersion() {
   if (httpCode != 200) {
     Serial.printf("Failed to fetch manifest (HTTP %d)\n", httpCode);
     http.end();
+    remoteVersionFetched = true;
+    cachedRemoteVersion = "";
     return "";
   }
 
@@ -365,19 +379,28 @@ String fetchRemoteWebFilesVersion() {
 
   if (error) {
     Serial.printf("Failed to parse manifest: %s\n", error.c_str());
+    remoteVersionFetched = true;
+    cachedRemoteVersion = "";
     return "";
   }
 
   const char* version = doc["version"] | "";
   Serial.printf("Remote web files version: %s\n", version);
-  return String(version);
+
+  // Cache the result
+  cachedRemoteVersion = String(version);
+  cachedRemoteVersion.trim();
+  remoteVersionFetched = true;
+
+  return cachedRemoteVersion;
 }
 
 /**
  * Check if web files need updating by comparing local and remote versions
+ * @param outRemoteVersion If provided, stores the remote version string
  * @return true if update is available (remote version differs from local)
  */
-bool isWebFilesUpdateAvailable() {
+bool isWebFilesUpdateAvailable(String* outRemoteVersion = nullptr) {
   String localVersion = getWebFilesVersion();
   if (localVersion.isEmpty()) {
     // No local version means files don't exist or version.txt missing
@@ -390,9 +413,13 @@ bool isWebFilesUpdateAvailable() {
     return false;
   }
 
+  // Store remote version if caller wants it
+  if (outRemoteVersion != nullptr) {
+    *outRemoteVersion = remoteVersion;
+  }
+
   // Trim whitespace for comparison
   localVersion.trim();
-  remoteVersion.trim();
 
   bool needsUpdate = (localVersion != remoteVersion);
   if (needsUpdate) {
@@ -401,6 +428,14 @@ bool isWebFilesUpdateAvailable() {
   }
 
   return needsUpdate;
+}
+
+/**
+ * Get the cached remote version (call after isWebFilesUpdateAvailable)
+ * @return Cached remote version or empty string
+ */
+String getCachedRemoteVersion() {
+  return cachedRemoteVersion;
 }
 
 /**

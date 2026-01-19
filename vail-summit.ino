@@ -437,7 +437,10 @@ void loop() {
     restartWebServer();
   }
 
-  // Check for pending web files download prompt (triggered by WiFi connect)
+  // Perform deferred web files version check (HTTP request - must be in main loop, not event handler)
+  performWebFilesCheck();
+
+  // Check for pending web files download prompt (triggered after version check completes)
   if (isWebFilesPromptPending() && !isWebDownloadScreenActive() && currentMode == MODE_MAIN_MENU) {
     showWebFilesDownloadScreen();
     clearWebFilesPromptPending();

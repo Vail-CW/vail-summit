@@ -15,8 +15,10 @@
 // First boot state tracking
 bool webFilesDownloadPromptShown = false;
 bool webFilesDownloading = false;
-bool webFilesPromptPending = false;  // Flag set by WiFi event, checked by main loop
+bool webFilesPromptPending = false;  // Flag set after version check completes
 bool webFilesUpdateAvailable = false;  // True if checking found an update
+bool webFilesCheckPending = false;  // Flag set by WiFi event to trigger check in main loop
+unsigned long webFilesCheckRequestTime = 0;  // When the check was requested
 
 // Preferences for tracking first boot
 Preferences webFilesPrefs;
@@ -62,15 +64,13 @@ bool shouldPromptForWebFilesDownload() {
     // Files exist - check if an update is available
     Serial.println("Web files exist - checking for updates...");
 
-    // Check if user declined updates for this version
-    webFilesPrefs.begin("webfiles", true);
-    String declinedVersion = webFilesPrefs.getString("declined_ver", "");
-    webFilesPrefs.end();
-
-    // Check remote version
-    if (isWebFilesUpdateAvailable()) {
-      String remoteVersion = fetchRemoteWebFilesVersion();
-      remoteVersion.trim();
+    // Check remote version (result is cached)
+    String remoteVersion;
+    if (isWebFilesUpdateAvailable(&remoteVersion)) {
+      // Check if user declined updates for this specific version
+      webFilesPrefs.begin("webfiles", true);
+      String declinedVersion = webFilesPrefs.getString("declined_ver", "");
+      webFilesPrefs.end();
 
       // If user declined this specific version, don't prompt again
       if (declinedVersion == remoteVersion) {
@@ -117,11 +117,12 @@ void declineWebFilesDownload() {
   webFilesPrefs.begin("webfiles", false);
 
   if (webFilesUpdateAvailable) {
-    // For updates, store the declined version
-    String remoteVersion = fetchRemoteWebFilesVersion();
-    remoteVersion.trim();
-    webFilesPrefs.putString("declined_ver", remoteVersion);
-    Serial.printf("User declined update to version %s\n", remoteVersion.c_str());
+    // For updates, store the declined version (use cached version)
+    String remoteVersion = getCachedRemoteVersion();
+    if (!remoteVersion.isEmpty()) {
+      webFilesPrefs.putString("declined_ver", remoteVersion);
+      Serial.printf("User declined update to version %s\n", remoteVersion.c_str());
+    }
   } else {
     // For fresh installs, mark as declined entirely
     webFilesPrefs.putBool("declined", true);
@@ -396,16 +397,46 @@ bool handleFirstBootWebFilesPrompt(char (*getKey)()) {
 // ============================================
 
 /**
- * Check and set flag if web files prompt should be shown (non-blocking version)
- * Call this after WiFi connects - sets a flag for the main loop to handle
+ * Request a web files check (safe to call from WiFi event handler)
+ * Does NOT make HTTP requests - just sets a flag for the main loop
  */
 void checkAndShowWebFilesPrompt() {
-  // This is called from WiFi event handler, so we just set a flag
-  // The main loop will check this flag and show the prompt with keyboard access
-  if (shouldPromptForWebFilesDownload()) {
-    Serial.println("Web files missing - setting prompt flag for main loop");
-    webFilesPromptPending = true;
+  // Called from WiFi event handler - DON'T do HTTP requests here!
+  // Just set a flag and let the main loop handle the actual check
+  if (!webFilesDownloadPromptShown && !webFilesCheckPending) {
+    Serial.println("WiFi connected - scheduling web files version check");
+    webFilesCheckPending = true;
+    webFilesCheckRequestTime = millis();
   }
+}
+
+/**
+ * Perform the actual web files version check (call from main loop)
+ * This makes HTTP requests so must NOT be called from event handlers
+ * @return true if check was performed
+ */
+bool performWebFilesCheck() {
+  if (!webFilesCheckPending) {
+    return false;
+  }
+
+  // Wait at least 2 seconds after WiFi connect before checking
+  // This gives the network stack time to stabilize
+  if (millis() - webFilesCheckRequestTime < 2000) {
+    return false;
+  }
+
+  Serial.println("Performing web files version check...");
+  webFilesCheckPending = false;
+
+  if (shouldPromptForWebFilesDownload()) {
+    Serial.println("Web files update/install available - setting prompt flag");
+    webFilesPromptPending = true;
+    return true;
+  }
+
+  Serial.println("Web files check complete - no action needed");
+  return true;
 }
 
 /**

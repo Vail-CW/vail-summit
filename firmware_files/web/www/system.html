@@ -193,6 +193,19 @@
             </div>
         </div>
 
+        <div class="card" style="grid-column: 1 / -1;">
+            <h2>🛠️ Tools</h2>
+            <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-top: 10px;">
+                <button class="btn" onclick="takeScreenshot()" id="screenshotBtn">
+                    📸 Take Screenshot
+                </button>
+                <span id="screenshotStatus" style="align-self: center; opacity: 0.7;"></span>
+            </div>
+            <p style="margin-top: 10px; opacity: 0.6; font-size: 0.85rem;">
+                Captures the current display as a BMP image (~461 KB)
+            </p>
+        </div>
+
         <div class="last-update" id="lastUpdate">Last updated: Never</div>
 
         <div style="text-align: center; margin-top: 20px;">
@@ -266,6 +279,41 @@
 
         loadSystemInfo();
         setInterval(loadSystemInfo, 10000);
+
+        async function takeScreenshot() {
+            const btn = document.getElementById('screenshotBtn');
+            const status = document.getElementById('screenshotStatus');
+
+            btn.disabled = true;
+            btn.textContent = '⏳ Capturing...';
+            status.textContent = '';
+
+            try {
+                const response = await fetch('/api/screenshot');
+                if (!response.ok) {
+                    throw new Error('Screenshot failed: ' + response.statusText);
+                }
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'vail-summit-screenshot-' + new Date().toISOString().slice(0,19).replace(/:/g,'-') + '.bmp';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                a.remove();
+
+                status.textContent = '✅ Screenshot saved!';
+                setTimeout(() => { status.textContent = ''; }, 3000);
+            } catch (error) {
+                console.error('Screenshot error:', error);
+                status.textContent = '❌ ' + error.message;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '📸 Take Screenshot';
+            }
+        }
     </script>
 </body>
 </html>
