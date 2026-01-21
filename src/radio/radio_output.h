@@ -64,6 +64,10 @@ Preferences radioPrefs;
 // LVGL mode flag - when true, skip legacy draw functions (LVGL handles display)
 bool radioOutputUseLVGL = true;  // Default to LVGL mode
 
+// Keying callback for POTA Recorder (and other features that need timing capture)
+// Parameters: keyDown (true=key pressed, false=key released), timestamp (millis())
+void (*radioKeyingCallback)(bool keyDown, unsigned long timestamp) = nullptr;
+
 // Forward declarations
 void startRadioOutput(LGFX &display);
 void drawRadioOutputUI(LGFX &display);
@@ -454,6 +458,9 @@ void updateRadioOutput() {
   }
 }
 
+// Track last state for straight key callback (to detect edges)
+static bool lastStraightKeyState = false;
+
 // Straight key handler for Summit Keyer mode
 void radioStraightKeyHandler() {
   bool ditPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
@@ -461,6 +468,12 @@ void radioStraightKeyHandler() {
   // Output straight key format on DIT pin
   digitalWrite(RADIO_KEY_DIT_PIN, ditPressed ? HIGH : LOW);
   digitalWrite(RADIO_KEY_DAH_PIN, LOW);
+
+  // Call keying callback on state change (for POTA Recorder timing capture)
+  if (radioKeyingCallback && ditPressed != lastStraightKeyState) {
+    radioKeyingCallback(ditPressed, millis());
+    lastStraightKeyState = ditPressed;
+  }
 }
 
 // Iambic keyer handler for Summit Keyer mode
@@ -495,6 +508,9 @@ void radioIambicKeyerHandler() {
       // Key radio output (straight key format on DIT pin)
       digitalWrite(RADIO_KEY_DIT_PIN, HIGH);
       digitalWrite(RADIO_KEY_DAH_PIN, LOW);
+
+      // Call keying callback for POTA Recorder timing capture
+      if (radioKeyingCallback) radioKeyingCallback(true, currentTime);
     }
   }
   else if (radioKeyerActive) {
@@ -509,6 +525,9 @@ void radioIambicKeyerHandler() {
       // Release key output
       digitalWrite(RADIO_KEY_DIT_PIN, LOW);
       digitalWrite(RADIO_KEY_DAH_PIN, LOW);
+
+      // Call keying callback for POTA Recorder timing capture
+      if (radioKeyingCallback) radioKeyingCallback(false, currentTime);
 
       // Enter spacing state
       radioKeyerActive = false;
@@ -570,6 +589,9 @@ void radioIambicKeyerHandler() {
         // Key radio output
         digitalWrite(RADIO_KEY_DIT_PIN, HIGH);
         digitalWrite(RADIO_KEY_DAH_PIN, LOW);
+
+        // Call keying callback for POTA Recorder timing capture
+        if (radioKeyingCallback) radioKeyingCallback(true, currentTime);
       } else {
         // No queued element - return to idle
         radioDitMemory = false;
@@ -624,8 +646,10 @@ void playMorseCharViaRadio(char c) {
 
     // Key the radio output (DIT pin for straight key format)
     digitalWrite(RADIO_KEY_DIT_PIN, HIGH);
+    if (radioKeyingCallback) radioKeyingCallback(true, millis());
     delay(duration);
     digitalWrite(RADIO_KEY_DIT_PIN, LOW);
+    if (radioKeyingCallback) radioKeyingCallback(false, millis());
 
     // Gap between elements (unless last element)
     if (pattern[i + 1] != '\0') {

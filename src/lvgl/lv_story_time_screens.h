@@ -150,7 +150,7 @@ lv_obj_t* createStoryTimeMenuScreen() {
         btn_y += 60;
     }
 
-    // Stats display
+    // Stats display - positioned below buttons (last button ends at ~265)
     lv_obj_t* stats = lv_label_create(screen);
     char stats_text[64];
     snprintf(stats_text, sizeof(stats_text), "%d stories completed | %d perfect scores",
@@ -158,14 +158,14 @@ lv_obj_t* createStoryTimeMenuScreen() {
     lv_label_set_text(stats, stats_text);
     lv_obj_set_style_text_color(stats, LV_COLOR_ACCENT_CYAN, 0);
     lv_obj_set_style_text_font(stats, getThemeFonts()->font_small, 0);
-    lv_obj_align(stats, LV_ALIGN_BOTTOM_MID, 0, -50);
+    lv_obj_align(stats, LV_ALIGN_BOTTOM_MID, 0, -FOOTER_HEIGHT - 10);
 
     // Footer
     lv_obj_t* footer = lv_label_create(screen);
     lv_label_set_text(footer, "UP/DN Select   ENTER Choose   ESC Back");
     lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(footer, getThemeFonts()->font_small, 0);
-    lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -15);
+    lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -10);
 
     st_screen = screen;
     return screen;

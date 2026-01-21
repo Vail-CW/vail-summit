@@ -170,6 +170,10 @@
 #define LVGL_MODE_CW_SPEEDER_SELECT      134
 #define LVGL_MODE_CW_SPEEDER             135
 
+// POTA Recorder mode
+#define LVGL_MODE_POTA_RECORDER          136
+#define LVGL_MODE_POTA_RECORDER_SETUP    137
+
 // ============================================
 // Forward declarations from main file
 // ============================================
@@ -268,6 +272,28 @@ bool isMenuModeInt(int mode) {
         case LVGL_MODE_HEAR_IT_MENU:
         case LVGL_MODE_DEVICE_BT_SUBMENU:
         case LVGL_MODE_LICENSE_SELECT:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/*
+ * Check if a mode is a pure navigation menu (no text input)
+ * Used for global hotkeys like V for volume - only allow from these screens
+ * to avoid intercepting key input in training/input modes
+ */
+bool isPureNavigationMenuInt(int mode) {
+    switch (mode) {
+        case LVGL_MODE_MAIN_MENU:
+        case LVGL_MODE_CW_MENU:
+        case LVGL_MODE_TRAINING_MENU:
+        case LVGL_MODE_GAMES_MENU:
+        case LVGL_MODE_SETTINGS_MENU:
+        case LVGL_MODE_DEVICE_SETTINGS_MENU:
+        case LVGL_MODE_HAM_TOOLS_MENU:
+        case LVGL_MODE_BLUETOOTH_MENU:
+        case LVGL_MODE_QSO_LOGGER_MENU:
             return true;
         default:
             return false;
@@ -666,14 +692,15 @@ void initializeModeInt(int mode) {
  * Returns true if key was handled (should not pass to LVGL)
  *
  * Currently supported hotkeys:
- *   V/v - Volume Settings (from any menu screen)
+ *   V/v - Volume Settings (only from pure navigation menus, not input screens)
  */
 bool handleGlobalHotkey(char key) {
     int currentModeInt = getCurrentModeAsInt();
 
-    // V key = Volume shortcut (only from menu screens)
-    if ((key == 'V' || key == 'v') && isMenuModeInt(currentModeInt)) {
-        Serial.printf("[Hotkey] V pressed in menu mode %d, opening Volume Settings\n", currentModeInt);
+    // V key = Volume shortcut (only from pure navigation menus)
+    // Do NOT intercept V in modes that accept text input (training, games, etc.)
+    if ((key == 'V' || key == 'v') && isPureNavigationMenuInt(currentModeInt)) {
+        Serial.printf("[Hotkey] V pressed in navigation menu mode %d, opening Volume Settings\n", currentModeInt);
 
         // Store current mode to return to after ESC
         volumeViaShortcut = true;
@@ -968,10 +995,13 @@ int getParentModeInt(int mode) {
         // POTA submenu items
         case LVGL_MODE_POTA_ACTIVE_SPOTS:
         case LVGL_MODE_POTA_ACTIVATE:
+        case LVGL_MODE_POTA_RECORDER_SETUP:
             return LVGL_MODE_POTA_MENU;
         case LVGL_MODE_POTA_SPOT_DETAIL:
         case LVGL_MODE_POTA_FILTERS:
             return LVGL_MODE_POTA_ACTIVE_SPOTS;
+        case LVGL_MODE_POTA_RECORDER:
+            return LVGL_MODE_POTA_RECORDER_SETUP;
 
         // QSO Logger submenu items
         case LVGL_MODE_QSO_LOG_ENTRY:

@@ -123,6 +123,10 @@ static void licw_grid_nav_handler(lv_event_t* e) {
             int potential = focused_idx + LICW_GRID_COLUMNS;
             if (potential < licw_nav_button_count) {
                 target_idx = potential;
+            } else {
+                // Target column doesn't exist in last row (odd items case)
+                // Jump to last item if we're on the second-to-last row
+                target_idx = licw_nav_button_count - 1;
             }
         }
     } else if (key == LV_KEY_PREV || key == LV_KEY_UP) {

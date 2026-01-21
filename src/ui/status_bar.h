@@ -87,8 +87,8 @@ void drawWiFiIcon(int x, int y) {
   uint16_t barColor;
   InternetStatus inetStatus = getInternetStatus();
 
-  if (inetStatus == INET_CONNECTED) {
-    barColor = COLOR_ACCENT_CYAN;      // Full connectivity
+  if (inetStatus == INET_CONNECTED || inetStatus == INET_CHECKING) {
+    barColor = COLOR_ACCENT_CYAN;      // Full connectivity or checking (optimistic cyan)
   } else if (inetStatus == INET_WIFI_ONLY) {
     barColor = COLOR_WARNING_PASTEL;   // WiFi but no internet (orange)
   } else {

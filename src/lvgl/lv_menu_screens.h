@@ -140,6 +140,7 @@ static const LVMenuItem qsoLoggerMenuItems[] = {
 static lv_obj_t* current_menu_screen = NULL;
 static lv_obj_t* menu_list = NULL;
 static lv_obj_t* status_bar = NULL;
+static lv_obj_t* wifi_status_icon = NULL;  // Global reference for dynamic updates
 static int current_menu_item_count = 0;
 
 // Callback for menu item selection (to be set by main app)
@@ -244,6 +245,10 @@ static void menu_grid_nav_handler(lv_event_t* e) {
             int potential = focused_idx + MENU_COLUMNS;
             if (potential < menu_button_count) {
                 target_idx = potential;
+            } else {
+                // Target column doesn't exist in last row (odd items case)
+                // Jump to last item if we're on the second-to-last row
+                target_idx = menu_button_count - 1;
             }
         }
     } else if (key == LV_KEY_PREV || key == LV_KEY_UP) {  // UP arrow
@@ -296,21 +301,21 @@ lv_obj_t* createHeader(lv_obj_t* parent, const char* title) {
 
     // WiFi icon - use Montserrat for LVGL symbols
     // Color indicates connectivity state:
-    //   - Green: Full internet connectivity
-    //   - Orange: WiFi connected but no internet
+    //   - Green: Full internet connectivity (or checking - optimistic)
+    //   - Orange: WiFi connected but no internet verified
     //   - Red: Disconnected
-    lv_obj_t* wifi_icon = lv_label_create(header);
-    lv_label_set_text(wifi_icon, LV_SYMBOL_WIFI);
-    lv_obj_set_style_text_font(wifi_icon, &lv_font_montserrat_20, 0);
+    wifi_status_icon = lv_label_create(header);  // Store globally for dynamic updates
+    lv_label_set_text(wifi_status_icon, LV_SYMBOL_WIFI);
+    lv_obj_set_style_text_font(wifi_status_icon, &lv_font_montserrat_20, 0);
     InternetStatus inetStatus = getInternetStatus();
-    if (inetStatus == INET_CONNECTED) {
-        lv_obj_set_style_text_color(wifi_icon, LV_COLOR_SUCCESS, 0);
+    if (inetStatus == INET_CONNECTED || inetStatus == INET_CHECKING) {
+        lv_obj_set_style_text_color(wifi_status_icon, LV_COLOR_SUCCESS, 0);
     } else if (inetStatus == INET_WIFI_ONLY) {
-        lv_obj_set_style_text_color(wifi_icon, LV_COLOR_WARNING, 0);
+        lv_obj_set_style_text_color(wifi_status_icon, LV_COLOR_WARNING, 0);
     } else {
-        lv_obj_set_style_text_color(wifi_icon, LV_COLOR_ERROR, 0);
+        lv_obj_set_style_text_color(wifi_status_icon, LV_COLOR_ERROR, 0);
     }
-    lv_obj_align(wifi_icon, LV_ALIGN_RIGHT_MID, -50, 0);
+    lv_obj_align(wifi_status_icon, LV_ALIGN_RIGHT_MID, -50, 0);
 
     // Battery icon - use Montserrat for LVGL symbols
     lv_obj_t* batt_icon = lv_label_create(header);
@@ -654,6 +659,25 @@ void showMenuForMode(int mode) {
  */
 lv_obj_t* getCurrentMenuScreen() {
     return current_menu_screen;
+}
+
+/*
+ * Update the WiFi status icon color based on current internet status
+ * Call this when internet status changes to update the display immediately
+ */
+void updateWiFiStatusIcon() {
+    if (wifi_status_icon == NULL || !lv_obj_is_valid(wifi_status_icon)) {
+        return;  // No icon to update or icon was deleted
+    }
+
+    InternetStatus inetStatus = getInternetStatus();
+    if (inetStatus == INET_CONNECTED || inetStatus == INET_CHECKING) {
+        lv_obj_set_style_text_color(wifi_status_icon, LV_COLOR_SUCCESS, 0);
+    } else if (inetStatus == INET_WIFI_ONLY) {
+        lv_obj_set_style_text_color(wifi_status_icon, LV_COLOR_WARNING, 0);
+    } else {
+        lv_obj_set_style_text_color(wifi_status_icon, LV_COLOR_ERROR, 0);
+    }
 }
 
 #endif // LV_MENU_SCREENS_H

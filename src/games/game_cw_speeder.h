@@ -537,8 +537,8 @@ static void cs_select_btn_event_cb(lv_event_t* e) {
     csSaveSelectedChallenge();
     csLoadBestTimeForChallenge(challenge);
 
-    // Navigate to game screen (MODE 89 = CW_SPEEDER_GAME)
-    onLVGLMenuSelect(89);
+    // Navigate to game screen (LVGL_MODE_CW_SPEEDER = 135)
+    onLVGLMenuSelect(135);
 }
 
 static void cs_select_key_event_cb(lv_event_t* e) {
@@ -671,7 +671,8 @@ lv_obj_t* createCWSpeedGameScreen() {
     lv_obj_clear_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* title = lv_label_create(title_bar);
-    lv_label_set_text(title, "CW SPEEDER");
+    // Show the selected challenge name in the title
+    lv_label_set_text(title, CS_WORD_CHALLENGES[csGame.selectedChallenge].displayName);
     lv_obj_add_style(title, getStyleLabelTitle(), 0);
 
     // Timer display (large, centered)

@@ -311,19 +311,38 @@ void showWebFilesDownloadComplete(bool success, const char* message) {
     // Message/URL
     lv_obj_t* msg = lv_label_create(card);
     if (success) {
-        lv_label_set_text(msg, "Web interface is now available at:\nhttp://vail-summit.local");
+        lv_label_set_text(msg, "Web interface is now available at:\nhttp://vail-summit.local\n\nRemember to clear your browser cache!");
     } else {
         char msgBuf[128];
-        snprintf(msgBuf, sizeof(msgBuf), "Error: %s\nYou can try again via Settings menu", message);
+        snprintf(msgBuf, sizeof(msgBuf), "Error: %s", message);
         lv_label_set_text(msg, msgBuf);
     }
     lv_obj_add_style(msg, getStyleLabelBody(), 0);
     lv_obj_set_style_text_align(msg, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_line_space(msg, 4, 0);
-    lv_obj_align(msg, LV_ALIGN_CENTER, 0, 25);
+    lv_obj_align(msg, LV_ALIGN_CENTER, 0, success ? 30 : 15);
+
+    // For failed downloads, add a Retry button
+    if (!success) {
+        lv_obj_t* retry_btn = lv_btn_create(card);
+        lv_obj_set_size(retry_btn, 100, 35);
+        lv_obj_align(retry_btn, LV_ALIGN_BOTTOM_MID, 0, -10);
+        lv_obj_set_style_bg_color(retry_btn, LV_COLOR_SUCCESS, 0);
+        lv_obj_set_style_radius(retry_btn, 6, 0);
+
+        lv_obj_t* retry_label = lv_label_create(retry_btn);
+        lv_label_set_text(retry_label, "Retry");
+        lv_obj_center(retry_label);
+
+        lv_obj_add_event_cb(retry_btn, [](lv_event_t* e) {
+            showWebFilesDownloadScreen();
+        }, LV_EVENT_CLICKED, NULL);
+        addNavigableWidget(retry_btn);
+    }
 
     // Footer
-    web_download_footer = createWebDownloadFooter(web_download_screen, "Press any key to continue...");
+    web_download_footer = createWebDownloadFooter(web_download_screen,
+        success ? "Press any key to continue..." : "Press ESC to exit or click Retry");
 
     webDownloadUIState = success ? WD_UI_COMPLETE : WD_UI_ERROR;
 

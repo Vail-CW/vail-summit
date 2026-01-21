@@ -397,17 +397,26 @@ bool handleFirstBootWebFilesPrompt(char (*getKey)()) {
 // ============================================
 
 /**
- * Request a web files check (safe to call from WiFi event handler)
- * Does NOT make HTTP requests - just sets a flag for the main loop
+ * Trigger web files check after internet connectivity is verified
+ * Called from internet_check.h when INET_CONNECTED state is first reached
+ * This ensures we only check for web files when we know internet is actually available
  */
-void checkAndShowWebFilesPrompt() {
-  // Called from WiFi event handler - DON'T do HTTP requests here!
-  // Just set a flag and let the main loop handle the actual check
+void triggerWebFilesCheckIfReady() {
   if (!webFilesDownloadPromptShown && !webFilesCheckPending) {
-    Serial.println("WiFi connected - scheduling web files version check");
+    Serial.println("Internet verified - scheduling web files version check");
     webFilesCheckPending = true;
     webFilesCheckRequestTime = millis();
   }
+}
+
+/**
+ * Request a web files check (safe to call from WiFi event handler)
+ * DEPRECATED: Now handled by triggerWebFilesCheckIfReady() called from internet_check.h
+ * Kept for backwards compatibility - redirects to new function
+ */
+void checkAndShowWebFilesPrompt() {
+  // Redirect to new function for backwards compatibility
+  triggerWebFilesCheckIfReady();
 }
 
 /**

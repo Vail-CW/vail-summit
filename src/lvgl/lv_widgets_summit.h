@@ -402,14 +402,14 @@ lv_obj_t* createStatusBar(lv_obj_t* parent) {
 lv_obj_t* createCompactStatusBar(lv_obj_t* parent) {
     // WiFi icon - use Montserrat for LVGL symbols
     // Color indicates connectivity state:
-    //   - Green: Full internet connectivity
-    //   - Orange: WiFi connected but no internet
+    //   - Green: Full internet connectivity (or checking - optimistic)
+    //   - Orange: WiFi connected but no internet verified
     //   - Red: Disconnected
     lv_obj_t* wifi_icon = lv_label_create(parent);
     lv_label_set_text(wifi_icon, LV_SYMBOL_WIFI);
     lv_obj_set_style_text_font(wifi_icon, &lv_font_montserrat_20, 0);
     InternetStatus inetStatus = getInternetStatus();
-    if (inetStatus == INET_CONNECTED) {
+    if (inetStatus == INET_CONNECTED || inetStatus == INET_CHECKING) {
         lv_obj_set_style_text_color(wifi_icon, LV_COLOR_SUCCESS, 0);
     } else if (inetStatus == INET_WIFI_ONLY) {
         lv_obj_set_style_text_color(wifi_icon, LV_COLOR_WARNING, 0);

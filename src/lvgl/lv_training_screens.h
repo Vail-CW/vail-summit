@@ -4185,10 +4185,18 @@ static void cwa_copy_key_event_cb(lv_event_t* e) {
                 if (cwaCopyInput.equalsIgnoreCase(cwaCopyTarget)) {
                     cwaCopyCorrect++;
                     beep(1000, 200);  // Success beep
+                    // Auto-advance on correct answer - go straight to next round
+                    if (cwaCopyRound >= 10) {
+                        cwaCopyUIState = CWA_COPY_COMPLETE;
+                    } else {
+                        cwaCopyUIState = CWA_COPY_READY;
+                        cwaCopyInput = "";
+                    }
                 } else {
                     beep(400, 300);  // Error beep
+                    // Show feedback for incorrect answers
+                    cwaCopyUIState = CWA_COPY_FEEDBACK;
                 }
-                cwaCopyUIState = CWA_COPY_FEEDBACK;
                 updateCWACopyPracticeUI();
             } else if (key == LV_KEY_BACKSPACE || key == 0x08) {
                 // Delete last character
@@ -4308,7 +4316,8 @@ lv_obj_t* createCWAcademyCopyPracticeScreen() {
     cwa_copy_input_label = lv_label_create(input_card);
     lv_label_set_text(cwa_copy_input_label, "_");
     lv_obj_set_style_text_font(cwa_copy_input_label, getThemeFonts()->font_title, 0);
-    lv_obj_set_style_text_color(cwa_copy_input_label, LV_COLOR_ACCENT_CYAN, 0);
+    // Use white/primary text color for better visibility against card background
+    lv_obj_set_style_text_color(cwa_copy_input_label, LV_COLOR_TEXT_PRIMARY, 0);
     lv_obj_center(cwa_copy_input_label);
 
     // Feedback label

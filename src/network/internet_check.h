@@ -16,8 +16,9 @@
 // Connectivity states
 enum InternetStatus {
     INET_DISCONNECTED = 0,    // WiFi not connected
-    INET_WIFI_ONLY = 1,       // WiFi connected, no internet
-    INET_CONNECTED = 2        // Full connectivity
+    INET_CHECKING = 1,        // WiFi connected, verifying internet (optimistic display)
+    INET_WIFI_ONLY = 2,       // WiFi connected, no internet verified
+    INET_CONNECTED = 3        // Full connectivity verified
 };
 
 // Configuration
@@ -44,6 +45,17 @@ static int consecutiveCheckFails = 0;
 static int currentCheckUrlIndex = 0;
 static bool internetCheckEnabled = true;  // Can be disabled during audio-critical modes
 
+// Boot tracking for optimistic display
+static unsigned long bootTime = 0;
+static bool initialCheckComplete = false;
+#define BOOT_GRACE_PERIOD 15000  // 15 seconds to complete first check
+
+// Forward declaration for web files check (defined in web_first_boot.h)
+extern void triggerWebFilesCheckIfReady();
+
+// Forward declaration for WiFi status icon update (defined in lv_menu_screens.h)
+extern void updateWiFiStatusIcon();
+
 // Forward declarations
 InternetStatus getInternetStatus();
 void updateInternetStatus();
@@ -52,6 +64,7 @@ void triggerWiFiReconnect();
 void setInternetCheckEnabled(bool enabled);
 void forceInternetCheck();
 bool isInternetAvailable();
+void initInternetCheck();
 
 /*
  * Get current internet connectivity status
@@ -67,6 +80,20 @@ InternetStatus getInternetStatus() {
  */
 void setInternetCheckEnabled(bool enabled) {
     internetCheckEnabled = enabled;
+}
+
+/*
+ * Initialize internet check system with optimistic display
+ * Call after WiFi auto-connect during boot
+ * Sets INET_CHECKING if WiFi is connected for immediate cyan icon
+ */
+void initInternetCheck() {
+    bootTime = millis();
+    initialCheckComplete = false;
+    if (WiFi.status() == WL_CONNECTED) {
+        internetStatus = INET_CHECKING;
+        Serial.println("[InetCheck] WiFi connected at boot - showing optimistic status");
+    }
 }
 
 /*
@@ -143,6 +170,14 @@ void updateInternetStatus() {
 
     unsigned long now = millis();
 
+    // During boot grace period with WiFi connected, show CHECKING (optimistic)
+    // This ensures cyan icon appears immediately after WiFi connects
+    if (!initialCheckComplete && WiFi.status() == WL_CONNECTED) {
+        if (internetStatus == INET_DISCONNECTED) {
+            internetStatus = INET_CHECKING;
+        }
+    }
+
     // Determine check interval based on current status
     unsigned long checkInterval = (internetStatus == INET_CONNECTED)
         ? INET_CHECK_INTERVAL_SUCCESS
@@ -152,7 +187,11 @@ void updateInternetStatus() {
     if (now - lastInternetCheck < checkInterval) {
         // Not time yet - just update basic WiFi status
         if (WiFi.status() != WL_CONNECTED) {
-            internetStatus = INET_DISCONNECTED;
+            if (internetStatus != INET_DISCONNECTED) {
+                internetStatus = INET_DISCONNECTED;
+                updateWiFiStatusIcon();  // Update UI immediately
+            }
+            initialCheckComplete = true;  // WiFi lost, mark check complete
             consecutiveCheckFails = 0;
         }
         return;
@@ -162,20 +201,38 @@ void updateInternetStatus() {
 
     // If WiFi is disconnected, no internet check needed
     if (WiFi.status() != WL_CONNECTED) {
-        internetStatus = INET_DISCONNECTED;
+        if (internetStatus != INET_DISCONNECTED) {
+            internetStatus = INET_DISCONNECTED;
+            updateWiFiStatusIcon();  // Update UI immediately
+        }
+        initialCheckComplete = true;  // WiFi lost, mark check complete
         consecutiveCheckFails = 0;
         return;
     }
 
     // Perform internet connectivity check
+    InternetStatus previousStatus = internetStatus;
     if (checkInternetConnectivity()) {
         internetStatus = INET_CONNECTED;
+        initialCheckComplete = true;
         consecutiveCheckFails = 0;
         Serial.println("[InetCheck] Internet connectivity confirmed");
+
+        // Trigger web files check on first successful internet verification
+        if (previousStatus != INET_CONNECTED) {
+            triggerWebFilesCheckIfReady();
+            updateWiFiStatusIcon();  // Update UI immediately
+        }
     } else {
         internetStatus = INET_WIFI_ONLY;
+        initialCheckComplete = true;
         consecutiveCheckFails++;
         Serial.printf("[InetCheck] No internet (fail #%d)\n", consecutiveCheckFails);
+
+        // Update UI if status changed
+        if (previousStatus != INET_WIFI_ONLY) {
+            updateWiFiStatusIcon();
+        }
 
         // Trigger reconnect after multiple failures
         if (consecutiveCheckFails >= INET_MAX_CONSECUTIVE_FAILS) {
@@ -193,9 +250,10 @@ void forceInternetCheck() {
 
 /*
  * Check if internet is available (convenience function)
+ * Returns true for INET_CHECKING (optimistic) and INET_CONNECTED
  */
 bool isInternetAvailable() {
-    return internetStatus == INET_CONNECTED;
+    return internetStatus == INET_CONNECTED || internetStatus == INET_CHECKING;
 }
 
 /*
@@ -204,6 +262,7 @@ bool isInternetAvailable() {
 const char* getInternetStatusString() {
     switch (internetStatus) {
         case INET_DISCONNECTED: return "Disconnected";
+        case INET_CHECKING: return "Checking...";
         case INET_WIFI_ONLY: return "WiFi Only";
         case INET_CONNECTED: return "Connected";
         default: return "Unknown";

@@ -1119,11 +1119,14 @@ lv_obj_t* createWebPasswordSettingsScreen() {
     lv_obj_add_style(enable_label, getStyleLabelSubtitle(), 0);
 
     web_password_enable_switch = lv_switch_create(enable_row);
-    if (webAuthEnabled) {
-        lv_obj_add_state(web_password_enable_switch, LV_STATE_CHECKED);
-    }
     lv_obj_add_style(web_password_enable_switch, getStyleSwitch(), 0);
     lv_obj_add_style(web_password_enable_switch, getStyleSwitchChecked(), LV_STATE_CHECKED);
+    // Set checked state AFTER styles are applied
+    Serial.printf("[WebPW Screen] webAuthEnabled=%d, webPassword length=%d\n", webAuthEnabled, webPassword.length());
+    if (webAuthEnabled) {
+        lv_obj_add_state(web_password_enable_switch, LV_STATE_CHECKED);
+        Serial.println("[WebPW Screen] Switch set to CHECKED");
+    }
     // Add key handler for switch: LEFT/RIGHT toggles, UP/DOWN navigates
     lv_obj_add_event_cb(web_password_enable_switch, web_password_switch_key_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(web_password_enable_switch);

@@ -99,6 +99,9 @@ using namespace lgfx::v1::fonts;
 #include "src/qso/qso_logger_statistics.h"
 #include "src/qso/qso_logger_settings.h"
 
+// POTA Recorder (must come after QSO Logger for storage access)
+#include "src/pota/pota_recorder.h"
+
 // Web Server (must come after QSO Logger to access storage)
 #include "src/web/server/web_server.h"
 
@@ -136,6 +139,7 @@ using namespace lgfx::v1::fonts;
 #include "src/lvgl/lv_game_screens.h"
 #include "src/lvgl/lv_mode_screens.h"
 #include "src/lvgl/lv_mode_integration.h"
+#include "src/lvgl/lv_pota_recorder.h"
 
 // ============================================
 // cwKeyType accessor functions for LVGL (needed because cwKeyType is KeyType enum)
@@ -293,12 +297,12 @@ void setup() {
   Serial.println("Initializing WiFi...");
 
   // Set up WiFi event handler to auto-start web server
+  // Note: Web files check is now triggered by internet_check.h when INET_CONNECTED is verified
   WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
     if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
       Serial.println("WiFi connected! Starting web server...");
       setupWebServer();
-      // Check if we should prompt for web files download
-      checkAndShowWebFilesPrompt();
+      // Web files check moved to after internet verification (see internet_check.h)
     } else if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
       Serial.println("WiFi disconnected. Stopping web server...");
       stopWebServer();
@@ -309,14 +313,13 @@ void setup() {
   WiFi.setAutoReconnect(true);
 
   autoConnectWiFi();
-  Serial.println("WiFi initialized");
 
-  // Force initial internet connectivity check after WiFi connects
-  if (WiFi.status() == WL_CONNECTED) {
-    forceInternetCheck();
-    updateInternetStatus();  // Run first check immediately
-    Serial.printf("Internet status: %s\n", getInternetStatusString());
-  }
+  // Initialize internet check with optimistic display (shows cyan immediately if WiFi connected)
+  initInternetCheck();
+  Serial.println("WiFi initialized");
+  Serial.printf("WiFi status: %s, Internet status: %s\n",
+      WiFi.status() == WL_CONNECTED ? "Connected" : "Disconnected",
+      getInternetStatusString());
 
   setSplashStage(4);  // "Configuring WiFi..."
   // NOTE: OTA server starts on-demand when entering firmware update menu
@@ -560,6 +563,11 @@ void loop() {
   // Update Radio Output if in radio output mode
   if (currentMode == MODE_RADIO_OUTPUT) {
     updateRadioOutput();
+  }
+
+  // Update POTA Recorder if active (LVGL timer handles screen updates)
+  if (currentMode == LVGL_MODE_POTA_RECORDER) {
+    updatePOTARecorder();
   }
 
   // Update Web Practice mode if active

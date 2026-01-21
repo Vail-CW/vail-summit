@@ -969,21 +969,21 @@ lv_obj_t* createMorseShooterSettingsScreen() {
     lv_obj_set_style_text_font(shooter_highscore_value, getThemeFonts()->font_title, 0);
     lv_obj_align(shooter_highscore_value, LV_ALIGN_BOTTOM_MID, 0, 0);
 
-    // Settings container
+    // Settings container - reduced height to avoid overlap with START button
     lv_obj_t* settings_card = lv_obj_create(screen);
-    lv_obj_set_size(settings_card, SCREEN_WIDTH - 40, 170);
+    lv_obj_set_size(settings_card, SCREEN_WIDTH - 40, 150);
     lv_obj_set_pos(settings_card, 20, HEADER_HEIGHT + 10);
     lv_obj_set_layout(settings_card, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(settings_card, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(settings_card, 8, 0);
-    lv_obj_set_style_pad_all(settings_card, 10, 0);
+    lv_obj_set_style_pad_row(settings_card, 4, 0);
+    lv_obj_set_style_pad_all(settings_card, 8, 0);
     applyCardStyle(settings_card);
     lv_obj_clear_flag(settings_card, LV_OBJ_FLAG_SCROLLABLE);
 
     // Helper to create a settings row
     auto createSettingsRow = [&](const char* label_text, lv_obj_t** row_out, lv_obj_t** value_out) {
         lv_obj_t* row = lv_obj_create(settings_card);
-        lv_obj_set_size(row, SCREEN_WIDTH - 80, 32);
+        lv_obj_set_size(row, SCREEN_WIDTH - 80, 28);
         lv_obj_set_layout(row, LV_LAYOUT_FLEX);
         lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);

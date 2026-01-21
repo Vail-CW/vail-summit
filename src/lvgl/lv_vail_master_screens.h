@@ -184,6 +184,10 @@ static void vm_menu_grid_nav_handler(lv_event_t* e) {
             int potential = focused_idx + VM_MENU_COLUMNS;
             if (potential < 5) {
                 target_idx = potential;
+            } else {
+                // Target column doesn't exist in last row (odd items case)
+                // Jump to last item if we're on the second-to-last row
+                target_idx = 5 - 1;  // last item index
             }
         }
     } else if (key == LV_KEY_PREV || key == LV_KEY_UP) {

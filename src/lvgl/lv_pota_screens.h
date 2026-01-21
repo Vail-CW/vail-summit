@@ -26,6 +26,8 @@ extern void setCurrentModeFromInt(int mode);
 #define POTA_MODE_SPOT_DETAIL       64
 #define POTA_MODE_FILTERS           65
 #define POTA_MODE_ACTIVATE          66
+#define POTA_MODE_RECORDER_SETUP    137
+#define POTA_MODE_RECORDER          136
 
 // ============================================
 // Screen State
@@ -285,11 +287,12 @@ static const struct {
     int target_mode;
 } potaMenuItems[] = {
     {LV_SYMBOL_GPS, "Active Spots", POTA_MODE_ACTIVE_SPOTS},
-    {LV_SYMBOL_HOME, "Activate a Park", POTA_MODE_ACTIVATE}
+    {LV_SYMBOL_HOME, "Activate a Park", POTA_MODE_ACTIVATE},
+    {LV_SYMBOL_AUDIO, "POTA Recorder", POTA_MODE_RECORDER_SETUP}
 };
-#define POTA_MENU_COUNT 2
+#define POTA_MENU_COUNT 3
 
-static lv_obj_t* pota_menu_buttons[2] = {NULL};
+static lv_obj_t* pota_menu_buttons[3] = {NULL};
 
 lv_obj_t* createPOTAMenuScreen() {
     clearNavigationGroup();
@@ -1660,6 +1663,10 @@ static void pota_filter_key_handler(lv_event_t* e) {
 // Screen Selector
 // ============================================
 
+// Forward declaration for POTA Recorder screens (defined in lv_pota_recorder.h)
+extern lv_obj_t* createPOTARecorderSetupScreen();
+extern lv_obj_t* createPOTARecorderScreen();
+
 lv_obj_t* createPOTAScreenForMode(int mode) {
     switch (mode) {
         case POTA_MODE_MENU:
@@ -1672,6 +1679,10 @@ lv_obj_t* createPOTAScreenForMode(int mode) {
             return createPOTAFilterScreen();
         case POTA_MODE_ACTIVATE:
             return createComingSoonScreen("ACTIVATE A PARK");
+        case POTA_MODE_RECORDER_SETUP:
+            return createPOTARecorderSetupScreen();
+        case POTA_MODE_RECORDER:
+            return createPOTARecorderScreen();
         default:
             return NULL;
     }
