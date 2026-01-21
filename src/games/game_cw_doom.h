@@ -39,6 +39,8 @@
 #define CELL_DOOR 4
 #define CELL_EXIT 5
 #define CELL_ENEMY_SPAWN 6
+#define CELL_EXIT_LOCKED 7    // Rendered as red - must kill all enemies
+#define CELL_EXIT_UNLOCKED 8  // Rendered as green - can pass through
 
 // ============================================
 // Fixed-Point Math (16.16 format)
@@ -107,9 +109,11 @@ enum DoomGameState {
     DOOM_STATE_VICTORY
 };
 
+// Control mode removed - now uses live keying with "type to shoot" mechanic
+// Keep enum for backwards compatibility with settings
 enum DoomControlMode {
     DOOM_CTRL_LIVE = 0,
-    DOOM_CTRL_LETTER = 1
+    DOOM_CTRL_LETTER = 1  // Deprecated, not used
 };
 
 enum DoomDifficulty {
@@ -164,7 +168,7 @@ struct DoomRayHit {
 
 struct DoomGame {
     DoomGameState state;
-    DoomControlMode controlMode;
+    DoomControlMode controlMode;  // Kept for settings compatibility but not used
     DoomDifficulty difficulty;
 
     DoomPlayer player;
@@ -191,6 +195,11 @@ struct DoomGame {
 
     char lastDecodedChar;
     bool hasDecodedChar;
+
+    // Type-to-shoot mechanic
+    char targetChar;           // Character to type to shoot (0 if no enemy in view)
+    int targetEnemyIndex;      // Which enemy is being targeted (-1 if none)
+    bool enemyInView;          // Is there an enemy in the crosshairs?
 
     int highScores[3];
 };
@@ -339,6 +348,11 @@ static void initDoomGame(int level, DoomDifficulty difficulty) {
     doomGame.lastDecodedChar = 0;
     doomGame.hasDecodedChar = false;
 
+    // Type-to-shoot initialization
+    doomGame.targetChar = 0;
+    doomGame.targetEnemyIndex = -1;
+    doomGame.enemyInView = false;
+
     doomDecoder.reset();
     doomActive = true;
 }
@@ -375,11 +389,22 @@ static void doomKeyerCallback(bool txOn, int element) {
     }
 }
 
+// Decoder callback - receives decoded morse characters
+static void doomDecoderCallback(String morse, String text) {
+    if (text.length() > 0) {
+        char c = toupper(text[0]);
+        doomGame.lastDecodedChar = c;
+        doomGame.hasDecodedChar = true;
+    }
+}
+
 static void initDoomKeyer() {
     doomKeyer = getKeyer(cwKeyType);
     doomKeyer->reset();
     doomKeyer->setDitDuration(DIT_DURATION(cwSpeed));
     doomKeyer->setTxCallback(doomKeyerCallback);
+    doomDecoder.messageCallback = doomDecoderCallback;
+    doomDecoder.setWPM(cwSpeed);
     doomLastToneTime = 0;
     doomLastToneState = false;
 }
@@ -400,6 +425,20 @@ static bool doomIsWall(int32_t x, int32_t y) {
     return (cell == CELL_WALL || cell == CELL_WALL_RED || cell == CELL_WALL_BLUE || cell == CELL_DOOR);
 }
 
+// Count remaining active enemies
+static int doomEnemiesRemaining() {
+    int count = 0;
+    for (int i = 0; i < doomGame.enemyCount; i++) {
+        if (doomGame.enemies[i].active) count++;
+    }
+    return count;
+}
+
+// Check if exit is unlocked (all enemies killed)
+static bool doomIsExitUnlocked() {
+    return doomEnemiesRemaining() == 0;
+}
+
 static bool doomCheckExit(int32_t x, int32_t y) {
     int mapX = FP_TO_INT(x);
     int mapY = FP_TO_INT(y);
@@ -408,7 +447,8 @@ static bool doomCheckExit(int32_t x, int32_t y) {
         return false;
     }
 
-    return doomGame.map[mapY][mapX] == CELL_EXIT;
+    // Only allow exit if all enemies are killed
+    return doomGame.map[mapY][mapX] == CELL_EXIT && doomIsExitUnlocked();
 }
 
 // ============================================
@@ -469,7 +509,11 @@ static DoomRayHit castDoomRay(int32_t startX, int32_t startY, int angle) {
             hit.wallType = CELL_WALL;
         } else {
             uint8_t cell = doomGame.map[mapY][mapX];
-            if (cell != CELL_EMPTY && cell != CELL_EXIT && cell != CELL_ENEMY_SPAWN) {
+            if (cell == CELL_EXIT) {
+                // Exit is always visible - color indicates if locked or unlocked
+                hitWall = true;
+                hit.wallType = doomIsExitUnlocked() ? CELL_EXIT_UNLOCKED : CELL_EXIT_LOCKED;
+            } else if (cell != CELL_EMPTY && cell != CELL_ENEMY_SPAWN) {
                 hitWall = true;
                 hit.wallType = cell;
             }
@@ -558,36 +602,146 @@ static void doomOpenDoor() {
     }
 }
 
+// Characters for type-to-shoot by difficulty
+// Easy: single letters (E, T, A, I, N)
+// Medium: common 2-letter combos
+// Hard: 3-letter words
+static const char* DOOM_EASY_CHARS = "ETAIN";
+static const char* DOOM_MEDIUM_CHARS[] = {"AN", "AT", "EN", "IN", "IT", "NO", "ON", "SO", "TO", "TE"};
+static const char* DOOM_HARD_CHARS[] = {"CAT", "DOG", "RUN", "HIT", "WIN", "MAP", "KEY", "GUN"};
+static const int DOOM_MEDIUM_COUNT = 10;
+static const int DOOM_HARD_COUNT = 8;
+
+// Get a random target character/phrase based on difficulty
+static const char* getRandomTarget() {
+    switch (doomGame.difficulty) {
+        case DOOM_EASY: {
+            int idx = random(5);
+            static char single[2] = {0, 0};
+            single[0] = DOOM_EASY_CHARS[idx];
+            return single;
+        }
+        case DOOM_MEDIUM:
+            return DOOM_MEDIUM_CHARS[random(DOOM_MEDIUM_COUNT)];
+        case DOOM_HARD:
+            return DOOM_HARD_CHARS[random(DOOM_HARD_COUNT)];
+        default:
+            return "E";
+    }
+}
+
+// Check if an enemy is in the crosshairs and update target
+static void updateEnemyInView() {
+    doomGame.enemyInView = false;
+    doomGame.targetEnemyIndex = -1;
+
+    float closestDist = 999.0f;
+    int closestEnemy = -1;
+
+    for (int e = 0; e < doomGame.enemyCount; e++) {
+        DoomEnemy& enemy = doomGame.enemies[e];
+        if (!enemy.active) continue;
+
+        // Calculate angle and distance to enemy
+        float dx = FP_TO_FLOAT(enemy.x - doomGame.player.x);
+        float dy = FP_TO_FLOAT(enemy.y - doomGame.player.y);
+        float dist = sqrt(dx * dx + dy * dy);
+        if (dist < 0.5f || dist > 10.0f) continue;  // Too close or too far
+
+        float angleToEnemy = atan2(dy, dx) * 180.0f / PI;
+        float relAngle = angleToEnemy - doomGame.player.angle;
+        while (relAngle > 180) relAngle -= 360;
+        while (relAngle < -180) relAngle += 360;
+
+        // Check if enemy is near center of view (within ~15 degrees)
+        if (abs(relAngle) < 15.0f && dist < closestDist) {
+            closestDist = dist;
+            closestEnemy = e;
+        }
+    }
+
+    if (closestEnemy >= 0) {
+        doomGame.enemyInView = true;
+
+        // If we're targeting a new enemy, pick a new character
+        if (doomGame.targetEnemyIndex != closestEnemy) {
+            doomGame.targetEnemyIndex = closestEnemy;
+            const char* target = getRandomTarget();
+            doomGame.targetChar = target[0];  // For now, just use first char
+        }
+    } else {
+        // No enemy in view - clear target
+        doomGame.targetChar = 0;
+        doomGame.targetEnemyIndex = -1;
+    }
+}
+
+// Process type-to-shoot: check if decoded char matches target
+static void processTypeToShoot() {
+    if (!doomGame.hasDecodedChar) return;
+
+    char decoded = doomGame.lastDecodedChar;
+    doomGame.hasDecodedChar = false;
+
+    // Check if we typed the correct character while enemy is in view
+    if (doomGame.enemyInView && doomGame.targetChar != 0) {
+        if (decoded == doomGame.targetChar) {
+            // Correct! Shoot the targeted enemy
+            if (doomGame.targetEnemyIndex >= 0 &&
+                doomGame.targetEnemyIndex < doomGame.enemyCount) {
+                DoomEnemy& enemy = doomGame.enemies[doomGame.targetEnemyIndex];
+                if (enemy.active) {
+                    enemy.health--;
+                    enemy.hitTimer = 10;
+
+                    if (enemy.health <= 0) {
+                        enemy.active = false;
+                        doomGame.player.kills++;
+                        doomGame.player.score += 10 * (doomGame.difficulty + 1);
+                    }
+
+                    // Pick new target character for next shot
+                    const char* target = getRandomTarget();
+                    doomGame.targetChar = target[0];
+                    doomGame.needsRender = true;
+                }
+            }
+        }
+        // Wrong character - maybe penalize? For now just ignore
+    }
+}
+
 static void processLiveKeyingInput() {
     unsigned long now = millis();
 
+    // Movement controls via paddle holds
     if (doomGame.ditPressed && doomGame.dahPressed) {
+        // Squeeze = move forward
         int32_t dx = FP_MUL(doomCos(doomGame.player.angle), DOOM_PLAYER_SPEED);
         int32_t dy = FP_MUL(doomSin(doomGame.player.angle), DOOM_PLAYER_SPEED);
         doomMovePlayer(dx, dy);
     } else if (doomGame.ditPressed) {
+        // Dit held = turn left
         doomGame.player.angle -= DOOM_PLAYER_ROT_SPEED;
         if (doomGame.player.angle < 0) doomGame.player.angle += 360;
         doomGame.needsRender = true;
     } else if (doomGame.dahPressed) {
+        // Dah held = turn right
         doomGame.player.angle += DOOM_PLAYER_ROT_SPEED;
         if (doomGame.player.angle >= 360) doomGame.player.angle -= 360;
         doomGame.needsRender = true;
     }
 
-    if (!doomGame.ditPressed && doomGame.lastDitPressed) {
-        unsigned long pressDuration = now - doomGame.ditPressTime;
-        if (pressDuration < DOOM_TAP_THRESHOLD_MS) {
-            doomShoot();
-        }
-    }
-
+    // Quick dah tap = open door (kept this for interacting with doors)
     if (!doomGame.dahPressed && doomGame.lastDahPressed) {
         unsigned long pressDuration = now - doomGame.dahPressTime;
         if (pressDuration < DOOM_TAP_THRESHOLD_MS) {
             doomOpenDoor();
         }
     }
+
+    // Note: Shooting is now handled by type-to-shoot mechanic
+    // Type the displayed character to hit enemies
 }
 
 static void processLetterCommandInput() {
@@ -742,12 +896,22 @@ void updateDoomGame() {
         doomKeyer->tick(now);
     }
 
-    // For now, only live keying mode is fully implemented
-    // Letter command mode would need decoder callback integration
+    // Process paddle input for movement/turning
     processLiveKeyingInput();
+
+    // Check for enemies in crosshairs and update target character
+    updateEnemyInView();
+
+    // Check if player typed the correct character to shoot
+    processTypeToShoot();
 
     updateDoomProjectiles();
     updateDoomEnemies();
+
+    // Continue tone playback if active (needed for I2S audio)
+    if (doomLastToneState) {
+        continueTone(cwTone);
+    }
 
     doomGame.frameCount++;
     doomGame.lastFrameTime = now;
@@ -761,16 +925,22 @@ static uint16_t doomGetWallColor(int wallType, bool isVertical) {
     uint16_t color;
     switch (wallType) {
         case CELL_WALL:
-            color = isVertical ? 0x8410 : 0xA514;
+            color = isVertical ? 0x8410 : 0xA514;  // Gray
             break;
         case CELL_WALL_RED:
-            color = isVertical ? 0xA000 : 0xC800;
+            color = isVertical ? 0xA000 : 0xC800;  // Red
             break;
         case CELL_WALL_BLUE:
-            color = isVertical ? 0x0010 : 0x001F;
+            color = isVertical ? 0x0010 : 0x001F;  // Blue
             break;
         case CELL_DOOR:
-            color = isVertical ? 0x8200 : 0xA280;
+            color = isVertical ? 0x8200 : 0xA280;  // Brown
+            break;
+        case CELL_EXIT_LOCKED:
+            color = isVertical ? 0xF800 : 0xF800;  // Bright red - LOCKED
+            break;
+        case CELL_EXIT_UNLOCKED:
+            color = isVertical ? 0x07E0 : 0x07E0;  // Bright green - UNLOCKED
             break;
         default:
             color = isVertical ? 0x8410 : 0xA514;

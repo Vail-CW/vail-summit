@@ -1110,17 +1110,45 @@ static lv_obj_t* doom_hint_label = NULL;
 
 // Settings screen pointers
 static lv_obj_t* doom_diff_value = NULL;
-static lv_obj_t* doom_ctrl_value = NULL;
 static lv_obj_t* doom_level_value = NULL;
 static lv_obj_t* doom_highscore_value = NULL;
 
+// Settings row pointers for focus styling
+static lv_obj_t* doom_diff_row = NULL;
+static lv_obj_t* doom_level_row = NULL;
+static lv_obj_t* doom_start_btn = NULL;
+
 // Settings state
 static int doom_selected_difficulty = 0;
-static int doom_selected_control = 0;
 static int doom_selected_level = 1;
-static int doom_settings_focus = 0;  // 0=diff, 1=ctrl, 2=level, 3=start
+static int doom_settings_focus = 0;  // 0=diff, 1=level, 2=start
+
+// Update focus styling on settings rows
+static void doom_settings_update_focus() {
+    lv_obj_t* rows[] = {doom_diff_row, doom_level_row, doom_start_btn};
+    const int num_rows = 3;
+
+    for (int i = 0; i < num_rows; i++) {
+        if (rows[i] == NULL) continue;
+
+        if (i == doom_settings_focus) {
+            // Focused row - highlight border
+            lv_obj_set_style_border_color(rows[i], LV_COLOR_ACCENT_CYAN, 0);
+            lv_obj_set_style_border_width(rows[i], 2, 0);
+        } else {
+            // Not focused - subtle border
+            lv_obj_set_style_border_color(rows[i], LV_COLOR_BORDER_SUBTLE, 0);
+            lv_obj_set_style_border_width(rows[i], 1, 0);
+        }
+    }
+}
 
 static void cleanupDoomScreenPointers() {
+    // Free the canvas buffer to prevent memory leak and crash on re-entry
+    if (doom_canvas_buf != NULL) {
+        free(doom_canvas_buf);
+        doom_canvas_buf = NULL;
+    }
     doom_canvas = NULL;
     doom_health_label = NULL;
     doom_ammo_label = NULL;
@@ -1131,9 +1159,11 @@ static void cleanupDoomScreenPointers() {
 
 static void cleanupDoomSettingsPointers() {
     doom_diff_value = NULL;
-    doom_ctrl_value = NULL;
     doom_level_value = NULL;
     doom_highscore_value = NULL;
+    doom_diff_row = NULL;
+    doom_level_row = NULL;
+    doom_start_btn = NULL;
 }
 
 // Render the raycasted view to a buffer, then blit scaled to canvas
@@ -1269,10 +1299,38 @@ static void updateDoomHUD() {
         lv_obj_set_style_text_color(doom_health_label, hpColor, 0);
     }
     if (doom_ammo_label) {
-        lv_label_set_text_fmt(doom_ammo_label, "Ammo: %d", doomGame.player.ammo);
+        // Show enemies remaining as the main objective counter
+        int remaining = doomEnemiesRemaining();
+        if (remaining > 0) {
+            lv_label_set_text_fmt(doom_ammo_label, "Enemies: %d", remaining);
+            lv_obj_set_style_text_color(doom_ammo_label, LV_COLOR_ERROR, 0);
+        } else {
+            lv_label_set_text(doom_ammo_label, "EXIT OPEN!");
+            lv_obj_set_style_text_color(doom_ammo_label, LV_COLOR_SUCCESS, 0);
+        }
     }
     if (doom_score_label) {
         lv_label_set_text_fmt(doom_score_label, "Score: %d", doomGame.player.score);
+    }
+
+    // Update hint label with target character when enemy is in view
+    if (doom_hint_label) {
+        if (doomGame.enemyInView && doomGame.targetChar != 0) {
+            // Show big target character - key this to shoot!
+            lv_label_set_text_fmt(doom_hint_label, "TYPE: %c  to SHOOT!", doomGame.targetChar);
+            lv_obj_set_style_text_color(doom_hint_label, LV_COLOR_ERROR, 0);
+            lv_obj_set_style_text_font(doom_hint_label, getThemeFonts()->font_title, 0);
+        } else {
+            // Show movement controls with clearer objective
+            int remaining = doomEnemiesRemaining();
+            if (remaining > 0) {
+                lv_label_set_text(doom_hint_label, "Find enemies! Dit=Left  Dah=Right  Both=Forward");
+            } else {
+                lv_label_set_text(doom_hint_label, "All enemies killed! Find the EXIT (green)");
+            }
+            lv_obj_set_style_text_color(doom_hint_label, LV_COLOR_WARNING, 0);
+            lv_obj_set_style_text_font(doom_hint_label, getThemeFonts()->font_small, 0);
+        }
     }
 }
 
@@ -1320,13 +1378,9 @@ lv_obj_t* createCWDoomScreen();
 // Settings screen value update
 static void doom_settings_update_values() {
     const char* diffNames[] = {"Easy", "Medium", "Hard"};
-    const char* ctrlNames[] = {"Live Keying", "Letter Cmds"};
 
     if (doom_diff_value) {
         lv_label_set_text(doom_diff_value, diffNames[doom_selected_difficulty]);
-    }
-    if (doom_ctrl_value) {
-        lv_label_set_text(doom_ctrl_value, ctrlNames[doom_selected_control]);
     }
     if (doom_level_value) {
         lv_label_set_text_fmt(doom_level_value, "Level %d", doom_selected_level);
@@ -1337,6 +1391,7 @@ static void doom_settings_update_values() {
 }
 
 // Settings screen key handler
+// Focus indices: 0=difficulty, 1=level, 2=start button
 static void doom_settings_key_handler(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code != LV_EVENT_KEY) return;
@@ -1351,11 +1406,13 @@ static void doom_settings_key_handler(lv_event_t* e) {
 
     if (key == LV_KEY_UP || key == LV_KEY_PREV) {
         doom_settings_focus--;
-        if (doom_settings_focus < 0) doom_settings_focus = 3;
+        if (doom_settings_focus < 0) doom_settings_focus = 2;
+        doom_settings_update_focus();
         beep(TONE_MENU_NAV, BEEP_SHORT);
     } else if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
         doom_settings_focus++;
-        if (doom_settings_focus > 3) doom_settings_focus = 0;
+        if (doom_settings_focus > 2) doom_settings_focus = 0;
+        doom_settings_update_focus();
         beep(TONE_MENU_NAV, BEEP_SHORT);
     } else if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
         int dir = (key == LV_KEY_RIGHT) ? 1 : -1;
@@ -1365,12 +1422,7 @@ static void doom_settings_key_handler(lv_event_t* e) {
                 if (doom_selected_difficulty < 0) doom_selected_difficulty = 2;
                 if (doom_selected_difficulty > 2) doom_selected_difficulty = 0;
                 break;
-            case 1:  // Control mode
-                doom_selected_control += dir;
-                if (doom_selected_control < 0) doom_selected_control = 1;
-                if (doom_selected_control > 1) doom_selected_control = 0;
-                break;
-            case 2:  // Level
+            case 1:  // Level
                 doom_selected_level += dir;
                 if (doom_selected_level < 1) doom_selected_level = 3;
                 if (doom_selected_level > 3) doom_selected_level = 1;
@@ -1378,12 +1430,11 @@ static void doom_settings_key_handler(lv_event_t* e) {
         }
         doom_settings_update_values();
         beep(TONE_MENU_NAV, BEEP_SHORT);
-    } else if (key == LV_KEY_ENTER && doom_settings_focus == 3) {
+    } else if (key == LV_KEY_ENTER && doom_settings_focus == 2) {
         beep(TONE_SELECT, BEEP_LONG);
         cleanupDoomSettingsPointers();
         extern void setCurrentModeFromInt(int mode);
         setCurrentModeFromInt(139);  // LVGL_MODE_CW_DOOM
-        doomGame.controlMode = (DoomControlMode)doom_selected_control;
         initDoomGame(doom_selected_level, (DoomDifficulty)doom_selected_difficulty);
         initDoomKeyer();
         clearNavigationGroup();
@@ -1414,91 +1465,119 @@ lv_obj_t* createCWDoomSettingsScreen() {
     // Status bar (WiFi + battery)
     createCompactStatusBar(screen);
 
-    // Main container
-    lv_obj_t* container = lv_obj_create(screen);
-    lv_obj_set_size(container, SCREEN_WIDTH - 40, SCREEN_HEIGHT - 100);
-    lv_obj_set_pos(container, 20, HEADER_HEIGHT + 10);
-    lv_obj_set_layout(container, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(container, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(container, 12, 0);
-    applyCardStyle(container);
+    // High score display (top right of content area)
+    lv_obj_t* hs_container = lv_obj_create(screen);
+    lv_obj_set_size(hs_container, 120, 50);
+    lv_obj_set_pos(hs_container, SCREEN_WIDTH - 140, HEADER_HEIGHT + 10);
+    lv_obj_set_style_bg_opa(hs_container, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(hs_container, 0, 0);
+    lv_obj_clear_flag(hs_container, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Difficulty row
-    lv_obj_t* diff_row = lv_obj_create(container);
-    lv_obj_set_size(diff_row, lv_pct(100), 36);
-    lv_obj_set_layout(diff_row, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(diff_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(diff_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(diff_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(diff_row, 0, 0);
-    lv_obj_t* diff_label = lv_label_create(diff_row);
-    lv_label_set_text(diff_label, "Difficulty");
-    doom_diff_value = lv_label_create(diff_row);
-    lv_obj_set_style_text_font(doom_diff_value, getThemeFonts()->font_subtitle, 0);
-
-    // Control row
-    lv_obj_t* ctrl_row = lv_obj_create(container);
-    lv_obj_set_size(ctrl_row, lv_pct(100), 36);
-    lv_obj_set_layout(ctrl_row, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(ctrl_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(ctrl_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(ctrl_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(ctrl_row, 0, 0);
-    lv_obj_t* ctrl_label = lv_label_create(ctrl_row);
-    lv_label_set_text(ctrl_label, "Controls");
-    doom_ctrl_value = lv_label_create(ctrl_row);
-    lv_obj_set_style_text_font(doom_ctrl_value, getThemeFonts()->font_subtitle, 0);
-
-    // Level row
-    lv_obj_t* level_row = lv_obj_create(container);
-    lv_obj_set_size(level_row, lv_pct(100), 36);
-    lv_obj_set_layout(level_row, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(level_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(level_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(level_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(level_row, 0, 0);
-    lv_obj_t* level_label = lv_label_create(level_row);
-    lv_label_set_text(level_label, "Level");
-    doom_level_value = lv_label_create(level_row);
-    lv_obj_set_style_text_font(doom_level_value, getThemeFonts()->font_subtitle, 0);
-
-    // High score row
-    lv_obj_t* hs_row = lv_obj_create(container);
-    lv_obj_set_size(hs_row, lv_pct(100), 36);
-    lv_obj_set_layout(hs_row, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(hs_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(hs_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(hs_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(hs_row, 0, 0);
-    lv_obj_t* hs_label = lv_label_create(hs_row);
+    lv_obj_t* hs_label = lv_label_create(hs_container);
     lv_label_set_text(hs_label, "High Score");
-    doom_highscore_value = lv_label_create(hs_row);
-    lv_obj_set_style_text_font(doom_highscore_value, getThemeFonts()->font_subtitle, 0);
+    lv_obj_set_style_text_color(hs_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_style_text_font(hs_label, getThemeFonts()->font_small, 0);
+    lv_obj_align(hs_label, LV_ALIGN_TOP_MID, 0, 0);
+
+    doom_highscore_value = lv_label_create(hs_container);
+    lv_label_set_text_fmt(doom_highscore_value, "%d", doomGame.highScores[doom_selected_difficulty]);
     lv_obj_set_style_text_color(doom_highscore_value, LV_COLOR_WARNING, 0);
+    lv_obj_set_style_text_font(doom_highscore_value, getThemeFonts()->font_title, 0);
+    lv_obj_align(doom_highscore_value, LV_ALIGN_BOTTOM_MID, 0, 0);
 
-    // Start button
-    lv_obj_t* start_btn = lv_btn_create(container);
-    lv_obj_set_size(start_btn, 200, 50);
-    lv_obj_set_style_bg_color(start_btn, LV_COLOR_SUCCESS, 0);
-    lv_obj_t* btn_label = lv_label_create(start_btn);
+    // Settings container
+    lv_obj_t* settings_card = lv_obj_create(screen);
+    lv_obj_set_size(settings_card, SCREEN_WIDTH - 40, 150);
+    lv_obj_set_pos(settings_card, 20, HEADER_HEIGHT + 10);
+    lv_obj_set_layout(settings_card, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(settings_card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(settings_card, 4, 0);
+    lv_obj_set_style_pad_all(settings_card, 8, 0);
+    applyCardStyle(settings_card);
+    lv_obj_clear_flag(settings_card, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Helper to create a settings row
+    auto createSettingsRow = [&](const char* label_text, lv_obj_t** row_out, lv_obj_t** value_out) {
+        lv_obj_t* row = lv_obj_create(settings_card);
+        lv_obj_set_size(row, SCREEN_WIDTH - 80, 28);
+        lv_obj_set_layout(row, LV_LAYOUT_FLEX);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_bg_color(row, LV_COLOR_BG_LAYER2, 0);
+        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(row, 6, 0);
+        lv_obj_set_style_border_width(row, 1, 0);
+        lv_obj_set_style_border_color(row, LV_COLOR_BORDER_SUBTLE, 0);
+        lv_obj_set_style_pad_hor(row, 15, 0);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t* lbl = lv_label_create(row);
+        lv_label_set_text(lbl, label_text);
+        lv_obj_set_style_text_color(lbl, LV_COLOR_TEXT_PRIMARY, 0);
+        lv_obj_set_style_text_font(lbl, getThemeFonts()->font_body, 0);
+
+        lv_obj_t* val = lv_label_create(row);
+        lv_obj_set_style_text_color(val, LV_COLOR_ACCENT_CYAN, 0);
+        lv_obj_set_style_text_font(val, getThemeFonts()->font_body, 0);
+
+        *row_out = row;
+        *value_out = val;
+    };
+
+    // Create settings rows (removed Controls - now always type-to-shoot)
+    createSettingsRow("Difficulty", &doom_diff_row, &doom_diff_value);
+    createSettingsRow("Level", &doom_level_row, &doom_level_value);
+
+    // Start button - positioned absolutely like Morse Shooter
+    doom_start_btn = lv_btn_create(screen);
+    lv_obj_set_size(doom_start_btn, 200, 50);
+    lv_obj_set_pos(doom_start_btn, (SCREEN_WIDTH - 200) / 2, SCREEN_HEIGHT - FOOTER_HEIGHT - 70);
+    lv_obj_set_style_bg_color(doom_start_btn, LV_COLOR_SUCCESS, 0);
+    lv_obj_set_style_radius(doom_start_btn, 8, 0);
+    lv_obj_set_style_border_width(doom_start_btn, 1, 0);
+    lv_obj_set_style_border_color(doom_start_btn, LV_COLOR_BORDER_SUBTLE, 0);
+
+    lv_obj_t* btn_label = lv_label_create(doom_start_btn);
     lv_label_set_text(btn_label, "START GAME");
-    lv_obj_center(btn_label);
     lv_obj_set_style_text_font(btn_label, getThemeFonts()->font_subtitle, 0);
+    lv_obj_center(btn_label);
 
-    // Update values
+    // Footer with help text
+    lv_obj_t* footer = lv_obj_create(screen);
+    lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
+    lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
+    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* help = lv_label_create(footer);
+    lv_label_set_text(help, LV_SYMBOL_UP LV_SYMBOL_DOWN " Navigate   " LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " Adjust   ENTER Start   ESC Back");
+    lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
+    lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
+    lv_obj_center(help);
+
+    // Update values and initial focus
+    doom_settings_focus = 0;  // Start on difficulty
     doom_settings_update_values();
+    doom_settings_update_focus();
 
-    // Focus container for key handling
+    // Invisible focus container for keyboard input
     lv_obj_t* focus_obj = lv_obj_create(screen);
     lv_obj_set_size(focus_obj, 1, 1);
     lv_obj_set_pos(focus_obj, -10, -10);
     lv_obj_set_style_bg_opa(focus_obj, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(focus_obj, 0, 0);
+    lv_obj_set_style_outline_width(focus_obj, 0, 0);
+    lv_obj_set_style_outline_width(focus_obj, 0, LV_STATE_FOCUSED);
     lv_obj_add_flag(focus_obj, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(focus_obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(focus_obj, doom_settings_key_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(focus_obj);
+
+    lv_group_t* group = getLVGLInputGroup();
+    if (group != NULL) {
+        lv_group_set_editing(group, true);
+    }
     lv_group_focus_obj(focus_obj);
 
     return screen;
@@ -1557,10 +1636,11 @@ lv_obj_t* createCWDoomScreen() {
     lv_obj_set_style_text_color(doom_score_label, LV_COLOR_TEXT_PRIMARY, 0);
     lv_obj_align(doom_score_label, LV_ALIGN_RIGHT_MID, -10, 0);
 
-    // Hint label at top
+    // Hint label at top - shows target character when enemy in view
+    // Or movement controls when no target
     doom_hint_label = lv_label_create(doom_screen);
-    lv_label_set_text(doom_hint_label, "Dit=L Dah=R Squeeze=Fwd");
-    lv_obj_set_style_text_font(doom_hint_label, getThemeFonts()->font_small, 0);
+    lv_label_set_text(doom_hint_label, "Dit=L  Dah=R  Squeeze=Fwd  TapDah=Door");
+    lv_obj_set_style_text_font(doom_hint_label, getThemeFonts()->font_subtitle, 0);
     lv_obj_set_style_text_color(doom_hint_label, LV_COLOR_WARNING, 0);
     lv_obj_align(doom_hint_label, LV_ALIGN_TOP_MID, 0, 5);
 
