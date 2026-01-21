@@ -998,7 +998,13 @@ static void web_password_toggle_key_handler(lv_event_t* e) {
             // Enabled - check if we have a valid password
             if (web_password_textarea != NULL) {
                 const char* text = lv_textarea_get_text(web_password_textarea);
-                String password = String(text);
+                // Trim non-printable characters from password
+                String password = "";
+                for (int i = 0; text[i] != '\0'; i++) {
+                    if (text[i] >= 32 && text[i] <= 126) {
+                        password += text[i];
+                    }
+                }
 
                 if (password.length() >= 8 && password.length() <= 16) {
                     // Valid password - save it
@@ -1079,7 +1085,13 @@ static void web_password_field_key_handler(lv_event_t* e) {
 
         if (web_password_textarea != NULL) {
             const char* text = lv_textarea_get_text(web_password_textarea);
-            String password = String(text);
+            // Trim non-printable characters from password
+            String password = "";
+            for (int i = 0; text[i] != '\0'; i++) {
+                if (text[i] >= 32 && text[i] <= 126) {
+                    password += text[i];
+                }
+            }
 
             if (password.length() >= 8 && password.length() <= 16) {
                 // Valid password - save it

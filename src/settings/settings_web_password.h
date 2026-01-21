@@ -325,12 +325,13 @@ int handleWebPasswordInput(char key, LGFX &display) {
 
 // Save web password to flash memory
 void saveWebPassword(String password) {
+  Serial.printf("[WebPW] Saving password: '%s' (len=%d)\n", password.c_str(), password.length());
   webPasswordPrefs.begin("webpw", false);
   webPasswordPrefs.putString("pw", password);
   webPasswordPrefs.putBool("enabled", true);
   webPasswordPrefs.end();
 
-  Serial.println("Web password saved and enabled");
+  Serial.println("[WebPW] Password saved and enabled");
 }
 
 // Clear/disable web password
@@ -359,11 +360,12 @@ void loadSavedWebPassword() {
   if (loadWebPassword(savedPassword)) {
     webPassword = savedPassword;
     webAuthEnabled = true;
-    Serial.println("Web password protection enabled");
+    Serial.printf("[WebPW] Loaded password: '%s' (len=%d)\n", savedPassword.c_str(), savedPassword.length());
+    Serial.println("[WebPW] Web password protection enabled");
   } else {
     webPassword = "";
     webAuthEnabled = false;
-    Serial.println("Web password protection disabled");
+    Serial.println("[WebPW] Web password protection disabled (no saved password)");
   }
 }
 

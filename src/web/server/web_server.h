@@ -71,15 +71,20 @@ void startWebHearItMode(LGFX& tft);
 bool checkWebAuth(AsyncWebServerRequest *request) {
   // If auth is disabled, allow all requests
   if (!webAuthEnabled || webPassword.length() == 0) {
+    Serial.println("[WebAuth] Auth disabled or no password set");
     return true;
   }
 
+  Serial.printf("[WebAuth] Checking auth with password: '%s' (len=%d)\n", webPassword.c_str(), webPassword.length());
+
   // Check for HTTP Basic Auth header
   if (!request->authenticate("admin", webPassword.c_str())) {
+    Serial.println("[WebAuth] Authentication failed!");
     request->requestAuthentication();
     return false;
   }
 
+  Serial.println("[WebAuth] Authentication successful");
   return true;
 }
 
@@ -271,7 +276,14 @@ void setupWebServer() {
     Serial.println("Web server running in NORMAL MODE (serving from SD card)");
 
     // Serve static files from SD card /www/ directory
-    webServer.serveStatic("/", SD, "/www/").setDefaultFile("index.html");
+    // Add authentication if password is enabled
+    if (webAuthEnabled && webPassword.length() > 0) {
+      webServer.serveStatic("/", SD, "/www/")
+        .setDefaultFile("index.html")
+        .setAuthentication("admin", webPassword.c_str());
+    } else {
+      webServer.serveStatic("/", SD, "/www/").setDefaultFile("index.html");
+    }
   }
 
   // ============================================
