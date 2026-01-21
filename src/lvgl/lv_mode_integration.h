@@ -780,7 +780,64 @@ void onLVGLMenuSelect(int target_mode) {
             }, LV_EVENT_VALUE_CHANGED, NULL);
             return;
         }
-        // Requirements met, show the download screen
+
+        // Check if web files exist and if update is needed
+        if (webFilesExist()) {
+            // Files exist - check for updates
+            String localVersion = getWebFilesVersion();
+            String remoteVersion = fetchRemoteWebFilesVersion(true);  // Force refresh
+
+            if (remoteVersion.isEmpty()) {
+                // Couldn't fetch remote version
+                beep(400, 200);
+                Serial.println("[ModeIntegration] Could not check for web files updates");
+                static const char* btns[] = {"OK", ""};
+                lv_obj_t* msgbox = lv_msgbox_create(NULL, "Update Check Failed",
+                    "Could not connect to GitHub\nto check for updates.\n\nPlease try again later.", btns, false);
+                lv_obj_center(msgbox);
+                lv_obj_add_style(msgbox, getStyleMsgbox(), 0);
+                lv_obj_t* btns_obj = lv_msgbox_get_btns(msgbox);
+                addNavigableWidget(btns_obj);
+                lv_obj_add_event_cb(msgbox, [](lv_event_t* e) {
+                    lv_obj_t* obj = lv_event_get_current_target(e);
+                    lv_msgbox_close(obj);
+                }, LV_EVENT_VALUE_CHANGED, NULL);
+                return;
+            }
+
+            // Compare versions
+            localVersion.trim();
+            remoteVersion.trim();
+
+            if (localVersion == remoteVersion) {
+                // Already up to date
+                beep(TONE_SELECT, BEEP_MEDIUM);
+                Serial.printf("[ModeIntegration] Web files already up to date (v%s)\n", localVersion.c_str());
+                static const char* btns[] = {"OK", ""};
+                char msgBuf[128];
+                snprintf(msgBuf, sizeof(msgBuf), "Web files are up to date.\n\nInstalled version: %s", localVersion.c_str());
+                lv_obj_t* msgbox = lv_msgbox_create(NULL, "Already Up To Date", msgBuf, btns, false);
+                lv_obj_center(msgbox);
+                lv_obj_add_style(msgbox, getStyleMsgbox(), 0);
+                lv_obj_t* btns_obj = lv_msgbox_get_btns(msgbox);
+                addNavigableWidget(btns_obj);
+                lv_obj_add_event_cb(msgbox, [](lv_event_t* e) {
+                    lv_obj_t* obj = lv_event_get_current_target(e);
+                    lv_msgbox_close(obj);
+                }, LV_EVENT_VALUE_CHANGED, NULL);
+                return;
+            }
+
+            // Update available - set flag and show download screen
+            Serial.printf("[ModeIntegration] Web files update available: %s -> %s\n",
+                         localVersion.c_str(), remoteVersion.c_str());
+            webFilesUpdateAvailable = true;
+        } else {
+            // No files exist - fresh install
+            webFilesUpdateAvailable = false;
+        }
+
+        // Show the download screen (for update or fresh install)
         showWebFilesDownloadScreen();
         return;
     }

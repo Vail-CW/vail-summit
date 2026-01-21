@@ -92,6 +92,7 @@ bool downloadFileToSD(const char* url, const char* sdPath) {
   createDirectoriesForPath(sdPath);
 
   HTTPClient http;
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);  // Follow redirects (GitHub CDN may redirect)
   http.begin(url);
   http.setTimeout(30000);  // 30 second timeout for larger files
 
@@ -198,6 +199,7 @@ bool downloadWebFilesFromGitHub() {
   Serial.printf("Fetching manifest: %s\n", manifestUrl.c_str());
 
   HTTPClient http;
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);  // Follow redirects (GitHub CDN may redirect)
   http.begin(manifestUrl);
   http.setTimeout(10000);
 
@@ -357,6 +359,7 @@ String fetchRemoteWebFilesVersion(bool forceRefresh = false) {
   Serial.printf("Checking remote version: %s\n", manifestUrl.c_str());
 
   HTTPClient http;
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);  // Follow redirects (GitHub CDN may redirect)
   http.begin(manifestUrl);
   http.setTimeout(10000);  // 10 second timeout
 

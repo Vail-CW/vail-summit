@@ -19,15 +19,6 @@
 
 // Include modular web components
 #include "../pages/web_pages_setup.h"      // Setup splash page (always in flash)
-#include "../pages/web_pages_dashboard.h"  // Fallback dashboard (in flash for now)
-#include "../pages/web_pages_wifi.h"
-#include "../pages/web_pages_practice.h"
-#include "../pages/web_pages_memory_chain.h"
-#include "../pages/web_pages_hear_it_type_it.h"
-#include "../pages/web_pages_radio.h"
-#include "../pages/web_pages_settings.h"
-#include "../pages/web_pages_system.h"
-#include "../pages/web_pages_storage.h"
 #include "../api/web_api_wifi.h"
 #include "../api/web_api_qso.h"
 #include "../api/web_api_settings.h"
@@ -90,22 +81,6 @@ bool checkWebAuth(AsyncWebServerRequest *request) {
   }
 
   return true;
-}
-
-// Serve functions for modular pages
-void serveRadioPage(AsyncWebServerRequest *request) {
-  extern const char RADIO_HTML[] PROGMEM;
-  request->send_P(200, "text/html", RADIO_HTML);
-}
-
-void serveSettingsPage(AsyncWebServerRequest *request) {
-  extern const char SETTINGS_HTML[] PROGMEM;
-  request->send_P(200, "text/html", SETTINGS_HTML);
-}
-
-void serveSystemPage(AsyncWebServerRequest *request) {
-  extern const char SYSTEM_HTML[] PROGMEM;
-  request->send_P(200, "text/html", SYSTEM_HTML);
 }
 
 /*
@@ -301,22 +276,6 @@ void setupWebServer() {
 
   // ============================================
   // API Endpoints (always available regardless of mode)
-  // ============================================
-
-  // Main Dashboard Page (fallback if SD serving fails)
-  // Note: In normal mode, serveStatic handles "/" but we keep this as fallback
-  if (webFilesOnSD) {
-    // Dashboard is served from SD, but keep API working
-  }
-
-  // Legacy dashboard endpoint for backward compatibility
-  webServer.on("/dashboard-legacy", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (!checkWebAuth(request)) return;
-    serveDashboard(request, FIRMWARE_VERSION, FIRMWARE_DATE, mdnsHostname);
-  });
-
-  // ============================================
-  // API Endpoints (always available)
   // ============================================
 
   // Device status endpoint
