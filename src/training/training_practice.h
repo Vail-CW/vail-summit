@@ -10,6 +10,7 @@
 #include "../core/config.h"
 #include "../settings/settings_cw.h"
 #include "../audio/morse_decoder_adaptive.h"
+#include "../keyer/keyer.h"
 
 
 // Practice mode state
@@ -25,15 +26,8 @@ unsigned long lastSettingSaveTime = 0;
 bool settingSavePending = false;
 #define SETTING_SAVE_DEBOUNCE_MS 500  // Save 500ms after last change
 
-// Iambic keyer state
-unsigned long ditDahTimer = 0;
-bool keyerActive = false;
-bool sendingDit = false;
-bool sendingDah = false;
-bool inSpacing = false;  // True when in inter-element gap
-bool ditMemory = false;
-bool dahMemory = false;
-unsigned long elementStartTime = 0;
+// Unified keyer instance
+static StraightKeyer* practiceKeyer = nullptr;
 int ditDuration = 0;
 
 // Statistics
@@ -82,8 +76,7 @@ void manageDecoderLines() {
 // Forward declarations
 void startPracticeMode(LGFX &display);
 void updatePracticeOscillator();
-void straightKeyHandler();
-void iambicKeyerHandler();
+void practiceKeyerCallback(bool txOn, int element);
 
 // LVGL-callable action functions
 void practiceHandleEsc();
@@ -98,10 +91,6 @@ void startPracticeMode(LGFX &display) {
   practiceActive = true;
   ditPressed = false;
   dahPressed = false;
-  keyerActive = false;
-  inSpacing = false;
-  ditMemory = false;
-  dahMemory = false;
   practiceStartupTime = millis();  // Record startup time for input delay
 
   // Clear any lingering touch sensor state
@@ -116,6 +105,12 @@ void startPracticeMode(LGFX &display) {
 
   // Calculate dit duration from current speed setting
   ditDuration = DIT_DURATION(cwSpeed);
+
+  // Initialize unified keyer
+  practiceKeyer = getKeyer(cwKeyType);
+  practiceKeyer->reset();
+  practiceKeyer->setDitDuration(ditDuration);
+  practiceKeyer->setTxCallback(practiceKeyerCallback);
 
   // Reset statistics
   practiceStartTime = millis();
@@ -171,15 +166,52 @@ void startPracticeMode(LGFX &display) {
     Serial.println("Straight");
   } else if (cwKeyType == KEY_IAMBIC_A) {
     Serial.println("Iambic A");
-  } else {
+  } else if (cwKeyType == KEY_IAMBIC_B) {
     Serial.println("Iambic B");
+  } else {
+    Serial.println("Ultimatic");
   }
 }
 
 
+// Keyer callback - called by unified keyer when tone state changes
+void practiceKeyerCallback(bool txOn, int element) {
+  unsigned long currentTime = millis();
+
+  if (txOn) {
+    // Tone starting
+    if (showDecoding && lastToneState == false) {
+      // Send silence duration to decoder (negative)
+      if (lastStateChangeTime > 0) {
+        float silenceDuration = currentTime - lastStateChangeTime;
+        if (silenceDuration > 0) {
+          decoder.addTiming(-silenceDuration);
+        }
+      }
+      lastStateChangeTime = currentTime;
+      lastToneState = true;
+    }
+    startTone(cwTone);
+  } else {
+    // Tone stopping
+    if (showDecoding && lastToneState == true) {
+      // Send tone duration to decoder (positive)
+      float toneDuration = currentTime - lastStateChangeTime;
+      if (toneDuration > 0) {
+        decoder.addTiming(toneDuration);
+        lastElementTime = currentTime;  // Update timeout tracker
+      }
+      lastStateChangeTime = currentTime;
+      lastToneState = false;
+    }
+    stopTone();
+  }
+}
+
 // Update practice oscillator (called in main loop)
 void updatePracticeOscillator() {
   if (!practiceActive) return;
+  if (!practiceKeyer) return;
 
   // Check for deferred settings save
   practiceCheckDeferredSave();
@@ -190,7 +222,6 @@ void updatePracticeOscillator() {
   }
 
   // Check for decoder timeout (flush if no activity for word gap duration)
-  // This is a backup to flush any buffered data if user stops keying mid-character
   if (showDecoding && lastElementTime > 0 && !ditPressed && !dahPressed) {
     unsigned long timeSinceLastElement = millis() - lastElementTime;
     float wordGapDuration = MorseWPM::wordGap(decoder.getWPM());
@@ -203,194 +234,31 @@ void updatePracticeOscillator() {
   }
 
   // Read paddle/key inputs (physical + capacitive touch)
-  // ESP32-S3: Use GPIO numbers directly, check > threshold (values rise when touched)
-  ditPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
-  dahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
+  bool newDitPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
+  bool newDahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
 
-  // Handle based on key type
-  if (cwKeyType == KEY_STRAIGHT) {
-    straightKeyHandler();
-  } else {
-    iambicKeyerHandler();
+  // Feed paddle state to unified keyer
+  if (newDitPressed != ditPressed) {
+    practiceKeyer->key(PADDLE_DIT, newDitPressed);
+    ditPressed = newDitPressed;
+  }
+  if (newDahPressed != dahPressed) {
+    practiceKeyer->key(PADDLE_DAH, newDahPressed);
+    dahPressed = newDahPressed;
+  }
+
+  // Tick the keyer state machine
+  practiceKeyer->tick(millis());
+
+  // Keep tone playing if keyer is active (for audio buffer continuity)
+  if (practiceKeyer->isTxActive()) {
+    continueTone(cwTone);
   }
 
   // Update visual feedback if state changed
   if (ditPressed != lastDitPressed || dahPressed != lastDahPressed) {
-    // Will be redrawn in main loop
     lastDitPressed = ditPressed;
     lastDahPressed = dahPressed;
-  }
-}
-
-// Straight key handler (simple on/off)
-void straightKeyHandler() {
-  unsigned long currentTime = millis();
-  bool toneOn = isTonePlaying();
-
-  // Use DIT pin as straight key
-  if (ditPressed && !toneOn) {
-    // Tone starting
-    if (showDecoding && lastToneState == false) {
-      // Send silence duration to decoder (negative)
-      // Only if we have a valid previous state change time
-      if (lastStateChangeTime > 0) {
-        float silenceDuration = currentTime - lastStateChangeTime;
-        if (silenceDuration > 0) {
-          decoder.addTiming(-silenceDuration);
-        }
-      }
-      lastStateChangeTime = currentTime;
-      lastToneState = true;
-    }
-
-    startTone(cwTone);
-  }
-  else if (ditPressed && toneOn) {
-    // Tone continuing
-    continueTone(cwTone);
-  }
-  else if (!ditPressed && toneOn) {
-    // Tone stopping
-    if (showDecoding && lastToneState == true) {
-      // Send tone duration to decoder (positive)
-      float toneDuration = currentTime - lastStateChangeTime;
-      if (toneDuration > 0) {
-        decoder.addTiming(toneDuration);
-        lastElementTime = currentTime;  // Update timeout tracker
-      }
-      lastStateChangeTime = currentTime;
-      lastToneState = false;
-    }
-
-    stopTone();
-  }
-}
-
-// Iambic keyer handler (Mode A or B)
-void iambicKeyerHandler() {
-  unsigned long currentTime = millis();
-
-  // If not actively sending or spacing, check for new input
-  if (!keyerActive && !inSpacing) {
-    if (ditPressed || ditMemory) {
-      // Start sending dit
-      if (showDecoding && lastToneState == false) {
-        // Send silence duration to decoder - let decoder filter inter-element gaps
-        // Only if we have a valid previous state change time
-        if (lastStateChangeTime > 0) {
-          float silenceDuration = currentTime - lastStateChangeTime;
-          if (silenceDuration > 0) {
-            decoder.addTiming(-silenceDuration);
-          }
-        }
-        lastStateChangeTime = currentTime;
-        lastToneState = true;
-      }
-
-      keyerActive = true;
-      sendingDit = true;
-      sendingDah = false;
-      inSpacing = false;
-      elementStartTime = currentTime;
-      startTone(cwTone);
-
-      // Clear dit memory
-      ditMemory = false;
-    }
-    else if (dahPressed || dahMemory) {
-      // Start sending dah
-      if (showDecoding && lastToneState == false) {
-        // Send silence duration to decoder - let decoder filter inter-element gaps
-        // Only if we have a valid previous state change time
-        if (lastStateChangeTime > 0) {
-          float silenceDuration = currentTime - lastStateChangeTime;
-          if (silenceDuration > 0) {
-            decoder.addTiming(-silenceDuration);
-          }
-        }
-        lastStateChangeTime = currentTime;
-        lastToneState = true;
-      }
-
-      keyerActive = true;
-      sendingDit = false;
-      sendingDah = true;
-      inSpacing = false;
-      elementStartTime = currentTime;
-      startTone(cwTone);
-
-      // Clear dah memory
-      dahMemory = false;
-    }
-  }
-  // Currently sending an element
-  else if (keyerActive && !inSpacing) {
-    unsigned long elementDuration = sendingDit ? ditDuration : (ditDuration * 3);
-
-    // Keep tone playing
-    continueTone(cwTone);
-
-    // Continuously check for paddle input during element send
-    if (ditPressed && dahPressed) {
-      // Both pressed (squeeze) - remember opposite paddle
-      if (sendingDit) {
-        dahMemory = true;
-      } else {
-        ditMemory = true;
-      }
-    }
-    else if (sendingDit && dahPressed) {
-      // Sending dit, dah pressed
-      dahMemory = true;
-    }
-    else if (sendingDah && ditPressed) {
-      // Sending dah, dit pressed
-      ditMemory = true;
-    }
-
-    // Check if element is complete
-    if (currentTime - elementStartTime >= elementDuration) {
-      // Element complete, turn off tone and start spacing
-      if (showDecoding && lastToneState == true) {
-        // Send tone duration to decoder
-        float toneDuration = currentTime - lastStateChangeTime;
-        if (toneDuration > 0) {
-          decoder.addTiming(toneDuration);
-          lastElementTime = currentTime;  // Update timeout tracker
-        }
-        lastStateChangeTime = currentTime;
-        lastToneState = false;
-      }
-
-      stopTone();
-      keyerActive = false;
-      sendingDit = false;
-      sendingDah = false;
-      inSpacing = true;
-      elementStartTime = currentTime;  // Reset timer for spacing
-    }
-  }
-  // In inter-element spacing
-  else if (inSpacing) {
-    // Continue checking paddles during spacing to catch input
-    if (ditPressed && dahPressed) {
-      // Both pressed - if we just sent dit, remember dah (and vice versa)
-      // Can't determine what we just sent, so set both memories
-      ditMemory = true;
-      dahMemory = true;
-    }
-    else if (ditPressed && !ditMemory) {
-      ditMemory = true;
-    }
-    else if (dahPressed && !dahMemory) {
-      dahMemory = true;
-    }
-
-    // Wait for 1 dit duration (inter-element gap)
-    if (currentTime - elementStartTime >= ditDuration) {
-      inSpacing = false;
-      // Now ready to send next element if memory is set or paddle still pressed
-    }
   }
 }
 
@@ -402,6 +270,9 @@ void iambicKeyerHandler() {
 void practiceHandleEsc() {
   practiceActive = false;
   stopTone();
+  if (practiceKeyer) {
+    practiceKeyer->reset();
+  }
   decoder.flush();  // Decode any remaining buffered timings
 
   // Save any pending settings before exit
@@ -432,6 +303,9 @@ void practiceAdjustSpeed(int delta) {
     cwSpeed = newSpeed;
     ditDuration = DIT_DURATION(cwSpeed);
     decoder.setWPM(cwSpeed);
+    if (practiceKeyer) {
+      practiceKeyer->setDitDuration(ditDuration);
+    }
 
     // Mark save as pending instead of immediate save (debounces rapid changes)
     settingSavePending = true;
@@ -455,24 +329,34 @@ void practiceCheckDeferredSave() {
 // Cycle key type (+1 forward, -1 backward)
 void practiceCycleKeyType(int direction) {
   if (direction > 0) {
-    // Cycle forward: Straight -> Iambic A -> Iambic B -> Straight
+    // Cycle forward: Straight -> Iambic A -> Iambic B -> Ultimatic -> Straight
     if (cwKeyType == KEY_STRAIGHT) {
       cwKeyType = KEY_IAMBIC_A;
     } else if (cwKeyType == KEY_IAMBIC_A) {
       cwKeyType = KEY_IAMBIC_B;
+    } else if (cwKeyType == KEY_IAMBIC_B) {
+      cwKeyType = KEY_ULTIMATIC;
     } else {
       cwKeyType = KEY_STRAIGHT;
     }
   } else {
-    // Cycle backward: Iambic B -> Iambic A -> Straight -> Iambic B
-    if (cwKeyType == KEY_IAMBIC_B) {
+    // Cycle backward: Ultimatic -> Iambic B -> Iambic A -> Straight -> Ultimatic
+    if (cwKeyType == KEY_ULTIMATIC) {
+      cwKeyType = KEY_IAMBIC_B;
+    } else if (cwKeyType == KEY_IAMBIC_B) {
       cwKeyType = KEY_IAMBIC_A;
     } else if (cwKeyType == KEY_IAMBIC_A) {
       cwKeyType = KEY_STRAIGHT;
     } else {
-      cwKeyType = KEY_IAMBIC_B;
+      cwKeyType = KEY_ULTIMATIC;
     }
   }
+
+  // Reinitialize keyer with new type
+  practiceKeyer = getKeyer(cwKeyType);
+  practiceKeyer->reset();
+  practiceKeyer->setDitDuration(ditDuration);
+  practiceKeyer->setTxCallback(practiceKeyerCallback);
 
   // Mark save as pending (use same debounce as speed changes)
   settingSavePending = true;
@@ -481,7 +365,8 @@ void practiceCycleKeyType(int direction) {
   beep(TONE_MENU_NAV, BEEP_SHORT);
 
   const char* keyTypeStr = (cwKeyType == KEY_STRAIGHT) ? "Straight" :
-                           (cwKeyType == KEY_IAMBIC_A) ? "Iambic A" : "Iambic B";
+                           (cwKeyType == KEY_IAMBIC_A) ? "Iambic A" :
+                           (cwKeyType == KEY_IAMBIC_B) ? "Iambic B" : "Ultimatic";
   Serial.printf("[Practice] Key type changed to %s (save pending)\n", keyTypeStr);
 }
 

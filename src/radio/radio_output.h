@@ -9,6 +9,7 @@
 
 #include "../core/config.h"
 #include "../settings/settings_cw.h"
+#include "../keyer/keyer.h"
 #include <Preferences.h>
 
 // Radio keyer modes
@@ -47,16 +48,11 @@ int messageCharIndex = 0;
 unsigned long messageTransmissionTimer = 0;
 char currentTransmittingMessage[RADIO_MESSAGE_MAX_LENGTH] = "";
 
-// Iambic keyer state for Summit Keyer mode
-bool radioKeyerActive = false;
-bool radioSendingDit = false;
-bool radioSendingDah = false;
-bool radioInSpacing = false;
-bool radioDitMemory = false;
-bool radioDahMemory = false;
-unsigned long radioDitDahTimer = 0;
-unsigned long radioElementStartTime = 0;
-int radioDitDuration = 0;
+// Keyer state for Summit Keyer mode - using unified keyer module
+static StraightKeyer* radioKeyer = nullptr;
+static bool radioDitPressed = false;
+static bool radioDahPressed = false;
+static int radioDitDuration = 0;
 
 // Preferences for radio mode
 Preferences radioPrefs;
@@ -75,8 +71,7 @@ int handleRadioOutputInput(char key, LGFX &display);
 void updateRadioOutput();
 void saveRadioSettings();
 void loadRadioSettings();
-void radioStraightKeyHandler();
-void radioIambicKeyerHandler();
+void radioKeyerCallback(bool txOn, int element);
 bool queueRadioMessage(const char* message);
 void processRadioMessageQueue();
 void playMorseCharViaRadio(char c);
@@ -104,16 +99,20 @@ void saveRadioSettings() {
 void startRadioOutput(LGFX &display) {
   radioOutputActive = true;
   radioSettingSelection = 0;
-  radioKeyerActive = false;
-  radioInSpacing = false;
-  radioDitMemory = false;
-  radioDahMemory = false;
 
   // Load radio settings
   loadRadioSettings();
 
   // Calculate dit duration from current CW speed setting
   radioDitDuration = DIT_DURATION(cwSpeed);
+
+  // Initialize unified keyer
+  radioKeyer = getKeyer(cwKeyType);
+  radioKeyer->reset();
+  radioKeyer->setDitDuration(radioDitDuration);
+  radioKeyer->setTxCallback(radioKeyerCallback);
+  radioDitPressed = false;
+  radioDahPressed = false;
 
   // Set radio output pins as outputs
   pinMode(RADIO_KEY_DIT_PIN, OUTPUT);
@@ -423,6 +422,20 @@ int handleRadioOutputInput(char key, LGFX &display) {
   return 0; // Normal input processed
 }
 
+// Keyer callback - called by unified keyer when tx state changes
+void radioKeyerCallback(bool txOn, int element) {
+  unsigned long currentTime = millis();
+
+  // Output straight key format on DIT pin (Summit Keyer mode)
+  digitalWrite(RADIO_KEY_DIT_PIN, txOn ? HIGH : LOW);
+  digitalWrite(RADIO_KEY_DAH_PIN, LOW);
+
+  // Call keying callback for POTA Recorder timing capture
+  if (radioKeyingCallback) {
+    radioKeyingCallback(txOn, currentTime);
+  }
+}
+
 // Update radio output (called from main loop)
 void updateRadioOutput() {
   if (!radioOutputActive) return;
@@ -431,16 +444,24 @@ void updateRadioOutput() {
   processRadioMessageQueue();
 
   // Read paddle/key inputs (physical and capacitive touch)
-  bool ditPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
-  bool dahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
+  bool newDitPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
+  bool newDahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
 
   if (radioMode == RADIO_MODE_SUMMIT_KEYER) {
     // Summit Keyer mode: Do keying logic on Summit, output straight key format
+    if (radioKeyer) {
+      // Feed paddle state to unified keyer
+      if (newDitPressed != radioDitPressed) {
+        radioKeyer->key(PADDLE_DIT, newDitPressed);
+        radioDitPressed = newDitPressed;
+      }
+      if (newDahPressed != radioDahPressed) {
+        radioKeyer->key(PADDLE_DAH, newDahPressed);
+        radioDahPressed = newDahPressed;
+      }
 
-    if (cwKeyType == KEY_STRAIGHT) {
-      radioStraightKeyHandler();
-    } else {
-      radioIambicKeyerHandler();
+      // Tick the keyer state machine
+      radioKeyer->tick(millis());
     }
 
   } else {
@@ -448,155 +469,12 @@ void updateRadioOutput() {
 
     if (cwKeyType == KEY_STRAIGHT) {
       // Straight key: output on DIT pin
-      digitalWrite(RADIO_KEY_DIT_PIN, ditPressed ? HIGH : LOW);
+      digitalWrite(RADIO_KEY_DIT_PIN, newDitPressed ? HIGH : LOW);
       digitalWrite(RADIO_KEY_DAH_PIN, LOW);
     } else {
       // Iambic: pass both dit and dah to radio
-      digitalWrite(RADIO_KEY_DIT_PIN, ditPressed ? HIGH : LOW);
-      digitalWrite(RADIO_KEY_DAH_PIN, dahPressed ? HIGH : LOW);
-    }
-  }
-}
-
-// Track last state for straight key callback (to detect edges)
-static bool lastStraightKeyState = false;
-
-// Straight key handler for Summit Keyer mode
-void radioStraightKeyHandler() {
-  bool ditPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
-
-  // Output straight key format on DIT pin
-  digitalWrite(RADIO_KEY_DIT_PIN, ditPressed ? HIGH : LOW);
-  digitalWrite(RADIO_KEY_DAH_PIN, LOW);
-
-  // Call keying callback on state change (for POTA Recorder timing capture)
-  if (radioKeyingCallback && ditPressed != lastStraightKeyState) {
-    radioKeyingCallback(ditPressed, millis());
-    lastStraightKeyState = ditPressed;
-  }
-}
-
-// Iambic keyer handler for Summit Keyer mode
-void radioIambicKeyerHandler() {
-  bool ditPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
-  bool dahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
-
-  unsigned long currentTime = millis();
-
-  if (!radioKeyerActive && !radioInSpacing) {
-    // IDLE state - check for paddle presses
-    if (ditPressed || dahPressed) {
-      // Start sending element
-      if (ditPressed) {
-        radioSendingDit = true;
-        radioSendingDah = false;
-      } else {
-        radioSendingDit = false;
-        radioSendingDah = true;
-      }
-
-      radioKeyerActive = true;
-      radioDitDahTimer = currentTime + (radioSendingDit ? radioDitDuration : radioDitDuration * 3);
-      radioElementStartTime = currentTime;
-
-      // Debug
-      Serial.print("Keyer: Starting ");
-      Serial.print(radioSendingDit ? "DIT" : "DAH");
-      Serial.print(" duration=");
-      Serial.println(radioSendingDit ? radioDitDuration : radioDitDuration * 3);
-
-      // Key radio output (straight key format on DIT pin)
-      digitalWrite(RADIO_KEY_DIT_PIN, HIGH);
-      digitalWrite(RADIO_KEY_DAH_PIN, LOW);
-
-      // Call keying callback for POTA Recorder timing capture
-      if (radioKeyingCallback) radioKeyingCallback(true, currentTime);
-    }
-  }
-  else if (radioKeyerActive) {
-    // SENDING state - outputting dit or dah
-
-    // Check for memory paddle presses
-    if (ditPressed && !radioSendingDit) radioDitMemory = true;
-    if (dahPressed && !radioSendingDah) radioDahMemory = true;
-
-    // Check if element duration completed
-    if (currentTime >= radioDitDahTimer) {
-      // Release key output
-      digitalWrite(RADIO_KEY_DIT_PIN, LOW);
-      digitalWrite(RADIO_KEY_DAH_PIN, LOW);
-
-      // Call keying callback for POTA Recorder timing capture
-      if (radioKeyingCallback) radioKeyingCallback(false, currentTime);
-
-      // Enter spacing state
-      radioKeyerActive = false;
-      radioInSpacing = true;
-      radioDitDahTimer = currentTime + radioDitDuration; // Element gap
-    }
-  }
-  else if (radioInSpacing) {
-    // SPACING state - inter-element gap
-
-    // Check for memory paddle presses
-    if (ditPressed && !radioSendingDit) radioDitMemory = true;
-    if (dahPressed && !radioSendingDah) radioDahMemory = true;
-
-    // Check if spacing completed
-    if (currentTime >= radioDitDahTimer) {
-      radioInSpacing = false;
-
-      // Check for queued element (memory or opposite paddle for iambic B)
-      bool sendNextElement = false;
-      bool nextIsDit = false;
-
-      if (cwKeyType == KEY_IAMBIC_B) {
-        // Iambic B: alternate on squeeze
-        if (radioDitMemory && radioDahMemory) {
-          // Both paddles - send opposite of what we just sent
-          nextIsDit = !radioSendingDit;
-          sendNextElement = true;
-        } else if (radioDitMemory) {
-          nextIsDit = true;
-          sendNextElement = true;
-        } else if (radioDahMemory) {
-          nextIsDit = false;
-          sendNextElement = true;
-        }
-      } else {
-        // Iambic A: memory only
-        if (radioDitMemory) {
-          nextIsDit = true;
-          sendNextElement = true;
-        } else if (radioDahMemory) {
-          nextIsDit = false;
-          sendNextElement = true;
-        }
-      }
-
-      if (sendNextElement) {
-        // Start next element
-        radioSendingDit = nextIsDit;
-        radioSendingDah = !nextIsDit;
-        radioKeyerActive = true;
-        radioDitDahTimer = currentTime + (nextIsDit ? radioDitDuration : radioDitDuration * 3);
-        radioElementStartTime = currentTime;
-
-        // Clear memory for sent element
-        if (nextIsDit) radioDitMemory = false;
-        else radioDahMemory = false;
-
-        // Key radio output
-        digitalWrite(RADIO_KEY_DIT_PIN, HIGH);
-        digitalWrite(RADIO_KEY_DAH_PIN, LOW);
-
-        // Call keying callback for POTA Recorder timing capture
-        if (radioKeyingCallback) radioKeyingCallback(true, currentTime);
-      } else {
-        // No queued element - return to idle
-        radioDitMemory = false;
-        radioDahMemory = false;
-      }
+      digitalWrite(RADIO_KEY_DIT_PIN, newDitPressed ? HIGH : LOW);
+      digitalWrite(RADIO_KEY_DAH_PIN, newDahPressed ? HIGH : LOW);
     }
   }
 }
@@ -671,7 +549,7 @@ void processRadioMessageQueue() {
 
   // In Summit Keyer mode, also check if keyer state machine is busy
   if (radioMode == RADIO_MODE_SUMMIT_KEYER) {
-    if (ditPressed || dahPressed || radioKeyerActive || radioInSpacing) {
+    if (ditPressed || dahPressed || (radioKeyer && radioKeyer->isTxActive())) {
       return; // Wait for keyer to be completely idle
     }
   } else {

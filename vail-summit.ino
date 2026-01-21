@@ -554,6 +554,12 @@ void loop() {
     cwSpeedHandlePaddle(ditPressed, dahPressed);
   }
 
+  // Update CW DOOM game if in game mode
+  if (currentMode == LVGL_MODE_CW_DOOM) {
+    updateDoomGame();
+    updateCWDoomDisplay();
+  }
+
   // Update Vail Master if in practice mode
   // Note: Use LVGL mode constant since that's what's set by mode integration
   if (currentMode == LVGL_MODE_VAIL_MASTER_PRACTICE) {

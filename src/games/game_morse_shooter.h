@@ -10,6 +10,7 @@
 #include "../core/morse_code.h"
 #include "../audio/i2s_audio.h"
 #include "../audio/morse_decoder_adaptive.h"
+#include "../keyer/keyer.h"
 #include <Preferences.h>
 
 // ============================================
@@ -73,15 +74,6 @@ struct FallingLetter {
 struct MorseInputBuffer {
   bool ditPressed;
   bool dahPressed;
-
-  // Iambic keyer state
-  bool keyerActive;        // Currently sending an element
-  bool inSpacing;          // In the gap between elements
-  bool sendingDit;         // Currently sending a dit
-  bool sendingDah;         // Currently sending a dah
-  bool ditMemory;          // Dit paddle was pressed (memory)
-  bool dahMemory;          // Dah paddle was pressed (memory)
-  unsigned long elementStartTime; // When current element/gap started
 };
 
 // ============================================
@@ -106,11 +98,10 @@ unsigned long shooterLastStateChangeTime = 0;
 bool shooterLastToneState = false;
 unsigned long shooterLastElementTime = 0;  // Track last element for timeout flush
 
-// Straight key debouncing - for scratchy/intermittent contacts
-#define STRAIGHT_KEY_DEBOUNCE_MS 8   // Ignore state changes shorter than this
-static bool shooterDebouncedKeyState = false;      // Debounced key state
-static unsigned long shooterKeyLastChangeTime = 0; // When raw state last changed
-static bool shooterKeyLastRawState = false;        // Previous raw reading
+// Unified keyer for all key types
+static StraightKeyer* shooterKeyer = nullptr;
+static bool shooterDitPressed = false;
+static bool shooterDahPressed = false;
 
 // Settings mode state (legacy - will be removed)
 bool inShooterSettings = false;
@@ -122,6 +113,39 @@ bool shooterUseLVGL = true;  // Default to LVGL mode
 // Forward declarations for settings
 void drawShooterSettings(LGFX& tft);
 int handleShooterSettingsInput(char key, LGFX& tft);
+
+// Keyer callback - called when tone state changes
+void shooterKeyerCallback(bool txOn, int element) {
+  unsigned long now = millis();
+
+  if (txOn) {
+    // Tone starting
+    if (!shooterLastToneState) {
+      // Send silence duration to decoder (negative)
+      if (shooterLastStateChangeTime > 0) {
+        float silenceDuration = now - shooterLastStateChangeTime;
+        if (silenceDuration > 0) {
+          shooterDecoder.addTiming(-silenceDuration);
+        }
+      }
+      shooterLastStateChangeTime = now;
+      shooterLastToneState = true;
+    }
+    startTone(cwTone);
+  } else {
+    // Tone stopping
+    if (shooterLastToneState) {
+      float toneDuration = now - shooterLastStateChangeTime;
+      if (toneDuration > 0) {
+        shooterDecoder.addTiming(toneDuration);
+        shooterLastElementTime = now;
+      }
+      shooterLastStateChangeTime = now;
+      shooterLastToneState = false;
+    }
+    stopTone();
+  }
+}
 
 // ============================================
 // Preferences Functions
@@ -228,13 +252,14 @@ void resetGame() {
   // Reset morse input
   morseInput.ditPressed = false;
   morseInput.dahPressed = false;
-  morseInput.keyerActive = false;
-  morseInput.inSpacing = false;
-  morseInput.sendingDit = false;
-  morseInput.sendingDah = false;
-  morseInput.ditMemory = false;
-  morseInput.dahMemory = false;
-  morseInput.elementStartTime = 0;
+  shooterDitPressed = false;
+  shooterDahPressed = false;
+
+  // Initialize unified keyer
+  shooterKeyer = getKeyer(cwKeyType);
+  shooterKeyer->reset();
+  shooterKeyer->setDitDuration(DIT_DURATION(cwSpeed));
+  shooterKeyer->setTxCallback(shooterKeyerCallback);
 
   // Reset decoder state
   shooterDecoder.reset();
@@ -541,215 +566,60 @@ bool checkMorseShoot(LGFX& tft) {
 
 /*
  * Read paddle input and decode morse using adaptive decoder
- * Supports both straight key and iambic keying
+ * Uses unified keyer module for all key types
  */
 void updateMorseInputFast(LGFX& tft) {
-  morseInput.ditPressed = (digitalRead(DIT_PIN) == LOW) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
-  // In straight key mode, ignore DAH pin entirely - the TRS ring may be grounded
-  // which would cause dahPressed to always read as true and freeze the game
-  if (cwKeyType == KEY_STRAIGHT) {
-    morseInput.dahPressed = false;
-  } else {
-    morseInput.dahPressed = (digitalRead(DAH_PIN) == LOW) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
-  }
+  if (!shooterKeyer) return;
 
   unsigned long now = millis();
-  MorseTiming timing(cwSpeed);
-  bool toneOn = isTonePlaying();
+
+  // Read paddle inputs
+  bool newDitPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
+  // In straight key mode, ignore DAH pin entirely - the TRS ring may be grounded
+  bool newDahPressed = (cwKeyType == KEY_STRAIGHT) ? false :
+                       ((digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD));
+
+  morseInput.ditPressed = newDitPressed;
+  morseInput.dahPressed = newDahPressed;
 
   // Clear previous hit text when starting new input
-  // This keeps successful hit visible until user starts keying next character
-  if ((morseInput.ditPressed || morseInput.dahPressed) && shooterDecodedText.length() > 0 && !morseInput.keyerActive) {
+  bool keyerWasIdle = !shooterKeyer->isTxActive();
+  if ((newDitPressed || newDahPressed) && shooterDecodedText.length() > 0 && keyerWasIdle) {
     shooterDecodedText = "";
     updateShooterDecoded("");
   }
 
   // Check for decoder timeout (flush if no activity for word gap duration)
-  // Using word gap (7 dits) instead of character gap (3 dits) for more forgiving timing
-  if (shooterLastElementTime > 0 && !morseInput.ditPressed && !morseInput.dahPressed && !morseInput.keyerActive) {
+  if (shooterLastElementTime > 0 && !newDitPressed && !newDahPressed && !shooterKeyer->isTxActive()) {
     unsigned long timeSinceLastElement = now - shooterLastElementTime;
     float wordGapDuration = MorseWPM::wordGap(shooterDecoder.getWPM());
 
-    // Flush buffered data after word gap silence (more forgiving for straight key)
     if (timeSinceLastElement > wordGapDuration) {
       shooterDecoder.flush();
-      shooterLastElementTime = 0;  // Reset timeout
+      shooterLastElementTime = 0;
 
-      // Check for shot after flush
       if (shooterDecodedText.length() > 0) {
         checkMorseShoot(tft);
       }
     }
   }
 
-  // STRAIGHT KEY MODE
-  if (cwKeyType == KEY_STRAIGHT) {
-    // Software debouncing for scratchy/intermittent contacts
-    // Raw reading from pin
-    bool rawKeyState = morseInput.ditPressed;
-
-    // If raw state changed from last reading, reset debounce timer
-    if (rawKeyState != shooterKeyLastRawState) {
-      shooterKeyLastChangeTime = now;
-      shooterKeyLastRawState = rawKeyState;
-    }
-
-    // Only update debounced state if raw state has been stable for debounce period
-    if ((now - shooterKeyLastChangeTime) >= STRAIGHT_KEY_DEBOUNCE_MS) {
-      shooterDebouncedKeyState = rawKeyState;
-    }
-
-    // Use debounced state for keying
-    bool keyPressed = shooterDebouncedKeyState;
-
-    if (keyPressed && !toneOn) {
-      // Tone starting
-      if (shooterLastToneState == false) {
-        // Send silence duration to decoder (negative)
-        if (shooterLastStateChangeTime > 0) {
-          float silenceDuration = now - shooterLastStateChangeTime;
-          if (silenceDuration > 0) {
-            shooterDecoder.addTiming(-silenceDuration);
-          }
-        }
-        shooterLastStateChangeTime = now;
-        shooterLastToneState = true;
-      }
-      startTone(cwTone);
-    }
-    else if (keyPressed && toneOn) {
-      // Tone continuing
-      continueTone(cwTone);
-    }
-    else if (!keyPressed && toneOn) {
-      // Tone stopping
-      if (shooterLastToneState == true) {
-        // Send tone duration to decoder (positive)
-        float toneDuration = now - shooterLastStateChangeTime;
-        if (toneDuration > 0) {
-          shooterDecoder.addTiming(toneDuration);
-          shooterLastElementTime = now;  // Update timeout tracker
-        }
-        shooterLastStateChangeTime = now;
-        shooterLastToneState = false;
-      }
-      stopTone();
-    }
-    return;
+  // Feed paddle state to unified keyer
+  if (newDitPressed != shooterDitPressed) {
+    shooterKeyer->key(PADDLE_DIT, newDitPressed);
+    shooterDitPressed = newDitPressed;
+  }
+  if (newDahPressed != shooterDahPressed) {
+    shooterKeyer->key(PADDLE_DAH, newDahPressed);
+    shooterDahPressed = newDahPressed;
   }
 
-  // IAMBIC KEYER MODE (Mode A or B)
+  // Tick the keyer state machine
+  shooterKeyer->tick(now);
 
-  // If not actively sending or spacing, check for new input
-  if (!morseInput.keyerActive && !morseInput.inSpacing) {
-    if (morseInput.ditPressed || morseInput.ditMemory) {
-      // Start sending dit
-      if (shooterLastToneState == false) {
-        // Send silence duration to decoder
-        if (shooterLastStateChangeTime > 0) {
-          float silenceDuration = now - shooterLastStateChangeTime;
-          if (silenceDuration > 0) {
-            shooterDecoder.addTiming(-silenceDuration);
-          }
-        }
-        shooterLastStateChangeTime = now;
-        shooterLastToneState = true;
-      }
-
-      morseInput.keyerActive = true;
-      morseInput.sendingDit = true;
-      morseInput.sendingDah = false;
-      morseInput.inSpacing = false;
-      morseInput.elementStartTime = now;
-      startTone(cwTone);
-      morseInput.ditMemory = false;
-    }
-    else if (morseInput.dahPressed || morseInput.dahMemory) {
-      // Start sending dah
-      if (shooterLastToneState == false) {
-        // Send silence duration to decoder
-        if (shooterLastStateChangeTime > 0) {
-          float silenceDuration = now - shooterLastStateChangeTime;
-          if (silenceDuration > 0) {
-            shooterDecoder.addTiming(-silenceDuration);
-          }
-        }
-        shooterLastStateChangeTime = now;
-        shooterLastToneState = true;
-      }
-
-      morseInput.keyerActive = true;
-      morseInput.sendingDit = false;
-      morseInput.sendingDah = true;
-      morseInput.inSpacing = false;
-      morseInput.elementStartTime = now;
-      startTone(cwTone);
-      morseInput.dahMemory = false;
-    }
-  }
-  // Currently sending an element
-  else if (morseInput.keyerActive && !morseInput.inSpacing) {
-    unsigned long elementDuration = morseInput.sendingDit ? timing.ditDuration : timing.dahDuration;
-
-    // Keep tone playing
+  // Keep tone playing if keyer is active (for audio buffer continuity)
+  if (shooterKeyer->isTxActive()) {
     continueTone(cwTone);
-
-    // Check for paddle input during element send (squeeze keying)
-    if (morseInput.ditPressed && morseInput.dahPressed) {
-      // Both pressed - remember opposite paddle
-      if (morseInput.sendingDit) {
-        morseInput.dahMemory = true;
-      } else {
-        morseInput.ditMemory = true;
-      }
-    }
-    else if (morseInput.sendingDit && morseInput.dahPressed) {
-      morseInput.dahMemory = true;
-    }
-    else if (morseInput.sendingDah && morseInput.ditPressed) {
-      morseInput.ditMemory = true;
-    }
-
-    // Check if element is complete
-    if (now - morseInput.elementStartTime >= elementDuration) {
-      // Element complete, send tone duration to decoder
-      if (shooterLastToneState == true) {
-        float toneDuration = now - shooterLastStateChangeTime;
-        if (toneDuration > 0) {
-          shooterDecoder.addTiming(toneDuration);
-          shooterLastElementTime = now;  // Update timeout tracker
-        }
-        shooterLastStateChangeTime = now;
-        shooterLastToneState = false;
-      }
-
-      stopTone();
-      morseInput.keyerActive = false;
-      morseInput.sendingDit = false;
-      morseInput.sendingDah = false;
-      morseInput.inSpacing = true;
-      morseInput.elementStartTime = now;
-    }
-  }
-  // In inter-element spacing
-  else if (morseInput.inSpacing) {
-    // Check paddles during spacing
-    if (morseInput.ditPressed && morseInput.dahPressed) {
-      morseInput.ditMemory = true;
-      morseInput.dahMemory = true;
-    }
-    else if (morseInput.ditPressed && !morseInput.ditMemory) {
-      morseInput.ditMemory = true;
-    }
-    else if (morseInput.dahPressed && !morseInput.dahMemory) {
-      morseInput.dahMemory = true;
-    }
-
-    // Wait for element gap duration
-    if (now - morseInput.elementStartTime >= timing.ditDuration) {
-      morseInput.inSpacing = false;
-      // Ready to send next element if memory is set or paddle still pressed
-    }
   }
 }
 
@@ -1047,7 +917,7 @@ void updateMorseShooterVisuals(LGFX& tft) {
 
   // FREEZE screen only during active keying (not when decoded text exists)
   // This allows physics/ground collision to continue while hit text is displayed
-  bool isKeying = morseInput.keyerActive || morseInput.inSpacing ||
+  bool isKeying = (shooterKeyer && shooterKeyer->isTxActive()) ||
                   morseInput.ditPressed || morseInput.dahPressed;
 
   if (isKeying) {

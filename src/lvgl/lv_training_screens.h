@@ -131,7 +131,7 @@ static void practice_key_event_cb(lv_event_t* e) {
             // Update display
             if (practice_key_label != NULL) {
                 int keyType = getCwKeyTypeAsInt();
-                const char* key_type_str = (keyType == 0) ? "Straight" : ((keyType == 1) ? "Iambic A" : "Iambic B");
+                const char* key_type_str = (keyType == 0) ? "Straight" : ((keyType == 1) ? "Iambic A" : ((keyType == 2) ? "Iambic B" : "Ultimatic"));
                 lv_label_set_text(practice_key_label, key_type_str);
             }
             break;
@@ -140,7 +140,7 @@ static void practice_key_event_cb(lv_event_t* e) {
             // Update display
             if (practice_key_label != NULL) {
                 int keyType = getCwKeyTypeAsInt();
-                const char* key_type_str = (keyType == 0) ? "Straight" : ((keyType == 1) ? "Iambic A" : "Iambic B");
+                const char* key_type_str = (keyType == 0) ? "Straight" : ((keyType == 1) ? "Iambic A" : ((keyType == 2) ? "Iambic B" : "Ultimatic"));
                 lv_label_set_text(practice_key_label, key_type_str);
             }
             break;
@@ -232,7 +232,7 @@ lv_obj_t* createPracticeScreen() {
 
     practice_key_label = lv_label_create(key_box);
     int keyType = getCwKeyTypeAsInt();
-    const char* key_type_str = (keyType == 0) ? "Straight" : ((keyType == 1) ? "Iambic A" : "Iambic B");
+    const char* key_type_str = (keyType == 0) ? "Straight" : ((keyType == 1) ? "Iambic A" : ((keyType == 2) ? "Iambic B" : "Ultimatic"));
     lv_label_set_text(practice_key_label, key_type_str);
     lv_obj_set_style_text_color(practice_key_label, LV_COLOR_ACCENT_CYAN, 0);
     lv_obj_set_style_text_font(practice_key_label, getThemeFonts()->font_subtitle, 0);

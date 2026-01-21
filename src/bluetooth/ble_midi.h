@@ -18,6 +18,7 @@
 #include "../core/config.h"
 #include "../audio/i2s_audio.h"
 #include "../settings/settings_cw.h"
+#include "../keyer/keyer.h"
 
 // BLE MIDI Service and Characteristic UUIDs (standard BLE MIDI spec)
 #define MIDI_SERVICE_UUID        "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
@@ -52,16 +53,6 @@ struct BLEMIDIState {
   bool lastDitPressed = false;
   bool lastDahPressed = false;
 
-  // Keyer state machine (for Summit keying modes)
-  bool keyerActive = false;
-  bool sendingDit = false;
-  bool sendingDah = false;
-  bool inSpacing = false;
-  bool ditMemory = false;
-  bool dahMemory = false;
-  unsigned long elementTimer = 0;
-  unsigned long elementStartTime = 0;
-
   // MIDI-controlled settings
   int midiDitDuration = 0;         // 0 = use device settings
   int midiSidetoneNote = 69;       // A4 = 440Hz
@@ -76,6 +67,11 @@ struct BLEMIDIState {
 
 BLEMIDIState btMIDI;
 
+// Unified keyer for BT MIDI
+static StraightKeyer* btMIDIKeyer = nullptr;
+static bool btMIDIDitPressed = false;
+static bool btMIDIDahPressed = false;
+
 // Forward declarations
 void startBTMIDI(LGFX& display);
 void drawBTMIDIUI(LGFX& display);
@@ -87,6 +83,7 @@ void sendMIDINoteOff(uint8_t note);
 void onMIDIReceived(uint8_t* data, size_t length);
 void btMidiKeyerHandler();
 void btMidiPassthroughHandler();
+void btMidiInitKeyer();
 int midiNoteToFrequency(int note);
 int getDitDuration();
 
@@ -212,6 +209,8 @@ void onMIDIReceived(uint8_t* data, size_t length) {
           uint8_t program = data[pos] & 0x7F;
           pos++;
           btMIDI.midiKeyerProgram = program;
+          // Reinitialize keyer for new program
+          btMidiInitKeyer();
           Serial.print("MIDI Program Change: ");
           Serial.println(program);
 
@@ -282,14 +281,15 @@ void startBTMIDI(LGFX& display) {
   btMIDI.isKeying = false;
   btMIDI.lastDitPressed = false;
   btMIDI.lastDahPressed = false;
-  btMIDI.keyerActive = false;
-  btMIDI.inSpacing = false;
-  btMIDI.ditMemory = false;
-  btMIDI.dahMemory = false;
   btMIDI.midiDitDuration = 0;  // Use device settings by default
   btMIDI.midiSidetoneNote = 69;
   btMIDI.midiKeyerProgram = MIDI_KEYER_IAMBIC_B;
   btMIDI.lastUpdateTime = millis();
+
+  // Initialize unified keyer (will be updated when MIDI keyer program changes)
+  btMIDIDitPressed = false;
+  btMIDIDahPressed = false;
+  btMIDIKeyer = nullptr;  // Initialized in btMidiInitKeyer() based on program
 
   // Initialize BLE core if not already done
   initBLECore();
@@ -455,6 +455,48 @@ int handleBTMIDIInput(char key, LGFX& display) {
   return 0;  // Normal input
 }
 
+// Keyer callback for unified keyer - sends MIDI notes
+void btMidiKeyerCallback(bool txOn, int element) {
+  if (txOn) {
+    sendMIDINoteOn(MIDI_NOTE_STRAIGHT, 127);
+    startTone(TONE_SIDETONE);
+    btMIDI.isKeying = true;
+  } else {
+    sendMIDINoteOff(MIDI_NOTE_STRAIGHT);
+    stopTone();
+    btMIDI.isKeying = false;
+  }
+}
+
+// Initialize unified keyer based on MIDI keyer program
+void btMidiInitKeyer() {
+  btMIDIDitPressed = false;
+  btMIDIDahPressed = false;
+
+  // Map MIDI keyer program to unified keyer type
+  int keyerType;
+  switch (btMIDI.midiKeyerProgram) {
+    case MIDI_KEYER_STRAIGHT:
+      keyerType = KEY_STRAIGHT;
+      break;
+    case MIDI_KEYER_IAMBIC_A:
+      keyerType = KEY_IAMBIC_A;
+      break;
+    case MIDI_KEYER_IAMBIC_B:
+      keyerType = KEY_IAMBIC_B;
+      break;
+    default:
+      // Passthrough and Bug don't use the keyer
+      btMIDIKeyer = nullptr;
+      return;
+  }
+
+  btMIDIKeyer = getKeyer(keyerType);
+  btMIDIKeyer->reset();
+  btMIDIKeyer->setDitDuration(getDitDuration());
+  btMIDIKeyer->setTxCallback(btMidiKeyerCallback);
+}
+
 // Passthrough handler (raw dit/dah)
 void btMidiPassthroughHandler() {
   bool ditPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) ||
@@ -492,136 +534,37 @@ void btMidiPassthroughHandler() {
   }
 }
 
-// Iambic keyer handler (processes paddle input, outputs keyed MIDI)
+// Keyer handler (uses unified keyer module)
 void btMidiKeyerHandler() {
+  // Initialize keyer on first call if needed
+  if (!btMIDIKeyer) {
+    btMidiInitKeyer();
+  }
+  if (!btMIDIKeyer) return;  // Still null = passthrough mode
+
   bool ditPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) ||
                     (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
   bool dahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) ||
                     (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
 
   unsigned long currentTime = millis();
-  int ditDuration = getDitDuration();
-  int dahDuration = ditDuration * 3;
 
-  // Straight key mode
-  if (btMIDI.midiKeyerProgram == MIDI_KEYER_STRAIGHT) {
-    bool keyDown = ditPressed || dahPressed;
-    if (keyDown != btMIDI.isKeying) {
-      if (keyDown) {
-        sendMIDINoteOn(MIDI_NOTE_STRAIGHT, 127);
-        startTone(TONE_SIDETONE);
-      } else {
-        sendMIDINoteOff(MIDI_NOTE_STRAIGHT);
-        stopTone();
-      }
-      btMIDI.isKeying = keyDown;
-    }
-    btMIDI.lastDitPressed = ditPressed;
-    btMIDI.lastDahPressed = dahPressed;
-    return;
+  // Feed paddle state to unified keyer
+  if (ditPressed != btMIDIDitPressed) {
+    btMIDIKeyer->key(PADDLE_DIT, ditPressed);
+    btMIDIDitPressed = ditPressed;
+  }
+  if (dahPressed != btMIDIDahPressed) {
+    btMIDIKeyer->key(PADDLE_DAH, dahPressed);
+    btMIDIDahPressed = dahPressed;
   }
 
-  // Iambic keyer state machine
-  if (!btMIDI.keyerActive && !btMIDI.inSpacing) {
-    // IDLE state - check for paddle presses
-    if (ditPressed || dahPressed) {
-      if (ditPressed) {
-        btMIDI.sendingDit = true;
-        btMIDI.sendingDah = false;
-      } else {
-        btMIDI.sendingDit = false;
-        btMIDI.sendingDah = true;
-      }
+  // Tick the keyer state machine
+  btMIDIKeyer->tick(currentTime);
 
-      btMIDI.keyerActive = true;
-      btMIDI.elementTimer = currentTime + (btMIDI.sendingDit ? ditDuration : dahDuration);
-      btMIDI.elementStartTime = currentTime;
-
-      // Key on
-      sendMIDINoteOn(MIDI_NOTE_STRAIGHT, 127);
-      startTone(TONE_SIDETONE);
-      btMIDI.isKeying = true;
-    }
-  }
-  else if (btMIDI.keyerActive) {
-    // SENDING state - outputting dit or dah
-
-    // Check for memory paddle presses
-    if (ditPressed && !btMIDI.sendingDit) btMIDI.ditMemory = true;
-    if (dahPressed && !btMIDI.sendingDah) btMIDI.dahMemory = true;
-
-    // Check if element duration completed
-    if (currentTime >= btMIDI.elementTimer) {
-      // Key off
-      sendMIDINoteOff(MIDI_NOTE_STRAIGHT);
-      stopTone();
-      btMIDI.isKeying = false;
-
-      // Enter spacing state
-      btMIDI.keyerActive = false;
-      btMIDI.inSpacing = true;
-      btMIDI.elementTimer = currentTime + ditDuration;  // Element gap
-    }
-  }
-  else if (btMIDI.inSpacing) {
-    // SPACING state - inter-element gap
-
-    // Check for memory paddle presses
-    if (ditPressed && !btMIDI.sendingDit) btMIDI.ditMemory = true;
-    if (dahPressed && !btMIDI.sendingDah) btMIDI.dahMemory = true;
-
-    // Check if spacing completed
-    if (currentTime >= btMIDI.elementTimer) {
-      btMIDI.inSpacing = false;
-
-      // Check for queued element
-      bool sendNextElement = false;
-      bool nextIsDit = false;
-
-      bool isIambicB = (btMIDI.midiKeyerProgram == MIDI_KEYER_IAMBIC_B);
-
-      if (isIambicB) {
-        // Iambic B: alternate on squeeze
-        if (btMIDI.ditMemory && btMIDI.dahMemory) {
-          nextIsDit = !btMIDI.sendingDit;
-          sendNextElement = true;
-        } else if (btMIDI.ditMemory) {
-          nextIsDit = true;
-          sendNextElement = true;
-        } else if (btMIDI.dahMemory) {
-          nextIsDit = false;
-          sendNextElement = true;
-        }
-      } else {
-        // Iambic A: memory only
-        if (btMIDI.ditMemory) {
-          nextIsDit = true;
-          sendNextElement = true;
-        } else if (btMIDI.dahMemory) {
-          nextIsDit = false;
-          sendNextElement = true;
-        }
-      }
-
-      if (sendNextElement) {
-        btMIDI.sendingDit = nextIsDit;
-        btMIDI.sendingDah = !nextIsDit;
-        btMIDI.keyerActive = true;
-        btMIDI.elementTimer = currentTime + (nextIsDit ? ditDuration : dahDuration);
-        btMIDI.elementStartTime = currentTime;
-
-        if (nextIsDit) btMIDI.ditMemory = false;
-        else btMIDI.dahMemory = false;
-
-        // Key on
-        sendMIDINoteOn(MIDI_NOTE_STRAIGHT, 127);
-        startTone(TONE_SIDETONE);
-        btMIDI.isKeying = true;
-      } else {
-        btMIDI.ditMemory = false;
-        btMIDI.dahMemory = false;
-      }
-    }
+  // Keep tone playing if keyer is active
+  if (btMIDIKeyer->isTxActive()) {
+    continueTone(TONE_SIDETONE);
   }
 
   btMIDI.lastDitPressed = ditPressed;

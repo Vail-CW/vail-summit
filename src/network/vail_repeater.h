@@ -25,6 +25,7 @@
 #include "../core/config.h"
 #include "../core/task_manager.h"  // For dual-core audio API
 #include "../settings/settings_cw.h"
+#include "../keyer/keyer.h"
 #include "internet_check.h"
 
 // Default channel - always defined
@@ -94,17 +95,11 @@ std::deque<int64_t> recentTxTimestamps;
 const size_t MAX_TX_TIMESTAMPS = 20;
 int64_t vailToneStartTimestamp = 0;  // Timestamp when current tone started
 
-// Keyer state for Vail (similar to practice mode)
-bool vailDitPressed = false;
-bool vailDahPressed = false;
-bool vailKeyerActive = false;
-bool vailSendingDit = false;
-bool vailSendingDah = false;
-bool vailInSpacing = false;
-bool vailDitMemory = false;
-bool vailDahMemory = false;
-unsigned long vailElementStartTime = 0;
-int vailDitDuration = 0;
+// Unified keyer for Vail
+static StraightKeyer* vailKeyer = nullptr;
+static bool vailDitPressed = false;
+static bool vailDahPressed = false;
+static int vailDitDuration = 0;
 
 // Receive state
 struct VailMessage {
@@ -166,6 +161,7 @@ std::vector<UserInfo> connectedUsers;
 
 // Forward declarations
 void startVailRepeater(LGFX &display);
+void vailKeyerCallback(bool txOn, int element);
 void drawVailUI(LGFX &display);
 void drawChatUI(LGFX &display);
 void drawRoomSelectionUI(LGFX &display);
@@ -225,12 +221,14 @@ void startVailRepeater(LGFX &display) {
   rxQueue.clear();
   vailTxDurations.clear();
 
-  // Initialize keyer state
-  vailKeyerActive = false;
-  vailInSpacing = false;
-  vailDitMemory = false;
-  vailDahMemory = false;
+  // Initialize unified keyer
+  vailDitPressed = false;
+  vailDahPressed = false;
   vailDitDuration = DIT_DURATION(cwSpeed);
+  vailKeyer = getKeyer(cwKeyType);
+  vailKeyer->reset();
+  vailKeyer->setDitDuration(vailDitDuration);
+  vailKeyer->setTxCallback(vailKeyerCallback);
 
   // Initialize chat mode
   vailChatMode = false;
@@ -346,10 +344,11 @@ void disconnectFromVail() {
   activeRooms.clear();
   clockSkewSamples = 0;  // Reset clock sync on disconnect
   vailIsTransmitting = false;
-  vailKeyerActive = false;
-  vailInSpacing = false;
-  vailDitMemory = false;
-  vailDahMemory = false;
+  vailDitPressed = false;
+  vailDahPressed = false;
+  if (vailKeyer) {
+    vailKeyer->reset();
+  }
 
   Serial.println("[Vail] Disconnected and state cleared");
 }
@@ -641,193 +640,69 @@ void updateVailRepeater(LGFX &display) {
   // Note: UI updates are now handled by LVGL via updateVailScreenLVGL()
 }
 
-// Straight key handler for Vail
-// Uses dual-core audio API: requests are non-blocking, audio task handles I2S on Core 0
-void vailStraightKeyHandler() {
-  bool ditPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
+// Keyer callback for Vail - sends network messages and plays sidetone
+// Tracks element start time to calculate duration when tone ends
+static unsigned long vailKeyerElementStart = 0;
+
+void vailKeyerCallback(bool txOn, int element) {
+  unsigned long now = millis();
 
   // Stop any playback before transmitting to prevent audio conflicts
-  if (ditPressed && isPlaying) {
-    requestStopTone();  // Non-blocking - audio task handles stop
+  if (txOn && isPlaying) {
+    requestStopTone();
     isPlaying = false;
     playbackToneFrequency = 0;
   }
 
-  if (!vailIsTransmitting && ditPressed) {
-    // Start transmission
-    vailIsTransmitting = true;
-    vailTxStartTime = millis();
-    vailTxToneOn = true;
-    vailTxElementStart = millis();
-    vailTxDurations.clear();
-    requestStartTone(cwTone);  // Non-blocking - audio task starts tone on Core 0
-  }
+  if (txOn) {
+    // Tone starting
+    vailKeyerElementStart = now;
+    vailToneStartTimestamp = getCurrentTimestamp();
 
-  if (vailIsTransmitting) {
-    // Audio task handles continuous buffer filling - no need to call continueTone()
-
-    // State changed (tone -> silence or silence -> tone)
-    if (ditPressed != vailTxToneOn) {
-      unsigned long duration = millis() - vailTxElementStart;
-      vailTxDurations.push_back((uint16_t)duration);
-      vailTxElementStart = millis();
-      vailTxToneOn = ditPressed;
-
-      if (ditPressed) {
-        requestStartTone(cwTone);  // Non-blocking tone start
-      } else {
-        requestStopTone();  // Non-blocking tone stop
-      }
-    }
-
-    // End transmission after 3 dit units of silence (letter spacing)
-    if (!ditPressed && (millis() - vailTxElementStart > (vailDitDuration * 3))) {
-      unsigned long duration = millis() - vailTxElementStart;
-      vailTxDurations.push_back((uint16_t)duration);
-      sendVailMessage(vailTxDurations);
-      vailIsTransmitting = false;
+    if (!vailIsTransmitting) {
+      vailIsTransmitting = true;
+      vailTxStartTime = now;
       vailTxDurations.clear();
-      requestStopTone();  // Non-blocking tone stop
-    }
-  }
-}
-
-// Iambic keyer handler for Vail
-// Uses dual-core audio API: requests are non-blocking, audio task handles I2S on Core 0
-void vailIambicKeyerHandler() {
-  unsigned long currentTime = millis();
-
-  // Stop any playback before transmitting to prevent audio conflicts
-  if ((vailDitPressed || vailDahPressed) && isPlaying) {
-    requestStopTone();  // Non-blocking - audio task handles stop
-    isPlaying = false;
-    playbackToneFrequency = 0;
-  }
-
-  // If not actively sending or spacing, check for new input
-  if (!vailKeyerActive && !vailInSpacing) {
-    if (vailDitPressed || vailDitMemory) {
-      // Start sending dit
-      vailKeyerActive = true;
-      vailSendingDit = true;
-      vailSendingDah = false;
-      vailInSpacing = false;
-      vailElementStartTime = currentTime;
-      vailToneStartTimestamp = getCurrentTimestamp();  // Capture when tone starts
-      requestStartTone(cwTone);  // Non-blocking - audio task starts tone on Core 0
-
-      // Start new transmission if needed
-      if (!vailIsTransmitting) {
-        vailIsTransmitting = true;
-        vailTxStartTime = millis();
-        vailTxDurations.clear();
-      }
-
-      vailDitMemory = false;
-    }
-    else if (vailDahPressed || vailDahMemory) {
-      // Start sending dah
-      vailKeyerActive = true;
-      vailSendingDit = false;
-      vailSendingDah = true;
-      vailInSpacing = false;
-      vailElementStartTime = currentTime;
-      vailToneStartTimestamp = getCurrentTimestamp();  // Capture when tone starts
-      requestStartTone(cwTone);  // Non-blocking - audio task starts tone on Core 0
-
-      // Start new transmission if needed
-      if (!vailIsTransmitting) {
-        vailIsTransmitting = true;
-        vailTxStartTime = millis();
-        vailTxDurations.clear();
-      }
-
-      vailDahMemory = false;
-    }
-    // No activity - check if we should reset transmission state
-    else if (vailIsTransmitting && (millis() - vailTxStartTime > 2000)) {
-      // Reset transmission state after 2 seconds of inactivity
-      vailIsTransmitting = false;
-    }
-  }
-  // Currently sending an element
-  else if (vailKeyerActive && !vailInSpacing) {
-    unsigned long elementDuration = vailSendingDit ? vailDitDuration : (vailDitDuration * 3);
-
-    // Audio task handles continuous buffer filling - no need to call continueTone()
-    // This is the key change: removing the blocking continueTone() call that was causing distortion
-
-    // Continuously check for paddle input during element send
-    if (vailDitPressed && vailDahPressed) {
-      if (vailSendingDit) {
-        vailDahMemory = true;
-      } else {
-        vailDitMemory = true;
-      }
-    }
-    else if (vailSendingDit && vailDahPressed) {
-      vailDahMemory = true;
-    }
-    else if (vailSendingDah && vailDitPressed) {
-      vailDitMemory = true;
     }
 
-    // Check if element is complete
-    if (currentTime - vailElementStartTime >= elementDuration) {
-      // Send tone immediately using the timestamp from when it started
-      sendVailMessage({(uint16_t)elementDuration}, vailToneStartTimestamp);
-
-      // Element complete, turn off tone and start spacing
-      requestStopTone();  // Non-blocking - audio task handles stop
-      vailKeyerActive = false;
-      vailSendingDit = false;
-      vailSendingDah = false;
-      vailInSpacing = true;
-      vailElementStartTime = currentTime;
-      vailTxStartTime = millis();  // Reset idle timer
-    }
-  }
-  // In inter-element spacing
-  else if (vailInSpacing) {
-    // Continue checking paddles during spacing
-    if (vailDitPressed && vailDahPressed) {
-      vailDitMemory = true;
-      vailDahMemory = true;
-    }
-    else if (vailDitPressed && !vailDitMemory) {
-      vailDitMemory = true;
-    }
-    else if (vailDahPressed && !vailDahMemory) {
-      vailDahMemory = true;
-    }
-
-    unsigned long spaceDuration = currentTime - vailElementStartTime;
-
-    // Check if next element is starting (memory set)
-    if ((vailDitMemory || vailDahMemory) && spaceDuration >= vailDitDuration) {
-      // Don't send silences - just move to next element
-      vailInSpacing = false;
-      vailTxStartTime = millis();  // Reset idle timer
-    }
-    // No next element queued - check for longer pause (reset transmission state after 2 seconds)
-    else if (!vailDitMemory && !vailDahMemory && spaceDuration >= 2000) {
-      // End transmission (no need to send silence)
-      vailInSpacing = false;
-      vailIsTransmitting = false;
-    }
-  }
-}
-
-// Handle paddle input for transmission
-void updateVailPaddles() {
-  vailDitPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
-  vailDahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
-
-  // Use keyer based on settings
-  if (cwKeyType == KEY_STRAIGHT) {
-    vailStraightKeyHandler();
+    requestStartTone(cwTone);
   } else {
-    vailIambicKeyerHandler();
+    // Tone stopping - send the element
+    if (vailKeyerElementStart > 0) {
+      uint16_t duration = (uint16_t)(now - vailKeyerElementStart);
+      sendVailMessage({duration}, vailToneStartTimestamp);
+      vailTxStartTime = now;  // Reset idle timer
+    }
+    vailKeyerElementStart = 0;
+    requestStopTone();
+  }
+}
+
+// Handle paddle input for transmission (using unified keyer)
+void updateVailPaddles() {
+  if (!vailKeyer) return;
+
+  bool newDitPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
+  bool newDahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
+
+  unsigned long now = millis();
+
+  // Feed paddle state to unified keyer
+  if (newDitPressed != vailDitPressed) {
+    vailKeyer->key(PADDLE_DIT, newDitPressed);
+    vailDitPressed = newDitPressed;
+  }
+  if (newDahPressed != vailDahPressed) {
+    vailKeyer->key(PADDLE_DAH, newDahPressed);
+    vailDahPressed = newDahPressed;
+  }
+
+  // Tick the keyer state machine
+  vailKeyer->tick(now);
+
+  // Reset transmission state after 2 seconds of inactivity
+  if (vailIsTransmitting && !vailKeyer->isTxActive() && (now - vailTxStartTime > 2000)) {
+    vailIsTransmitting = false;
   }
 }
 
@@ -835,7 +710,7 @@ void updateVailPaddles() {
 // Uses dual-core audio API: all audio requests are non-blocking, handled by Core 0
 void playbackMessages() {
   // Don't play if transmitting - transmission has audio priority
-  if (vailIsTransmitting || vailKeyerActive) {
+  if (vailIsTransmitting || (vailKeyer && vailKeyer->isTxActive())) {
     if (isPlaying) {
       // Stop playback if we started transmitting
       requestStopTone();  // Non-blocking - audio task handles stop

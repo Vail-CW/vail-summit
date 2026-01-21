@@ -19,6 +19,7 @@
 #include "../core/morse_code.h"
 #include "../audio/i2s_audio.h"
 #include "../audio/morse_decoder_adaptive.h"
+#include "../keyer/keyer.h"
 #include "../lvgl/lv_screen_manager.h"
 #include "../lvgl/lv_theme_summit.h"
 #include "../lvgl/lv_widgets_summit.h"
@@ -80,22 +81,12 @@ static MemoryChainGame mcGame;
 static MorseDecoderAdaptive mcDecoder(15, 20, 30);
 static Preferences mcPrefs;
 
-// Keyer state for iambic/straight key
-static bool mcKeyerActive = false;
-static bool mcSendingDit = false;
-static bool mcSendingDah = false;
-static bool mcInSpacing = false;
-static bool mcDitMemory = false;
-static bool mcDahMemory = false;
-static unsigned long mcElementStart = 0;
+// Unified keyer
+static StraightKeyer* mcKeyer = nullptr;
+static bool mcDitPressed = false;
+static bool mcDahPressed = false;
 static bool mcLastToneState = false;
 static unsigned long mcLastStateChange = 0;
-
-// Straight key debounce state
-#define MC_STRAIGHT_KEY_DEBOUNCE_MS 8   // Ignore state changes shorter than this
-static bool mcDebouncedKeyState = false;
-static unsigned long mcKeyLastChangeTime = 0;
-static bool mcKeyLastRawState = false;
 
 // ============================================
 // LVGL Screen Elements
@@ -410,20 +401,14 @@ void mcStartUserInput() {
     mcGame.lastDecoded = 0;
     mcGame.hasNewChar = false;
 
-    // Reset keyer state
-    mcKeyerActive = false;
-    mcSendingDit = false;
-    mcSendingDah = false;
-    mcInSpacing = false;
-    mcDitMemory = false;
-    mcDahMemory = false;
+    // Reset unified keyer state
+    mcDitPressed = false;
+    mcDahPressed = false;
     mcLastToneState = false;
     mcLastStateChange = 0;
-
-    // Reset straight key debounce state
-    mcDebouncedKeyState = false;
-    mcKeyLastChangeTime = 0;
-    mcKeyLastRawState = false;
+    if (mcKeyer) {
+        mcKeyer->reset();
+    }
 
     // Reset decoder
     mcDecoder.reset();
@@ -544,33 +529,16 @@ void mcSetupDecoder() {
 }
 
 // ============================================
-// Straight Key Handler
+// Keyer Callback (unified keyer module)
 // ============================================
 
-void mcStraightKeyHandler(bool rawKeyDown) {
-    extern int cwTone, cwSpeed;
+void mcKeyerCallback(bool txOn, int element) {
     unsigned long now = millis();
-    bool toneOn = isTonePlaying();
 
-    // Software debouncing for scratchy/intermittent contacts
-    // If raw state changed from last reading, reset debounce timer
-    if (rawKeyDown != mcKeyLastRawState) {
-        mcKeyLastChangeTime = now;
-        mcKeyLastRawState = rawKeyDown;
-    }
-
-    // Only update debounced state if raw state has been stable for debounce period
-    if ((now - mcKeyLastChangeTime) >= MC_STRAIGHT_KEY_DEBOUNCE_MS) {
-        mcDebouncedKeyState = rawKeyDown;
-    }
-
-    // Use debounced state for keying
-    bool keyDown = mcDebouncedKeyState;
-
-    if (keyDown && !toneOn) {
+    if (txOn) {
         // Tone starting
-        if (mcLastToneState == false) {
-            Serial.printf("[MC] Straight key DOWN - starting tone %d Hz\n", cwTone);
+        if (!mcLastToneState) {
+            Serial.printf("[MC] Keyer tone ON (element %d)\n", element);
             if (mcLastStateChange > 0) {
                 float silence = now - mcLastStateChange;
                 if (silence > 0) {
@@ -581,16 +549,11 @@ void mcStraightKeyHandler(bool rawKeyDown) {
             mcLastToneState = true;
         }
         startTone(cwTone);
-    }
-    else if (keyDown && toneOn) {
-        // Tone continuing
-        continueTone(cwTone);
-    }
-    else if (!keyDown && toneOn) {
+    } else {
         // Tone stopping
-        if (mcLastToneState == true) {
+        if (mcLastToneState) {
             float tone = now - mcLastStateChange;
-            Serial.printf("[MC] Straight key UP - duration: %.0f ms\n", tone);
+            Serial.printf("[MC] Keyer tone OFF - duration: %.0f ms\n", tone);
             if (tone > 0) {
                 mcDecoder.addTiming(tone);
             }
@@ -602,99 +565,30 @@ void mcStraightKeyHandler(bool rawKeyDown) {
 }
 
 // ============================================
-// Iambic Keyer Handler
+// Keyer Update (using unified keyer module)
 // ============================================
 
-void mcIambicHandler(bool ditPressed, bool dahPressed) {
-    extern int cwTone, cwSpeed;
-    MorseTiming timing(cwSpeed);
-    unsigned long ditDuration = timing.ditDuration;
+void mcKeyerUpdate(bool ditPressed, bool dahPressed) {
+    if (!mcKeyer) return;
+
     unsigned long now = millis();
 
-    // Start new element
-    if (!mcKeyerActive && !mcInSpacing) {
-        bool startDit = mcDitMemory || ditPressed;
-        bool startDah = mcDahMemory || dahPressed;
-
-        if (startDit || startDah) {
-            mcDitMemory = false;
-            mcDahMemory = false;
-
-            if (startDit && startDah) {
-                // Squeeze - alternate
-                mcSendingDit = !mcSendingDah;
-                mcSendingDah = !mcSendingDit;
-            } else {
-                mcSendingDit = startDit;
-                mcSendingDah = startDah;
-            }
-
-            mcKeyerActive = true;
-            mcElementStart = now;
-
-            Serial.printf("[MC] Starting %s\n", mcSendingDit ? "DIT" : "DAH");
-
-            // Record silence before tone
-            if (!mcLastToneState && mcLastStateChange > 0) {
-                float silence = now - mcLastStateChange;
-                if (silence > 0) {
-                    mcDecoder.addTiming(-silence);
-                }
-            }
-            mcLastStateChange = now;
-            mcLastToneState = true;
-
-            startTone(cwTone);  // Use startTone to begin!
-        }
+    // Feed paddle state to unified keyer
+    if (ditPressed != mcDitPressed) {
+        mcKeyer->key(PADDLE_DIT, ditPressed);
+        mcDitPressed = ditPressed;
     }
-    // Sending element
-    else if (mcKeyerActive && !mcInSpacing) {
-        unsigned long duration = mcSendingDit ? ditDuration : (ditDuration * 3);
-
-        continueTone(cwTone);  // Continue existing tone
-
-        // Check paddle memory
-        if (ditPressed && dahPressed) {
-            if (mcSendingDit) mcDahMemory = true;
-            else mcDitMemory = true;
-        } else if (mcSendingDit && dahPressed) {
-            mcDahMemory = true;
-        } else if (mcSendingDah && ditPressed) {
-            mcDitMemory = true;
-        }
-
-        // Element complete?
-        if (now - mcElementStart >= duration) {
-            stopTone();
-
-            float tone = now - mcLastStateChange;
-            if (tone > 0) {
-                mcDecoder.addTiming(tone);
-            }
-            mcLastStateChange = now;
-            mcLastToneState = false;
-
-            mcKeyerActive = false;
-            mcInSpacing = true;
-            mcElementStart = now;
-        }
+    if (dahPressed != mcDahPressed) {
+        mcKeyer->key(PADDLE_DAH, dahPressed);
+        mcDahPressed = dahPressed;
     }
-    // Inter-element spacing
-    else if (mcInSpacing) {
-        if (now - mcElementStart >= ditDuration) {
-            mcInSpacing = false;
 
-            // Check for next element
-            if (mcDitMemory) {
-                mcDitMemory = false;
-            } else if (mcDahMemory) {
-                mcDahMemory = false;
-            } else if (ditPressed) {
-                mcDitMemory = true;
-            } else if (dahPressed) {
-                mcDahMemory = true;
-            }
-        }
+    // Tick the keyer state machine
+    mcKeyer->tick(now);
+
+    // Keep tone playing if keyer is active
+    if (mcKeyer->isTxActive()) {
+        continueTone(cwTone);
     }
 }
 
@@ -782,13 +676,8 @@ void memoryChainHandlePaddle(bool ditPressed, bool dahPressed) {
     // Setup decoder callback once
     mcSetupDecoder();
 
-    // Route to appropriate handler
-    extern KeyType cwKeyType;
-    if (cwKeyType == KEY_STRAIGHT) {
-        mcStraightKeyHandler(ditPressed);
-    } else {
-        mcIambicHandler(ditPressed, dahPressed);
-    }
+    // Use unified keyer for all key types
+    mcKeyerUpdate(ditPressed, dahPressed);
 }
 
 // ============================================
@@ -816,18 +705,18 @@ void memoryChainStart() {
     mcGame.lastDecoded = 0;
     mcGame.hasNewChar = false;
 
-    // Reset keyer state
-    mcKeyerActive = false;
-    mcSendingDit = false;
-    mcSendingDah = false;
-    mcInSpacing = false;
-    mcDitMemory = false;
-    mcDahMemory = false;
+    // Initialize unified keyer
+    extern int cwSpeed;
+    mcDitPressed = false;
+    mcDahPressed = false;
     mcLastToneState = false;
     mcLastStateChange = 0;
+    mcKeyer = getKeyer(cwKeyType);
+    mcKeyer->reset();
+    mcKeyer->setDitDuration(DIT_DURATION(cwSpeed));
+    mcKeyer->setTxCallback(mcKeyerCallback);
 
     // Reset decoder
-    extern int cwSpeed;
     mcDecoder.reset();
     mcDecoder.flush();
     mcDecoder.setWPM(cwSpeed);

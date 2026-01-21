@@ -19,6 +19,7 @@
 #include "ble_core.h"
 #include "../core/config.h"
 #include "../audio/i2s_audio.h"
+#include "../keyer/keyer.h"
 
 // HID constants
 #define HID_KEYBOARD_APPEARANCE    0x03C1
@@ -96,21 +97,17 @@ struct BLEHIDState {
   // Keyer mode
   BTHIDKeyerMode keyerMode = BT_HID_PASSTHROUGH;
 
-  // Iambic keyer state machine
-  bool keyerActive = false;      // Currently sending an element
-  bool inSpacing = false;        // In inter-element spacing
-  bool sendingDit = false;       // Current element is dit (vs dah)
-  bool ditMemory = false;        // Dit paddle was pressed during element
-  bool dahMemory = false;        // Dah paddle was pressed during element
-  unsigned long elementTimer = 0; // When current element/spacing ends
-  unsigned long ditDuration = 60; // Dit duration in ms (calculated from cwSpeed)
-
   // Current key state (for proper key up/down)
   bool isKeying = false;         // Currently holding a key down
   uint8_t currentModifier = 0;   // Which modifier key is held
 };
 
 BLEHIDState btHID;
+
+// Unified keyer for BT HID
+static StraightKeyer* btHIDKeyer = nullptr;
+static bool btHIDDitPressed = false;
+static bool btHIDDahPressed = false;
 
 // Preferences for BT HID settings
 static Preferences btHIDPrefs;
@@ -166,6 +163,9 @@ const char* getBTHIDKeyerModeName() {
   return btHIDKeyerModeNames[btHID.keyerMode];
 }
 
+// Forward declaration of keyer initialization (needs to be after callback)
+void btHIDInitKeyer();
+
 void cycleBTHIDKeyerMode(int direction) {
   int mode = (int)btHID.keyerMode;
   if (direction > 0) {
@@ -176,15 +176,14 @@ void cycleBTHIDKeyerMode(int direction) {
   btHID.keyerMode = (BTHIDKeyerMode)mode;
 
   // Reset keyer state when changing modes
-  btHID.keyerActive = false;
-  btHID.inSpacing = false;
-  btHID.ditMemory = false;
-  btHID.dahMemory = false;
   if (btHID.isKeying) {
     sendHIDReport(0x00);  // Release any held key
     btHID.isKeying = false;
     stopTone();
   }
+
+  // Reinitialize the keyer for the new mode
+  btHIDInitKeyer();
 
   // Update UI and save
   updateBTHIDKeyerMode(getBTHIDKeyerModeName());
@@ -226,18 +225,13 @@ void startBTHID(LGFX& display) {
   btHID.lastUpdateTime = millis();
   lastBTHIDState = BLE_STATE_OFF;  // Reset state tracking
 
-  // Reset iambic keyer state
-  btHID.keyerActive = false;
-  btHID.inSpacing = false;
-  btHID.sendingDit = false;
-  btHID.ditMemory = false;
-  btHID.dahMemory = false;
+  // Reset key state
   btHID.isKeying = false;
   btHID.currentModifier = 0;
 
-  // Calculate dit duration from CW speed (PARIS standard)
-  btHID.ditDuration = 1200 / cwSpeed;
-  Serial.printf("[BT HID] Dit duration: %lu ms (at %d WPM)\n", btHID.ditDuration, cwSpeed);
+  // Initialize unified keyer based on keyer mode
+  btHIDInitKeyer();
+  Serial.printf("[BT HID] Dit duration: %d ms (at %d WPM)\n", DIT_DURATION(cwSpeed), cwSpeed);
 
   // Initialize BLE core if not already done
   initBLECore();
@@ -437,6 +431,46 @@ static void btHIDKeyUp() {
   }
 }
 
+// Keyer callback for unified keyer - sends HID reports
+void btHIDKeyerCallback(bool txOn, int element) {
+  if (txOn) {
+    // Key down - element 0=DIT (Left Ctrl), 1=DAH (Right Ctrl)
+    uint8_t modifier = (element == PADDLE_DIT) ? KEY_MOD_LCTRL : KEY_MOD_RCTRL;
+    btHIDKeyDown(modifier);
+  } else {
+    btHIDKeyUp();
+  }
+}
+
+// Initialize unified keyer based on current BT HID keyer mode
+void btHIDInitKeyer() {
+  btHIDDitPressed = false;
+  btHIDDahPressed = false;
+
+  // Map BT HID keyer mode to unified keyer type
+  int keyerType;
+  switch (btHID.keyerMode) {
+    case BT_HID_STRAIGHT:
+      keyerType = KEY_STRAIGHT;
+      break;
+    case BT_HID_IAMBIC_A:
+      keyerType = KEY_IAMBIC_A;
+      break;
+    case BT_HID_IAMBIC_B:
+      keyerType = KEY_IAMBIC_B;
+      break;
+    default:
+      // Passthrough doesn't use the keyer
+      btHIDKeyer = nullptr;
+      return;
+  }
+
+  btHIDKeyer = getKeyer(keyerType);
+  btHIDKeyer->reset();
+  btHIDKeyer->setDitDuration(DIT_DURATION(cwSpeed));
+  btHIDKeyer->setTxCallback(btHIDKeyerCallback);
+}
+
 // Update BT HID (called from main loop)
 void updateBTHID() {
   if (!btHID.active) return;
@@ -505,136 +539,26 @@ void updateBTHID() {
       break;
 
     case BT_HID_STRAIGHT:
-      // Straight key: Either paddle → single Left Ctrl key
-      {
-        bool anyPressed = ditPressed || dahPressed;
-        if (anyPressed && !btHID.isKeying) {
-          btHIDKeyDown(KEY_MOD_LCTRL);
-        } else if (!anyPressed && btHID.isKeying) {
-          btHIDKeyUp();
-        } else if (anyPressed) {
-          continueTone(TONE_SIDETONE);
-        }
-      }
-      break;
-
     case BT_HID_IAMBIC_A:
     case BT_HID_IAMBIC_B:
-      // Iambic keyer: Full timed sequences
-      // State machine: IDLE → SENDING → SPACING → (repeat or IDLE)
-      {
-        if (!btHID.keyerActive && !btHID.inSpacing) {
-          // IDLE state - check for paddle presses
-          if (ditPressed || dahPressed) {
-            // Start sending element (dit has priority if both pressed)
-            btHID.sendingDit = ditPressed;
-            btHID.keyerActive = true;
-            btHID.elementTimer = currentTime + (btHID.sendingDit ? btHID.ditDuration : btHID.ditDuration * 3);
-
-            // Key down with appropriate modifier
-            btHIDKeyDown(btHID.sendingDit ? KEY_MOD_LCTRL : KEY_MOD_RCTRL);
-
-            Serial.printf("[BT HID] Keyer: Starting %s (%lu ms)\n",
-              btHID.sendingDit ? "DIT" : "DAH",
-              btHID.sendingDit ? btHID.ditDuration : btHID.ditDuration * 3);
-          }
+      // Use unified keyer for all timed modes
+      if (btHIDKeyer) {
+        // Feed paddle state to unified keyer
+        if (ditPressed != btHIDDitPressed) {
+          btHIDKeyer->key(PADDLE_DIT, ditPressed);
+          btHIDDitPressed = ditPressed;
         }
-        else if (btHID.keyerActive) {
-          // SENDING state - outputting dit or dah
+        if (dahPressed != btHIDDahPressed) {
+          btHIDKeyer->key(PADDLE_DAH, dahPressed);
+          btHIDDahPressed = dahPressed;
+        }
 
-          // Keep audio buffer filled
+        // Tick the keyer state machine
+        btHIDKeyer->tick(currentTime);
+
+        // Keep tone playing if keyer is active
+        if (btHIDKeyer->isTxActive()) {
           continueTone(TONE_SIDETONE);
-
-          // Check for memory paddle presses (opposite of what we're sending)
-          if (ditPressed && !btHID.sendingDit) btHID.ditMemory = true;
-          if (dahPressed && btHID.sendingDit) btHID.dahMemory = true;
-
-          // Check if element duration completed
-          if (currentTime >= btHID.elementTimer) {
-            // Key up
-            btHIDKeyUp();
-
-            // Enter spacing state (inter-element gap = 1 dit)
-            btHID.keyerActive = false;
-            btHID.inSpacing = true;
-            btHID.elementTimer = currentTime + btHID.ditDuration;
-          }
-        }
-        else if (btHID.inSpacing) {
-          // SPACING state - inter-element gap
-
-          // Check for memory paddle presses
-          if (ditPressed && !btHID.sendingDit) btHID.ditMemory = true;
-          if (dahPressed && btHID.sendingDit) btHID.dahMemory = true;
-
-          // Check if spacing completed
-          if (currentTime >= btHID.elementTimer) {
-            btHID.inSpacing = false;
-
-            // Determine next element
-            bool sendNextElement = false;
-            bool nextIsDit = false;
-
-            if (btHID.keyerMode == BT_HID_IAMBIC_B) {
-              // Iambic B: alternate on squeeze (both paddles pressed)
-              if (btHID.ditMemory && btHID.dahMemory) {
-                // Both paddles - send opposite of what we just sent
-                nextIsDit = !btHID.sendingDit;
-                sendNextElement = true;
-              } else if (btHID.ditMemory) {
-                nextIsDit = true;
-                sendNextElement = true;
-              } else if (btHID.dahMemory) {
-                nextIsDit = false;
-                sendNextElement = true;
-              } else if (ditPressed && dahPressed) {
-                // Still squeezing - continue alternating
-                nextIsDit = !btHID.sendingDit;
-                sendNextElement = true;
-              } else if (ditPressed) {
-                nextIsDit = true;
-                sendNextElement = true;
-              } else if (dahPressed) {
-                nextIsDit = false;
-                sendNextElement = true;
-              }
-            } else {
-              // Iambic A: memory only, no auto-alternate on squeeze release
-              if (btHID.ditMemory) {
-                nextIsDit = true;
-                sendNextElement = true;
-              } else if (btHID.dahMemory) {
-                nextIsDit = false;
-                sendNextElement = true;
-              } else if (ditPressed) {
-                nextIsDit = true;
-                sendNextElement = true;
-              } else if (dahPressed) {
-                nextIsDit = false;
-                sendNextElement = true;
-              }
-            }
-
-            if (sendNextElement) {
-              // Start next element
-              btHID.sendingDit = nextIsDit;
-              btHID.keyerActive = true;
-              btHID.elementTimer = currentTime + (nextIsDit ? btHID.ditDuration : btHID.ditDuration * 3);
-
-              // Clear used memory
-              if (nextIsDit) btHID.ditMemory = false;
-              else btHID.dahMemory = false;
-
-              // Key down with appropriate modifier
-              btHIDKeyDown(nextIsDit ? KEY_MOD_LCTRL : KEY_MOD_RCTRL);
-
-              Serial.printf("[BT HID] Keyer: Next %s\n", nextIsDit ? "DIT" : "DAH");
-            } else {
-              // No queued element - return to idle
-              btHID.ditMemory = false;
-              btHID.dahMemory = false;
-            }
-          }
         }
       }
       break;

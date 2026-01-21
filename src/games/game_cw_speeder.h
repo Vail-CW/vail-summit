@@ -16,6 +16,7 @@
 #include "../core/morse_code.h"
 #include "../core/task_manager.h"  // For dual-core audio API
 #include "../audio/i2s_audio.h"
+#include "../keyer/keyer.h"
 #include "../lvgl/lv_screen_manager.h"
 #include "../lvgl/lv_theme_summit.h"
 #include "../lvgl/lv_widgets_summit.h"
@@ -289,25 +290,18 @@ struct CWSpeedGame {
     // Pattern matcher
     CWSpeedPatternMatcher matcher;
 
-    // Keyer state (for iambic)
-    bool keyerActive;
-    bool sendingDit;
-    bool sendingDah;
-    bool inSpacing;
-    bool ditMemory;
-    bool dahMemory;
-    unsigned long elementStart;
+    // Tone state tracking for pattern matcher
     bool lastToneState;
     unsigned long lastStateChange;
-
-    // Straight key debounce
-    bool debouncedKeyState;
-    unsigned long keyLastChangeTime;
-    bool keyLastRawState;
 };
 
 static CWSpeedGame csGame;
 static Preferences csPrefs;
+
+// Unified keyer
+static StraightKeyer* csKeyer = nullptr;
+static bool csDitPressed = false;
+static bool csDahPressed = false;
 
 // ============================================
 // LVGL Screen Elements - Word Select
@@ -338,6 +332,32 @@ void csUpdateStatus(const char* status);
 void csUpdateBestTime();
 void csSetLetterColor(int index, lv_color_t color);
 void csResetLetterColors();
+
+// ============================================
+// Keyer Callback
+// ============================================
+
+void csKeyerCallback(bool txOn, int element) {
+    unsigned long now = millis();
+
+    if (txOn) {
+        // Tone starting - record key down for pattern matcher
+        if (!csGame.lastToneState) {
+            csGame.matcher.keyDown();
+            csGame.lastStateChange = now;
+            csGame.lastToneState = true;
+        }
+        requestStartTone(cwTone);  // Non-blocking via dual-core audio
+    } else {
+        // Tone stopping - record key up for pattern matcher
+        if (csGame.lastToneState) {
+            csGame.matcher.keyUp();
+            csGame.lastStateChange = now;
+            csGame.lastToneState = false;
+        }
+        requestStopTone();  // Non-blocking via dual-core audio
+    }
+}
 
 // ============================================
 // Pattern Matcher Callbacks
@@ -483,18 +503,17 @@ void csResetGame() {
     csGame.gameStartTime = 0;
     csGame.matcher.reset();
 
-    // Reset keyer state
-    csGame.keyerActive = false;
-    csGame.sendingDit = false;
-    csGame.sendingDah = false;
-    csGame.inSpacing = false;
-    csGame.ditMemory = false;
-    csGame.dahMemory = false;
+    // Reset tone state tracking
     csGame.lastToneState = false;
     csGame.lastStateChange = 0;
-    csGame.debouncedKeyState = false;
-    csGame.keyLastChangeTime = 0;
-    csGame.keyLastRawState = false;
+
+    // Initialize unified keyer
+    csDitPressed = false;
+    csDahPressed = false;
+    csKeyer = getKeyer(cwKeyType);
+    csKeyer->reset();
+    csKeyer->setDitDuration(DIT_DURATION(cwSpeed));
+    csKeyer->setTxCallback(csKeyerCallback);
 
     requestStopTone();  // Non-blocking stop via dual-core audio
     csResetLetterColors();
@@ -767,135 +786,26 @@ lv_obj_t* createCWSpeedGameScreen() {
 }
 
 // ============================================
-// Straight Key Handler
+// Keyer Update (using unified keyer module)
 // ============================================
 
-void csStraightKeyHandler(bool rawKeyDown) {
-    extern int cwTone;
-    unsigned long now = millis();
-    bool toneOn = isAudioTonePlaying();  // Use dual-core status check
+void csKeyerUpdate(bool ditPressed, bool dahPressed) {
+    if (!csKeyer) return;
 
-    // Software debouncing
-    if (rawKeyDown != csGame.keyLastRawState) {
-        csGame.keyLastChangeTime = now;
-        csGame.keyLastRawState = rawKeyDown;
-    }
-
-    if ((now - csGame.keyLastChangeTime) >= CS_DEBOUNCE_MS) {
-        csGame.debouncedKeyState = rawKeyDown;
-    }
-
-    bool keyDown = csGame.debouncedKeyState;
-
-    if (keyDown && !toneOn) {
-        // Key down - start tone
-        if (!csGame.lastToneState) {
-            csGame.matcher.keyDown();
-            csGame.lastStateChange = now;
-            csGame.lastToneState = true;
-        }
-        requestStartTone(cwTone);  // Non-blocking via dual-core audio
-    }
-    else if (keyDown && toneOn) {
-        // Tone continues automatically on audio core
-    }
-    else if (!keyDown && toneOn) {
-        // Key up - stop tone
-        if (csGame.lastToneState) {
-            csGame.matcher.keyUp();
-            csGame.lastStateChange = now;
-            csGame.lastToneState = false;
-        }
-        requestStopTone();  // Non-blocking via dual-core audio
-    }
-}
-
-// ============================================
-// Iambic Keyer Handler
-// ============================================
-
-void csIambicHandler(bool ditPressed, bool dahPressed) {
-    extern int cwTone, cwSpeed;
-    MorseTiming timing(cwSpeed);
-    unsigned long ditDuration = timing.ditDuration;
     unsigned long now = millis();
 
-    // Start new element
-    if (!csGame.keyerActive && !csGame.inSpacing) {
-        bool startDit = csGame.ditMemory || ditPressed;
-        bool startDah = csGame.dahMemory || dahPressed;
-
-        if (startDit || startDah) {
-            csGame.ditMemory = false;
-            csGame.dahMemory = false;
-
-            if (startDit && startDah) {
-                // Squeeze - alternate
-                csGame.sendingDit = !csGame.sendingDah;
-                csGame.sendingDah = !csGame.sendingDit;
-            } else {
-                csGame.sendingDit = startDit;
-                csGame.sendingDah = startDah;
-            }
-
-            csGame.keyerActive = true;
-            csGame.elementStart = now;
-
-            // Record key down for pattern matcher
-            csGame.matcher.keyDown();
-            csGame.lastStateChange = now;
-            csGame.lastToneState = true;
-
-            requestStartTone(cwTone);  // Non-blocking via dual-core audio
-        }
+    // Feed paddle state to unified keyer
+    if (ditPressed != csDitPressed) {
+        csKeyer->key(PADDLE_DIT, ditPressed);
+        csDitPressed = ditPressed;
     }
-    // Sending element
-    else if (csGame.keyerActive && !csGame.inSpacing) {
-        unsigned long duration = csGame.sendingDit ? ditDuration : (ditDuration * 3);
-
-        // Tone continues automatically on audio core - no need to call continueTone
-
-        // Check paddle memory
-        if (ditPressed && dahPressed) {
-            if (csGame.sendingDit) csGame.dahMemory = true;
-            else csGame.ditMemory = true;
-        } else if (csGame.sendingDit && dahPressed) {
-            csGame.dahMemory = true;
-        } else if (csGame.sendingDah && ditPressed) {
-            csGame.ditMemory = true;
-        }
-
-        // Element complete?
-        if (now - csGame.elementStart >= duration) {
-            requestStopTone();  // Non-blocking via dual-core audio
-
-            // Record key up for pattern matcher
-            csGame.matcher.keyUp();
-            csGame.lastStateChange = now;
-            csGame.lastToneState = false;
-
-            csGame.keyerActive = false;
-            csGame.inSpacing = true;
-            csGame.elementStart = now;
-        }
+    if (dahPressed != csDahPressed) {
+        csKeyer->key(PADDLE_DAH, dahPressed);
+        csDahPressed = dahPressed;
     }
-    // Inter-element spacing
-    else if (csGame.inSpacing) {
-        if (now - csGame.elementStart >= ditDuration) {
-            csGame.inSpacing = false;
 
-            // Check for next element
-            if (csGame.ditMemory) {
-                csGame.ditMemory = false;
-            } else if (csGame.dahMemory) {
-                csGame.dahMemory = false;
-            } else if (ditPressed) {
-                csGame.ditMemory = true;
-            } else if (dahPressed) {
-                csGame.dahMemory = true;
-            }
-        }
-    }
+    // Tick the keyer state machine
+    csKeyer->tick(now);
 }
 
 // ============================================
@@ -946,13 +856,8 @@ void cwSpeedHandlePaddle(bool ditPressed, bool dahPressed) {
         csUpdateStatus("GO!");
     }
 
-    // Route to appropriate handler
-    extern KeyType cwKeyType;
-    if (cwKeyType == KEY_STRAIGHT) {
-        csStraightKeyHandler(ditPressed);
-    } else {
-        csIambicHandler(ditPressed, dahPressed);
-    }
+    // Use unified keyer for all key types
+    csKeyerUpdate(ditPressed, dahPressed);
 }
 
 // ============================================

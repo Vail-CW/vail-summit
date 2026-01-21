@@ -18,6 +18,7 @@
 #include "../core/task_manager.h"
 #include "../settings/settings_cw.h"
 #include "../audio/morse_decoder_adaptive.h"
+#include "../keyer/keyer.h"
 #include "training_vail_master_data.h"
 
 // ============================================
@@ -143,16 +144,10 @@ static String vmEchoText = "";
 static bool vmNeedsUIUpdate = false;
 static unsigned long vmLastMatchCheck = 0;
 
-// Keyer state (shared with main CW settings)
+// Keyer state - using unified keyer module
 static bool vmDitPressed = false;
 static bool vmDahPressed = false;
-static bool vmKeyerActive = false;
-static bool vmSendingDit = false;
-static bool vmSendingDah = false;
-static bool vmInSpacing = false;
-static bool vmDitMemory = false;
-static bool vmDahMemory = false;
-static unsigned long vmElementStartTime = 0;
+static StraightKeyer* vmKeyer = nullptr;
 static int vmDitDuration = 0;
 
 // Timing capture for decoder
@@ -183,8 +178,7 @@ void vmEndTrial(bool success);
 void vmEndSession();
 void vmCheckMatch();
 void vmUpdateKeyer();
-void vmStraightKeyHandler();
-void vmIambicKeyerHandler();
+void vmKeyerCallback(bool txOn, int element);
 String vmGenerateTarget();
 int vmCalculateScore(const char* target, const char* echo);
 void vmUpdateProblemChars(const char* target, const char* echo);
@@ -373,13 +367,15 @@ void vmStartSession(VailMasterMode mode) {
     // Calculate dit duration
     vmDitDuration = DIT_DURATION(vmWPM);
 
+    // Initialize unified keyer
+    vmKeyer = getKeyer(cwKeyType);
+    vmKeyer->reset();
+    vmKeyer->setDitDuration(vmDitDuration);
+    vmKeyer->setTxCallback(vmKeyerCallback);
+
     // Reset keyer state
     vmDitPressed = false;
     vmDahPressed = false;
-    vmKeyerActive = false;
-    vmInSpacing = false;
-    vmDitMemory = false;
-    vmDahMemory = false;
     vmLastStateChangeTime = 0;
     vmLastToneState = false;
     vmLastElementTime = 0;
@@ -699,11 +695,44 @@ void vmCheckMatch() {
 }
 
 // ============================================
-// Keyer Update (Main Loop)
+// Keyer Callback and Update
 // ============================================
+
+// Keyer callback - called by unified keyer when tone state changes
+void vmKeyerCallback(bool txOn, int element) {
+    unsigned long currentTime = millis();
+
+    if (txOn) {
+        // Tone starting
+        if (vmLastToneState == false) {
+            if (vmLastStateChangeTime > 0) {
+                float silenceDuration = currentTime - vmLastStateChangeTime;
+                if (silenceDuration > 0) {
+                    vmDecoder.addTiming(-silenceDuration);
+                }
+            }
+            vmLastStateChangeTime = currentTime;
+            vmLastToneState = true;
+        }
+        requestStartTone(cwTone);  // Non-blocking request to Core 0
+    } else {
+        // Tone stopping
+        if (vmLastToneState == true) {
+            float toneDuration = currentTime - vmLastStateChangeTime;
+            if (toneDuration > 0) {
+                vmDecoder.addTiming(toneDuration);
+                vmLastElementTime = currentTime;
+            }
+            vmLastStateChangeTime = currentTime;
+            vmLastToneState = false;
+        }
+        requestStopTone();  // Non-blocking request to Core 0
+    }
+}
 
 void vmUpdateKeyer() {
     if (!vmActive) return;
+    if (!vmKeyer) return;
     if (vmState == VM_STATE_MENU || vmState == VM_STATE_RUN_COMPLETE ||
         vmState == VM_STATE_SETTINGS || vmState == VM_STATE_HISTORY ||
         vmState == VM_STATE_CHARSET_EDIT) return;
@@ -717,21 +746,28 @@ void vmUpdateKeyer() {
     }
 
     // Read paddle inputs from audio task (sampled at ~1ms on Core 0)
-    getPaddleState(&vmDitPressed, &vmDahPressed);
+    bool newDitPressed, newDahPressed;
+    getPaddleState(&newDitPressed, &newDahPressed);
 
     // Transition from READY to LISTENING on first key
-    if (vmState == VM_STATE_READY && (vmDitPressed || vmDahPressed)) {
+    if (vmState == VM_STATE_READY && (newDitPressed || newDahPressed)) {
         vmState = VM_STATE_LISTENING;
         vmSession.trials[vmSession.currentTrial].firstKeyTime = millis();
         Serial.println("[VailMaster] First key detected, listening...");
     }
 
-    // Handle keying
-    if (cwKeyType == KEY_STRAIGHT) {
-        vmStraightKeyHandler();
-    } else {
-        vmIambicKeyerHandler();
+    // Feed paddle state to unified keyer
+    if (newDitPressed != vmDitPressed) {
+        vmKeyer->key(PADDLE_DIT, newDitPressed);
+        vmDitPressed = newDitPressed;
     }
+    if (newDahPressed != vmDahPressed) {
+        vmKeyer->key(PADDLE_DAH, newDahPressed);
+        vmDahPressed = newDahPressed;
+    }
+
+    // Tick the keyer state machine
+    vmKeyer->tick(millis());
 
     // Check for decoder timeout (flush after word gap)
     if (vmLastElementTime > 0 && !vmDitPressed && !vmDahPressed) {
@@ -746,146 +782,6 @@ void vmUpdateKeyer() {
 
     // Check for match
     vmCheckMatch();
-}
-
-void vmStraightKeyHandler() {
-    unsigned long currentTime = millis();
-
-    // Use vmLastToneState to track what we've requested (not what's actually playing)
-    // This prevents flooding the request queue with redundant requests
-    if (vmDitPressed && !vmLastToneState) {
-        // Tone starting - only request once
-        if (vmLastStateChangeTime > 0) {
-            float silenceDuration = currentTime - vmLastStateChangeTime;
-            if (silenceDuration > 0) {
-                vmDecoder.addTiming(-silenceDuration);
-            }
-        }
-        vmLastStateChangeTime = currentTime;
-        vmLastToneState = true;
-        requestStartTone(cwTone);  // Non-blocking request to Core 0
-    }
-    else if (vmDitPressed && vmLastToneState) {
-        // Key held - audio task keeps buffer filled, nothing to do
-    }
-    else if (!vmDitPressed && vmLastToneState) {
-        // Tone stopping - only request once
-        float toneDuration = currentTime - vmLastStateChangeTime;
-        if (toneDuration > 0) {
-            vmDecoder.addTiming(toneDuration);
-            vmLastElementTime = currentTime;
-        }
-        vmLastStateChangeTime = currentTime;
-        vmLastToneState = false;
-        requestStopTone();  // Non-blocking request to Core 0
-    }
-}
-
-void vmIambicKeyerHandler() {
-    unsigned long currentTime = millis();
-
-    // If not actively sending or spacing, check for new input
-    if (!vmKeyerActive && !vmInSpacing) {
-        if (vmDitPressed || vmDitMemory) {
-            // Start sending dit - only request tone once
-            if (vmLastToneState == false) {
-                if (vmLastStateChangeTime > 0) {
-                    float silenceDuration = currentTime - vmLastStateChangeTime;
-                    if (silenceDuration > 0) {
-                        vmDecoder.addTiming(-silenceDuration);
-                    }
-                }
-                vmLastStateChangeTime = currentTime;
-                vmLastToneState = true;
-                requestStartTone(cwTone);  // Non-blocking request to Core 0 - only once!
-            }
-
-            vmKeyerActive = true;
-            vmSendingDit = true;
-            vmSendingDah = false;
-            vmInSpacing = false;
-            vmElementStartTime = currentTime;
-            vmDitMemory = false;
-        }
-        else if (vmDahPressed || vmDahMemory) {
-            // Start sending dah - only request tone once
-            if (vmLastToneState == false) {
-                if (vmLastStateChangeTime > 0) {
-                    float silenceDuration = currentTime - vmLastStateChangeTime;
-                    if (silenceDuration > 0) {
-                        vmDecoder.addTiming(-silenceDuration);
-                    }
-                }
-                vmLastStateChangeTime = currentTime;
-                vmLastToneState = true;
-                requestStartTone(cwTone);  // Non-blocking request to Core 0 - only once!
-            }
-
-            vmKeyerActive = true;
-            vmSendingDit = false;
-            vmSendingDah = true;
-            vmInSpacing = false;
-            vmElementStartTime = currentTime;
-            vmDahMemory = false;
-        }
-    }
-    // Currently sending an element
-    else if (vmKeyerActive && !vmInSpacing) {
-        unsigned long elementDuration = vmSendingDit ? vmDitDuration : (vmDitDuration * 3);
-
-        // No action needed - audio task keeps buffer filled
-
-        // Check for paddle input during element (iambic squeeze)
-        if (vmDitPressed && vmDahPressed) {
-            if (vmSendingDit) vmDahMemory = true;
-            else vmDitMemory = true;
-        }
-        else if (vmSendingDit && vmDahPressed) {
-            vmDahMemory = true;
-        }
-        else if (vmSendingDah && vmDitPressed) {
-            vmDitMemory = true;
-        }
-
-        // Check if element is complete
-        if (currentTime - vmElementStartTime >= elementDuration) {
-            if (vmLastToneState == true) {
-                float toneDuration = currentTime - vmLastStateChangeTime;
-                if (toneDuration > 0) {
-                    vmDecoder.addTiming(toneDuration);
-                    vmLastElementTime = currentTime;
-                }
-                vmLastStateChangeTime = currentTime;
-                vmLastToneState = false;
-                requestStopTone();  // Non-blocking request to Core 0 - only once!
-            }
-
-            vmKeyerActive = false;
-            vmSendingDit = false;
-            vmSendingDah = false;
-            vmInSpacing = true;
-            vmElementStartTime = currentTime;
-        }
-    }
-    // In inter-element spacing
-    else if (vmInSpacing) {
-        // Check for paddle input during spacing
-        if (vmDitPressed && vmDahPressed) {
-            vmDitMemory = true;
-            vmDahMemory = true;
-        }
-        else if (vmDitPressed && !vmDitMemory) {
-            vmDitMemory = true;
-        }
-        else if (vmDahPressed && !vmDahMemory) {
-            vmDahMemory = true;
-        }
-
-        // Wait for 1 dit duration (inter-element gap)
-        if (currentTime - vmElementStartTime >= vmDitDuration) {
-            vmInSpacing = false;
-        }
-    }
 }
 
 // ============================================
@@ -903,6 +799,9 @@ void vmClearEcho() {
 
 void vmHandleEsc() {
     requestStopTone();  // Non-blocking request to Core 0
+    if (vmKeyer) {
+        vmKeyer->reset();
+    }
     vmDecoder.flush();
     vmActive = false;
     vmState = VM_STATE_MENU;

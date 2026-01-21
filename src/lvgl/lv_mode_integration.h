@@ -174,6 +174,10 @@
 #define LVGL_MODE_POTA_RECORDER          136
 #define LVGL_MODE_POTA_RECORDER_SETUP    137
 
+// CW DOOM game modes
+#define LVGL_MODE_CW_DOOM_SETTINGS       138
+#define LVGL_MODE_CW_DOOM                139
+
 // ============================================
 // Forward declarations from main file
 // ============================================
@@ -529,6 +533,16 @@ void initializeModeInt(int mode) {
         case LVGL_MODE_CW_SPEEDER:
             Serial.println("[ModeInit] Starting CW Speeder - Game");
             cwSpeedGameStart();
+            break;
+
+        // CW DOOM game
+        case LVGL_MODE_CW_DOOM_SETTINGS:
+            Serial.println("[ModeInit] Starting CW DOOM - Settings");
+            loadDoomHighScores();
+            break;
+        case LVGL_MODE_CW_DOOM:
+            Serial.println("[ModeInit] Starting CW DOOM - Game");
+            // Game initialization handled by settings screen
             break;
 
         // Network/radio modes
@@ -904,6 +918,7 @@ int getParentModeInt(int mode) {
         case LVGL_MODE_SPARK_WATCH:
         case LVGL_MODE_STORY_TIME:
         case LVGL_MODE_CW_SPEEDER_SELECT:
+        case LVGL_MODE_CW_DOOM_SETTINGS:
             return LVGL_MODE_GAMES_MENU;
 
         // Spark Watch sub-screens
@@ -1056,6 +1071,10 @@ int getParentModeInt(int mode) {
         // CW Speeder
         case LVGL_MODE_CW_SPEEDER:
             return LVGL_MODE_CW_SPEEDER_SELECT;
+
+        // CW DOOM
+        case LVGL_MODE_CW_DOOM:
+            return LVGL_MODE_CW_DOOM_SETTINGS;
 
         default:
             return LVGL_MODE_MAIN_MENU;

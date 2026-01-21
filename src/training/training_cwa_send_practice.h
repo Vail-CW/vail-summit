@@ -8,6 +8,7 @@
 
 #include "training_cwa_core.h"  // Same folder
 #include "training_cwa_copy_practice.h"  // Same folder - For generateCWAContent()
+#include "../keyer/keyer.h"
 
 // ============================================
 // Sending Practice State
@@ -28,22 +29,19 @@ bool cwaSendNeedsUIUpdate = false;       // Flag to trigger UI refresh when deco
 // Decoder for sending practice
 MorseDecoderAdaptive cwaSendDecoder(15, 15, 30);  // 15 WPM for sending practice
 
-// Paddle input state for sending practice
-bool cwaSendDitPressed = false;
-bool cwaSendDahPressed = false;
-bool cwaSendKeyerActive = false;
-bool cwaSendSendingDit = false;
-bool cwaSendSendingDah = false;
-bool cwaSendInSpacing = false;
-bool cwaSendDitMemory = false;
-bool cwaSendDahMemory = false;
-unsigned long cwaSendElementStartTime = 0;
-int cwaSendDitDuration = 0;
+// Keyer state - using unified keyer module
+static bool cwaSendDitPressed = false;
+static bool cwaSendDahPressed = false;
+static StraightKeyer* cwaSendKeyer = nullptr;
+static int cwaSendDitDuration = 0;
 
 // Decoder timing capture
 unsigned long cwaSendLastStateChangeTime = 0;
 bool cwaSendLastToneState = false;
 unsigned long cwaSendLastElementTime = 0;
+
+// Forward declaration for callback
+void cwaSendKeyerCallback(bool txOn, int element);
 
 // ============================================
 // Round Management
@@ -188,6 +186,14 @@ void startCWASendingPractice(LGFX& tft) {
   cwaSendDecoder.setWPM(15);
   cwaSendDitDuration = DIT_DURATION(15);
 
+  // Initialize unified keyer
+  cwaSendKeyer = getKeyer(cwKeyType);
+  cwaSendKeyer->reset();
+  cwaSendKeyer->setDitDuration(cwaSendDitDuration);
+  cwaSendKeyer->setTxCallback(cwaSendKeyerCallback);
+  cwaSendDitPressed = false;
+  cwaSendDahPressed = false;
+
   // Setup decoder callback
   cwaSendDecoder.messageCallback = [](String morse, String text) {
     for (int i = 0; i < text.length(); i++) {
@@ -262,105 +268,45 @@ void startCWASendingPractice(LGFX& tft) {
 }
 
 // ============================================
-// Keyer Logic
+// Keyer Callback and Update
 // ============================================
 
 /*
- * Handle iambic keyer for sending practice
+ * Keyer callback - called by unified keyer when tone state changes
  */
-void handleCWASendingKeyer() {
+void cwaSendKeyerCallback(bool txOn, int element) {
   unsigned long currentTime = millis();
 
-  // If not actively sending or spacing, check for new input
-  if (!cwaSendKeyerActive && !cwaSendInSpacing) {
-    if (cwaSendDitPressed || cwaSendDitMemory) {
-      // Start sending dit
-      if (cwaSendLastToneState == false) {
-        if (cwaSendLastStateChangeTime > 0) {
-          float silenceDuration = currentTime - cwaSendLastStateChangeTime;
-          if (silenceDuration > 0) {
-            cwaSendDecoder.addTiming(-silenceDuration);
-          }
-        }
-        cwaSendLastStateChangeTime = currentTime;
-        cwaSendLastToneState = true;
-      }
-
-      cwaSendKeyerActive = true;
-      cwaSendSendingDit = true;
-      cwaSendSendingDah = false;
-      cwaSendInSpacing = false;
-      cwaSendElementStartTime = currentTime;
-      startTone(cwTone);
-      cwaSendDitMemory = false;
-
-      // Track when student first starts keying
-      if (cwaSendKeyStartTime == 0) {
-        cwaSendKeyStartTime = currentTime;
-      }
-    }
-    else if (cwaSendDahPressed || cwaSendDahMemory) {
-      // Start sending dah
-      if (cwaSendLastToneState == false) {
-        if (cwaSendLastStateChangeTime > 0) {
-          float silenceDuration = currentTime - cwaSendLastStateChangeTime;
-          if (silenceDuration > 0) {
-            cwaSendDecoder.addTiming(-silenceDuration);
-          }
-        }
-        cwaSendLastStateChangeTime = currentTime;
-        cwaSendLastToneState = true;
-      }
-
-      cwaSendKeyerActive = true;
-      cwaSendSendingDit = false;
-      cwaSendSendingDah = true;
-      cwaSendInSpacing = false;
-      cwaSendElementStartTime = currentTime;
-      startTone(cwTone);
-      cwaSendDahMemory = false;
-
-      // Track when student first starts keying
-      if (cwaSendKeyStartTime == 0) {
-        cwaSendKeyStartTime = currentTime;
-      }
-    }
+  // Track when student first starts keying
+  if (txOn && cwaSendKeyStartTime == 0) {
+    cwaSendKeyStartTime = currentTime;
   }
-  // Currently sending an element
-  else if (cwaSendKeyerActive && !cwaSendInSpacing) {
-    int duration = (cwaSendSendingDit) ? cwaSendDitDuration : (cwaSendDitDuration * 3);
 
-    // Check for opposite paddle (for iambic memory)
-    if (cwaSendSendingDit && cwaSendDahPressed) {
-      cwaSendDahMemory = true;
-    } else if (cwaSendSendingDah && cwaSendDitPressed) {
-      cwaSendDitMemory = true;
-    }
-
-    // Check if element is complete
-    if (currentTime - cwaSendElementStartTime >= duration) {
-      // Send tone duration to decoder
-      if (cwaSendLastToneState == true) {
-        float toneDuration = currentTime - cwaSendLastStateChangeTime;
-        if (toneDuration > 0) {
-          cwaSendDecoder.addTiming(toneDuration);
-          cwaSendLastElementTime = currentTime;
+  if (txOn) {
+    // Tone starting
+    if (cwaSendLastToneState == false) {
+      if (cwaSendLastStateChangeTime > 0) {
+        float silenceDuration = currentTime - cwaSendLastStateChangeTime;
+        if (silenceDuration > 0) {
+          cwaSendDecoder.addTiming(-silenceDuration);
         }
-        cwaSendLastStateChangeTime = currentTime;
-        cwaSendLastToneState = false;
       }
-
-      stopTone();
-      cwaSendKeyerActive = false;
-      cwaSendInSpacing = true;
-      cwaSendElementStartTime = currentTime;
+      cwaSendLastStateChangeTime = currentTime;
+      cwaSendLastToneState = true;
     }
-  }
-  // In inter-element spacing
-  else if (cwaSendInSpacing) {
-    if (currentTime - cwaSendElementStartTime >= cwaSendDitDuration) {
-      cwaSendInSpacing = false;
+    startTone(cwTone);
+  } else {
+    // Tone stopping
+    if (cwaSendLastToneState == true) {
+      float toneDuration = currentTime - cwaSendLastStateChangeTime;
+      if (toneDuration > 0) {
+        cwaSendDecoder.addTiming(toneDuration);
+        cwaSendLastElementTime = currentTime;
+      }
+      cwaSendLastStateChangeTime = currentTime;
+      cwaSendLastToneState = false;
     }
+    stopTone();
   }
 }
 
@@ -369,6 +315,7 @@ void handleCWASendingKeyer() {
  */
 void updateCWASendingPractice() {
   if (!cwaSendWaitingForSend) return;
+  if (!cwaSendKeyer) return;
 
   // Check for decoder timeout (flush after word gap)
   if (cwaSendLastElementTime > 0 && !cwaSendDitPressed && !cwaSendDahPressed) {
@@ -382,44 +329,25 @@ void updateCWASendingPractice() {
   }
 
   // Read paddle inputs
-  cwaSendDitPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
-  cwaSendDahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
+  bool newDitPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
+  bool newDahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
 
-  // Handle keyer (iambic or straight)
-  if (cwKeyType == KEY_STRAIGHT) {
-    // Simplified straight key handling
-    bool toneOn = isTonePlaying();
-    if (cwaSendDitPressed && !toneOn) {
-      if (cwaSendLastToneState == false) {
-        if (cwaSendLastStateChangeTime > 0) {
-          float silenceDuration = millis() - cwaSendLastStateChangeTime;
-          if (silenceDuration > 0) {
-            cwaSendDecoder.addTiming(-silenceDuration);
-          }
-        }
-        cwaSendLastStateChangeTime = millis();
-        cwaSendLastToneState = true;
-      }
-      startTone(cwTone);
-      if (cwaSendKeyStartTime == 0) cwaSendKeyStartTime = millis();
-    }
-    else if (cwaSendDitPressed && toneOn) {
-      continueTone(cwTone);
-    }
-    else if (!cwaSendDitPressed && toneOn) {
-      if (cwaSendLastToneState == true) {
-        float toneDuration = millis() - cwaSendLastStateChangeTime;
-        if (toneDuration > 0) {
-          cwaSendDecoder.addTiming(toneDuration);
-          cwaSendLastElementTime = millis();
-        }
-        cwaSendLastStateChangeTime = millis();
-        cwaSendLastToneState = false;
-      }
-      stopTone();
-    }
-  } else {
-    handleCWASendingKeyer();
+  // Feed paddle state to unified keyer
+  if (newDitPressed != cwaSendDitPressed) {
+    cwaSendKeyer->key(PADDLE_DIT, newDitPressed);
+    cwaSendDitPressed = newDitPressed;
+  }
+  if (newDahPressed != cwaSendDahPressed) {
+    cwaSendKeyer->key(PADDLE_DAH, newDahPressed);
+    cwaSendDahPressed = newDahPressed;
+  }
+
+  // Tick the keyer state machine
+  cwaSendKeyer->tick(millis());
+
+  // Keep tone playing if keyer is active (for audio buffer continuity)
+  if (cwaSendKeyer->isTxActive()) {
+    continueTone(cwTone);
   }
 }
 
@@ -433,6 +361,9 @@ void updateCWASendingPractice() {
 int handleCWASendingPracticeInput(char key, LGFX& tft) {
   if (key == 0x1B) {  // ESC
     stopTone();  // Ensure tone is stopped
+    if (cwaSendKeyer) {
+      cwaSendKeyer->reset();
+    }
     return -1;  // Exit
   }
 

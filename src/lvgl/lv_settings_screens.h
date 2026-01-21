@@ -430,8 +430,8 @@ static lv_obj_t* cw_tone_row = NULL;
 static lv_obj_t* cw_keytype_row = NULL;
 
 // Key type names for selector display
-static const char* cw_keytype_names[] = {"Straight", "Iambic A", "Iambic B"};
-static const int cw_keytype_count = 3;
+static const char* cw_keytype_names[] = {"Straight", "Iambic A", "Iambic B", "Ultimatic"};
+static const int cw_keytype_count = 4;
 
 // Musical note frequencies in the CW tone range (400-1200 Hz)
 // A4 = 440 Hz standard tuning, includes all semitones (chromatic scale)
@@ -959,120 +959,131 @@ const char* getCallsignFromTextarea() {
 
 static lv_obj_t* web_password_screen = NULL;
 static lv_obj_t* web_password_textarea = NULL;
-static lv_obj_t* web_password_enable_switch = NULL;
+static lv_obj_t* web_password_toggle_btn = NULL;
+static lv_obj_t* web_password_toggle_label = NULL;
+static lv_obj_t* web_password_field_container = NULL;
 static lv_obj_t* web_password_error_label = NULL;
+static bool web_password_enabled_state = false;
 
-// Key handler for web password switch - uses LEFT/RIGHT to toggle, UP/DOWN to navigate
-// NOTE: Must stop processing on all keys to prevent LVGL's default switch behavior
-// from toggling on PREV/NEXT keys
-static void web_password_switch_key_handler(lv_event_t* e) {
-    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
-    uint32_t key = lv_event_get_key(e);
-    lv_obj_t* obj = lv_event_get_target(e);
+// Forward declarations
+static void update_web_password_display();
 
-    // LEFT/RIGHT toggles the switch
-    if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
-        if (lv_obj_has_state(obj, LV_STATE_CHECKED)) {
-            lv_obj_clear_state(obj, LV_STATE_CHECKED);
+// Update the toggle button display and show/hide password field
+static void update_web_password_display() {
+    if (web_password_toggle_label != NULL) {
+        lv_label_set_text(web_password_toggle_label, web_password_enabled_state ? "ENABLED" : "DISABLED");
+        lv_obj_set_style_text_color(web_password_toggle_label,
+            web_password_enabled_state ? LV_COLOR_ACCENT_GREEN : LV_COLOR_WARNING, 0);
+    }
+    // Show/hide password field based on state
+    if (web_password_field_container != NULL) {
+        if (web_password_enabled_state) {
+            lv_obj_clear_flag(web_password_field_container, LV_OBJ_FLAG_HIDDEN);
         } else {
-            lv_obj_add_state(obj, LV_STATE_CHECKED);
+            lv_obj_add_flag(web_password_field_container, LV_OBJ_FLAG_HIDDEN);
         }
-        beep(TONE_SELECT, BEEP_SHORT);
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    // UP/DOWN should navigate - prevent default switch toggle behavior
-    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
-        // Can't go up from switch (it's the first widget)
-        lv_event_stop_processing(e);
-        return;
-    }
-    if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
-        // Move to password textarea
-        lv_group_focus_next(getLVGLInputGroup());
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    // ENTER on switch toggles it
-    if (key == LV_KEY_ENTER) {
-        if (lv_obj_has_state(obj, LV_STATE_CHECKED)) {
-            lv_obj_clear_state(obj, LV_STATE_CHECKED);
-        } else {
-            lv_obj_add_state(obj, LV_STATE_CHECKED);
-        }
-        beep(TONE_SELECT, BEEP_SHORT);
-        lv_event_stop_processing(e);
-        return;
     }
 }
 
-// Key handler for web password textarea - handles navigation and ENTER to save
-static void web_password_key_handler(lv_event_t* e) {
+// Key handler for web password toggle button - ENTER to toggle
+static void web_password_toggle_key_handler(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
     uint32_t key = lv_event_get_key(e);
 
-    // Handle UP/DOWN navigation from textarea
-    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
-        // Move focus back to switch
-        if (web_password_error_label != NULL) {
-            lv_obj_add_flag(web_password_error_label, LV_OBJ_FLAG_HIDDEN);
-        }
-        lv_group_focus_prev(getLVGLInputGroup());
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
-        // Can't go down from textarea (it's the last navigable widget)
-        lv_event_stop_processing(e);
-        return;
-    }
-
+    // ENTER toggles the setting
     if (key == LV_KEY_ENTER) {
-        // Check switch state to determine if protection should be enabled
-        bool enableProtection = (web_password_enable_switch != NULL) &&
-                                lv_obj_has_state(web_password_enable_switch, LV_STATE_CHECKED);
+        web_password_enabled_state = !web_password_enabled_state;
+        update_web_password_display();
+        beep(TONE_SELECT, BEEP_SHORT);
 
-        if (enableProtection) {
-            // Protection enabled - validate and save password
-            if (web_password_textarea != NULL) {
-                const char* text = lv_textarea_get_text(web_password_textarea);
-                String password = String(text);
-
-                if (password.length() >= 8 && password.length() <= 16) {
-                    // Valid password - save it
-                    webPassword = password;
-                    webAuthEnabled = true;
-                    saveWebPassword(password);
-
-                    beep(TONE_SELECT, BEEP_MEDIUM);
-                    Serial.printf("[WebPW] Password saved, auth enabled\n");
-                    onLVGLBackNavigation();
-                } else {
-                    // Invalid length - show error message
-                    beep(TONE_ERROR, BEEP_MEDIUM);
-                    if (web_password_error_label != NULL) {
-                        lv_label_set_text(web_password_error_label, "Must be 8-16 characters");
-                        lv_obj_clear_flag(web_password_error_label, LV_OBJ_FLAG_HIDDEN);
-                    }
-                    Serial.println("[WebPW] Invalid password length (need 8-16 chars)");
-                }
-            }
-        } else {
-            // Protection disabled via switch - clear password
+        // If disabling, clear password and save immediately
+        if (!web_password_enabled_state) {
             webPassword = "";
             webAuthEnabled = false;
             clearWebPassword();
-
-            beep(TONE_SELECT, BEEP_MEDIUM);
-            Serial.println("[WebPW] Password protection disabled via switch");
-            onLVGLBackNavigation();
+            Serial.println("[WebPW] Password protection disabled");
         }
-        lv_event_stop_bubbling(e);
+
+        // Focus moves to textarea when enabled
+        if (web_password_enabled_state && web_password_textarea != NULL) {
+            lv_group_focus_obj(web_password_textarea);
+        }
+
+        lv_event_stop_processing(e);
+        return;
     }
-    // ESC is handled by the global back navigation system
+
+    // UP - can't go up (first widget)
+    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // DOWN - move to textarea if enabled
+    if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
+        if (web_password_enabled_state && web_password_textarea != NULL) {
+            lv_group_focus_obj(web_password_textarea);
+        }
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // Block other keys
+    lv_event_stop_processing(e);
+}
+
+// Key handler for web password textarea - ENTER to save
+static void web_password_field_key_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
+
+    // UP - move back to toggle button
+    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
+        if (web_password_error_label != NULL) {
+            lv_obj_add_flag(web_password_error_label, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (web_password_toggle_btn != NULL) {
+            lv_group_focus_obj(web_password_toggle_btn);
+        }
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // DOWN - can't go down (last widget)
+    if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // ENTER - validate and save password
+    if (key == LV_KEY_ENTER) {
+        lv_event_stop_processing(e);
+
+        if (web_password_textarea != NULL) {
+            const char* text = lv_textarea_get_text(web_password_textarea);
+            String password = String(text);
+
+            if (password.length() >= 8 && password.length() <= 16) {
+                // Valid password - save it
+                webPassword = password;
+                webAuthEnabled = true;
+                saveWebPassword(password);
+
+                beep(TONE_SELECT, BEEP_MEDIUM);
+                Serial.printf("[WebPW] Password saved, auth enabled\n");
+                onLVGLBackNavigation();
+            } else {
+                // Invalid length - show error
+                beep(TONE_ERROR, BEEP_MEDIUM);
+                if (web_password_error_label != NULL) {
+                    lv_label_set_text(web_password_error_label, "Must be 8-16 characters");
+                    lv_obj_clear_flag(web_password_error_label, LV_OBJ_FLAG_HIDDEN);
+                }
+                Serial.println("[WebPW] Invalid password length (need 8-16 chars)");
+            }
+        }
+        return;
+    }
 }
 
 lv_obj_t* createWebPasswordSettingsScreen() {
@@ -1094,7 +1105,7 @@ lv_obj_t* createWebPasswordSettingsScreen() {
     // Status bar (WiFi + battery) on the right side
     createCompactStatusBar(screen);
 
-    // Content
+    // Content card
     lv_obj_t* content = lv_obj_create(screen);
     lv_obj_set_size(content, SCREEN_WIDTH - 60, 180);
     lv_obj_center(content);
@@ -1104,40 +1115,60 @@ lv_obj_t* createWebPasswordSettingsScreen() {
     lv_obj_set_style_pad_all(content, 20, 0);
     applyCardStyle(content);
 
-    // Enable switch row
-    lv_obj_t* enable_row = lv_obj_create(content);
-    lv_obj_set_size(enable_row, lv_pct(100), LV_SIZE_CONTENT);
-    lv_obj_set_layout(enable_row, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(enable_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(enable_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(enable_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(enable_row, 0, 0);
-    lv_obj_set_style_pad_all(enable_row, 0, 0);
+    // Toggle button row
+    lv_obj_t* toggle_row = lv_obj_create(content);
+    lv_obj_set_size(toggle_row, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_layout(toggle_row, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(toggle_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(toggle_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_bg_opa(toggle_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(toggle_row, 0, 0);
+    lv_obj_set_style_pad_all(toggle_row, 0, 0);
 
-    lv_obj_t* enable_label = lv_label_create(enable_row);
-    lv_label_set_text(enable_label, "Password Protection");
-    lv_obj_add_style(enable_label, getStyleLabelSubtitle(), 0);
+    lv_obj_t* toggle_text = lv_label_create(toggle_row);
+    lv_label_set_text(toggle_text, "Password Protection");
+    lv_obj_add_style(toggle_text, getStyleLabelSubtitle(), 0);
 
-    web_password_enable_switch = lv_switch_create(enable_row);
-    lv_obj_add_style(web_password_enable_switch, getStyleSwitch(), 0);
-    lv_obj_add_style(web_password_enable_switch, getStyleSwitchChecked(), LV_STATE_CHECKED);
-    // Set checked state AFTER styles are applied
-    Serial.printf("[WebPW Screen] webAuthEnabled=%d, webPassword length=%d\n", webAuthEnabled, webPassword.length());
-    if (webAuthEnabled) {
-        lv_obj_add_state(web_password_enable_switch, LV_STATE_CHECKED);
-        Serial.println("[WebPW Screen] Switch set to CHECKED");
-    }
-    // Add key handler for switch: LEFT/RIGHT toggles, UP/DOWN navigates
-    lv_obj_add_event_cb(web_password_enable_switch, web_password_switch_key_handler, LV_EVENT_KEY, NULL);
-    addNavigableWidget(web_password_enable_switch);
+    // Create toggle button (like quiet boot)
+    web_password_toggle_btn = lv_btn_create(toggle_row);
+    lv_obj_set_size(web_password_toggle_btn, 80, 28);
+    lv_obj_set_style_bg_color(web_password_toggle_btn, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_bg_color(web_password_toggle_btn, lv_color_hex(0x555555), LV_STATE_FOCUSED);
+    lv_obj_set_style_radius(web_password_toggle_btn, 4, 0);
+    lv_obj_set_style_border_width(web_password_toggle_btn, 1, 0);
+    lv_obj_set_style_border_color(web_password_toggle_btn, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_border_color(web_password_toggle_btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+    lv_obj_set_style_pad_all(web_password_toggle_btn, 4, 0);
+
+    // Initialize state from saved preference
+    web_password_enabled_state = webAuthEnabled;
+
+    // Label inside button showing ENABLED/DISABLED
+    web_password_toggle_label = lv_label_create(web_password_toggle_btn);
+    lv_obj_center(web_password_toggle_label);
+    lv_obj_set_style_text_font(web_password_toggle_label, getThemeFonts()->font_small, 0);
+
+    // Add key handler for toggle button
+    lv_obj_add_event_cb(web_password_toggle_btn, web_password_toggle_key_handler, LV_EVENT_KEY, NULL);
+    addNavigableWidget(web_password_toggle_btn);
+
+    // Password field container (hidden when disabled)
+    web_password_field_container = lv_obj_create(content);
+    lv_obj_set_size(web_password_field_container, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_layout(web_password_field_container, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(web_password_field_container, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(web_password_field_container, 8, 0);
+    lv_obj_set_style_bg_opa(web_password_field_container, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(web_password_field_container, 0, 0);
+    lv_obj_set_style_pad_all(web_password_field_container, 0, 0);
 
     // Password label
-    lv_obj_t* pw_label = lv_label_create(content);
+    lv_obj_t* pw_label = lv_label_create(web_password_field_container);
     lv_label_set_text(pw_label, "Password (8-16 characters):");
     lv_obj_add_style(pw_label, getStyleLabelBody(), 0);
 
     // Password text area
-    web_password_textarea = lv_textarea_create(content);
+    web_password_textarea = lv_textarea_create(web_password_field_container);
     lv_obj_set_size(web_password_textarea, lv_pct(100), 45);
     lv_textarea_set_one_line(web_password_textarea, true);
     lv_textarea_set_max_length(web_password_textarea, 16);
@@ -1147,16 +1178,20 @@ lv_obj_t* createWebPasswordSettingsScreen() {
         lv_textarea_set_text(web_password_textarea, webPassword.c_str());
     }
     lv_obj_add_style(web_password_textarea, getStyleTextarea(), 0);
-    // Add key handler to process ENTER for save (checks switch state for enable/disable)
-    lv_obj_add_event_cb(web_password_textarea, web_password_key_handler, LV_EVENT_KEY, NULL);
+
+    // Add key handler for textarea
+    lv_obj_add_event_cb(web_password_textarea, web_password_field_key_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(web_password_textarea);
 
     // Error message label (hidden by default)
-    web_password_error_label = lv_label_create(content);
+    web_password_error_label = lv_label_create(web_password_field_container);
     lv_label_set_text(web_password_error_label, "");
     lv_obj_set_style_text_color(web_password_error_label, LV_COLOR_ERROR, 0);
     lv_obj_set_style_text_font(web_password_error_label, getThemeFonts()->font_small, 0);
     lv_obj_add_flag(web_password_error_label, LV_OBJ_FLAG_HIDDEN);
+
+    // Update display (shows/hides password field based on state)
+    update_web_password_display();
 
     // Footer
     lv_obj_t* footer = lv_obj_create(screen);
@@ -1167,15 +1202,15 @@ lv_obj_t* createWebPasswordSettingsScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, "UP/DN Navigate   L/R Toggle   ENTER Save   ESC Back");
+    lv_label_set_text(help, "ENTER Toggle/Save   ESC Back");
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
 
     web_password_screen = screen;
 
-    // Auto-focus the switch first for navigation flow
-    focusWidget(web_password_enable_switch);
+    // Focus the toggle button
+    focusWidget(web_password_toggle_btn);
 
     return screen;
 }

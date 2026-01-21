@@ -11,9 +11,10 @@
 
 // Key types
 enum KeyType {
-  KEY_STRAIGHT,
-  KEY_IAMBIC_A,
-  KEY_IAMBIC_B
+  KEY_STRAIGHT = 0,
+  KEY_IAMBIC_A = 1,
+  KEY_IAMBIC_B = 2,
+  KEY_ULTIMATIC = 3
 };
 
 // CW settings state
@@ -165,8 +166,10 @@ void drawCWSettingsUI(LGFX &display) {
     display.print("Straight");
   } else if (cwKeyType == KEY_IAMBIC_A) {
     display.print("Iambic A");
-  } else {
+  } else if (cwKeyType == KEY_IAMBIC_B) {
     display.print("Iambic B");
+  } else {
+    display.print("Ultimatic");
   }
 
   // Draw footer instructions
@@ -217,8 +220,11 @@ int handleCWSettingsInput(char key, LGFX &display) {
         changed = true;
       }
     } else if (cwSettingSelection == 2) {
-      // Key type
-      if (cwKeyType == KEY_IAMBIC_B) {
+      // Key type (cycle backward: Ultimatic -> Iambic B -> Iambic A -> Straight)
+      if (cwKeyType == KEY_ULTIMATIC) {
+        cwKeyType = KEY_IAMBIC_B;
+        changed = true;
+      } else if (cwKeyType == KEY_IAMBIC_B) {
         cwKeyType = KEY_IAMBIC_A;
         changed = true;
       } else if (cwKeyType == KEY_IAMBIC_A) {
@@ -254,12 +260,15 @@ int handleCWSettingsInput(char key, LGFX &display) {
         changed = true;
       }
     } else if (cwSettingSelection == 2) {
-      // Key type
+      // Key type (cycle forward: Straight -> Iambic A -> Iambic B -> Ultimatic)
       if (cwKeyType == KEY_STRAIGHT) {
         cwKeyType = KEY_IAMBIC_A;
         changed = true;
       } else if (cwKeyType == KEY_IAMBIC_A) {
         cwKeyType = KEY_IAMBIC_B;
+        changed = true;
+      } else if (cwKeyType == KEY_IAMBIC_B) {
+        cwKeyType = KEY_ULTIMATIC;
         changed = true;
       }
     }

@@ -71,6 +71,7 @@ const char* getKeyTypeString(KeyType type) {
         case KEY_STRAIGHT: return "Straight";
         case KEY_IAMBIC_A: return "Iambic A";
         case KEY_IAMBIC_B: return "Iambic B";
+        case KEY_ULTIMATIC: return "Ultimatic";
         default: return "Unknown";
     }
 }
@@ -397,10 +398,11 @@ static void radio_key_event_cb(lv_event_t* e) {
                         beep(TONE_MENU_NAV, BEEP_SHORT);
                     }
                 } else if (radio_settings_selection == 1) {
-                    // Key Type
-                    if (cwKeyType == KEY_STRAIGHT) cwKeyType = KEY_IAMBIC_B;
+                    // Key Type (cycle backward: Ultimatic -> Iambic B -> Iambic A -> Straight)
+                    if (cwKeyType == KEY_ULTIMATIC) cwKeyType = KEY_IAMBIC_B;
+                    else if (cwKeyType == KEY_IAMBIC_B) cwKeyType = KEY_IAMBIC_A;
                     else if (cwKeyType == KEY_IAMBIC_A) cwKeyType = KEY_STRAIGHT;
-                    else cwKeyType = KEY_IAMBIC_A;
+                    else cwKeyType = KEY_ULTIMATIC;
                     saveCWSettings();
                     updateRadioSettingsDisplay();
                     if (radio_keytype_label) lv_label_set_text(radio_keytype_label, getKeyTypeString(cwKeyType));
@@ -429,9 +431,10 @@ static void radio_key_event_cb(lv_event_t* e) {
                         beep(TONE_MENU_NAV, BEEP_SHORT);
                     }
                 } else if (radio_settings_selection == 1) {
-                    // Key Type
+                    // Key Type (cycle forward: Straight -> Iambic A -> Iambic B -> Ultimatic)
                     if (cwKeyType == KEY_STRAIGHT) cwKeyType = KEY_IAMBIC_A;
                     else if (cwKeyType == KEY_IAMBIC_A) cwKeyType = KEY_IAMBIC_B;
+                    else if (cwKeyType == KEY_IAMBIC_B) cwKeyType = KEY_ULTIMATIC;
                     else cwKeyType = KEY_STRAIGHT;
                     saveCWSettings();
                     updateRadioSettingsDisplay();
@@ -1558,7 +1561,7 @@ static lv_obj_t* vail_settings_value_label = NULL;
 static lv_obj_t* vail_settings_title_label = NULL;
 static int vail_settings_modal_type = 0;  // 0=none, 1=speed, 2=tone, 3=keytype
 static int vail_settings_temp_value = 0;  // Temp value while adjusting
-static const char* vail_keytype_names[] = {"Straight", "Iambic A", "Iambic B"};
+static const char* vail_keytype_names[] = {"Straight", "Iambic A", "Iambic B", "Ultimatic"};
 
 // Key indicator animation
 static lv_anim_t vail_key_pulse_anim;
@@ -1783,7 +1786,7 @@ static void adjustVailSetting(int delta) {
             snprintf(value_str, sizeof(value_str), "%d Hz", vail_settings_temp_value);
             break;
         case 3:  // Key type
-            vail_settings_temp_value = (vail_settings_temp_value + delta + 3) % 3;
+            vail_settings_temp_value = (vail_settings_temp_value + delta + 4) % 4;
             snprintf(value_str, sizeof(value_str), "%s", vail_keytype_names[vail_settings_temp_value]);
             break;
     }
