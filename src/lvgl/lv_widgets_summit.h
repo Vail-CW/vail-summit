@@ -528,6 +528,109 @@ lv_obj_t* createConfirmDialog(const char* title, const char* message, lv_event_c
 }
 
 // ============================================
+// Alert Dialog Widget
+// ============================================
+
+/*
+ * Create a simple alert dialog with OK button that closes on Enter/click
+ * Properly handles keyboard navigation and dismissal
+ *
+ * Parameters:
+ *   title - Dialog title
+ *   message - Message text
+ *   on_close - Optional callback when dialog is closed (can be NULL)
+ */
+lv_obj_t* createAlertDialog(const char* title, const char* message, lv_event_cb_t on_close = NULL) {
+    static const char* btns[] = {"OK", ""};
+
+    lv_obj_t* mbox = lv_msgbox_create(NULL, title, message, btns, false);
+    lv_obj_center(mbox);
+    lv_obj_add_style(mbox, getStyleMsgbox(), 0);
+
+    // Store close callback in user data
+    lv_obj_set_user_data(mbox, (void*)on_close);
+
+    // Get button matrix
+    lv_obj_t* btns_obj = lv_msgbox_get_btns(mbox);
+
+    // Handle button click (VALUE_CHANGED fires when btnmatrix button is clicked)
+    lv_obj_add_event_cb(mbox, [](lv_event_t* e) {
+        lv_obj_t* obj = lv_event_get_current_target(e);
+        lv_event_cb_t close_cb = (lv_event_cb_t)lv_obj_get_user_data(obj);
+        if (close_cb != NULL) {
+            close_cb(e);
+        }
+        lv_msgbox_close(obj);
+    }, LV_EVENT_VALUE_CHANGED, NULL);
+
+    // Also handle KEY events on the button matrix for Enter key
+    lv_obj_add_event_cb(btns_obj, [](lv_event_t* e) {
+        uint32_t key = lv_event_get_key(e);
+        if (key == LV_KEY_ENTER) {
+            lv_obj_t* btnm = lv_event_get_target(e);
+            lv_obj_t* mbox = lv_obj_get_parent(btnm);
+            lv_event_cb_t close_cb = (lv_event_cb_t)lv_obj_get_user_data(mbox);
+            if (close_cb != NULL) {
+                lv_event_send(mbox, LV_EVENT_VALUE_CHANGED, NULL);
+            }
+            lv_msgbox_close(mbox);
+        } else if (key == LV_KEY_ESC) {
+            lv_obj_t* btnm = lv_event_get_target(e);
+            lv_obj_t* mbox = lv_obj_get_parent(btnm);
+            lv_msgbox_close(mbox);
+        }
+    }, LV_EVENT_KEY, NULL);
+
+    // Focus the button matrix so keyboard works immediately
+    lv_group_focus_obj(btns_obj);
+
+    return mbox;
+}
+
+/*
+ * Create a loading overlay with spinner and message
+ * Returns the overlay object - call lv_obj_del() to remove it
+ *
+ * Parameters:
+ *   message - Loading message to display
+ */
+lv_obj_t* createLoadingOverlay(const char* message) {
+    // Create semi-transparent overlay
+    lv_obj_t* overlay = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(overlay, SCREEN_WIDTH, SCREEN_HEIGHT);
+    lv_obj_set_pos(overlay, 0, 0);
+    lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(overlay, LV_OPA_70, 0);
+    lv_obj_set_style_border_width(overlay, 0, 0);
+    lv_obj_clear_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Create centered card
+    lv_obj_t* card = lv_obj_create(overlay);
+    lv_obj_set_size(card, 280, 120);
+    lv_obj_center(card);
+    applyCardStyle(card);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Spinner (using animated arc)
+    lv_obj_t* spinner = lv_spinner_create(card, 1000, 60);
+    lv_obj_set_size(spinner, 40, 40);
+    lv_obj_align(spinner, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_set_style_arc_color(spinner, LV_COLOR_ACCENT_CYAN, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(spinner, LV_COLOR_BG_LAYER2, LV_PART_MAIN);
+
+    // Message label
+    lv_obj_t* label = lv_label_create(card);
+    lv_label_set_text(label, message);
+    lv_obj_add_style(label, getStyleLabelBody(), 0);
+    lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -15);
+
+    // Force immediate render
+    lv_timer_handler();
+
+    return overlay;
+}
+
+// ============================================
 // Specialized Widget Helpers
 // ============================================
 

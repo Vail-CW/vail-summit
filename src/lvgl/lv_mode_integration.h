@@ -744,21 +744,13 @@ void onLVGLMenuSelect(int target_mode) {
     if (target_mode == LVGL_MODE_WEB_FILES_UPDATE) {
         // Play selection beep
         beep(TONE_SELECT, BEEP_MEDIUM);
+
         // Check requirements: WiFi and SD card
         if (!WiFi.isConnected()) {
             beep(400, 200);  // Error beep
             Serial.println("[ModeIntegration] Web Files update requires WiFi");
-            static const char* btns[] = {"OK", ""};
-            lv_obj_t* msgbox = lv_msgbox_create(NULL, "WiFi Required",
-                "Please connect to WiFi\nfirst to download web files.", btns, false);
-            lv_obj_center(msgbox);
-            lv_obj_add_style(msgbox, getStyleMsgbox(), 0);
-            lv_obj_t* btns_obj = lv_msgbox_get_btns(msgbox);
-            addNavigableWidget(btns_obj);
-            lv_obj_add_event_cb(msgbox, [](lv_event_t* e) {
-                lv_obj_t* obj = lv_event_get_current_target(e);
-                lv_msgbox_close(obj);
-            }, LV_EVENT_VALUE_CHANGED, NULL);
+            createAlertDialog("WiFi Required",
+                "Please connect to WiFi\nfirst to download web files.");
             return;
         }
         if (!sdCardAvailable) {
@@ -767,41 +759,29 @@ void onLVGLMenuSelect(int target_mode) {
         if (!sdCardAvailable) {
             beep(400, 200);  // Error beep
             Serial.println("[ModeIntegration] Web Files update requires SD card");
-            static const char* btns[] = {"OK", ""};
-            lv_obj_t* msgbox = lv_msgbox_create(NULL, "SD Card Required",
-                "Please insert an SD card\nto store web files.", btns, false);
-            lv_obj_center(msgbox);
-            lv_obj_add_style(msgbox, getStyleMsgbox(), 0);
-            lv_obj_t* btns_obj = lv_msgbox_get_btns(msgbox);
-            addNavigableWidget(btns_obj);
-            lv_obj_add_event_cb(msgbox, [](lv_event_t* e) {
-                lv_obj_t* obj = lv_event_get_current_target(e);
-                lv_msgbox_close(obj);
-            }, LV_EVENT_VALUE_CHANGED, NULL);
+            createAlertDialog("SD Card Required",
+                "Please insert an SD card\nto store web files.");
             return;
         }
 
         // Check if web files exist and if update is needed
         if (webFilesExist()) {
             // Files exist - check for updates
+            // Show loading indicator while checking
+            lv_obj_t* loading = createLoadingOverlay("Checking for updates...");
+
             String localVersion = getWebFilesVersion();
             String remoteVersion = fetchRemoteWebFilesVersion(true);  // Force refresh
+
+            // Remove loading overlay
+            lv_obj_del(loading);
 
             if (remoteVersion.isEmpty()) {
                 // Couldn't fetch remote version
                 beep(400, 200);
                 Serial.println("[ModeIntegration] Could not check for web files updates");
-                static const char* btns[] = {"OK", ""};
-                lv_obj_t* msgbox = lv_msgbox_create(NULL, "Update Check Failed",
-                    "Could not connect to GitHub\nto check for updates.\n\nPlease try again later.", btns, false);
-                lv_obj_center(msgbox);
-                lv_obj_add_style(msgbox, getStyleMsgbox(), 0);
-                lv_obj_t* btns_obj = lv_msgbox_get_btns(msgbox);
-                addNavigableWidget(btns_obj);
-                lv_obj_add_event_cb(msgbox, [](lv_event_t* e) {
-                    lv_obj_t* obj = lv_event_get_current_target(e);
-                    lv_msgbox_close(obj);
-                }, LV_EVENT_VALUE_CHANGED, NULL);
+                createAlertDialog("Update Check Failed",
+                    "Could not connect to GitHub\nto check for updates.\n\nPlease try again later.");
                 return;
             }
 
@@ -813,18 +793,9 @@ void onLVGLMenuSelect(int target_mode) {
                 // Already up to date
                 beep(TONE_SELECT, BEEP_MEDIUM);
                 Serial.printf("[ModeIntegration] Web files already up to date (v%s)\n", localVersion.c_str());
-                static const char* btns[] = {"OK", ""};
-                char msgBuf[128];
+                static char msgBuf[128];
                 snprintf(msgBuf, sizeof(msgBuf), "Web files are up to date.\n\nInstalled version: %s", localVersion.c_str());
-                lv_obj_t* msgbox = lv_msgbox_create(NULL, "Already Up To Date", msgBuf, btns, false);
-                lv_obj_center(msgbox);
-                lv_obj_add_style(msgbox, getStyleMsgbox(), 0);
-                lv_obj_t* btns_obj = lv_msgbox_get_btns(msgbox);
-                addNavigableWidget(btns_obj);
-                lv_obj_add_event_cb(msgbox, [](lv_event_t* e) {
-                    lv_obj_t* obj = lv_event_get_current_target(e);
-                    lv_msgbox_close(obj);
-                }, LV_EVENT_VALUE_CHANGED, NULL);
+                createAlertDialog("Already Up To Date", msgBuf);
                 return;
             }
 
