@@ -89,8 +89,10 @@ jobs:
           # - PartitionScheme=huge_app: 3MB app, no OTA, 1MB SPIFFS
           # - PSRAM=enabled: Enable PSRAM (hardware auto-detects OPI vs QSPI)
           # - FlashSize=4M: 4MB flash
+          # - USBMode=hwcdc: Use hardware CDC (shows as "USB JTAG/Serial" not "TinyUSB CDC")
+          #   This enables 1200-baud auto-reset for web flasher compatibility
           arduino-cli compile \
-            --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M" \
+            --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M,USBMode=hwcdc" \
             --output-dir build \
             --export-binaries \
             vail-summit/vail-summit.ino
