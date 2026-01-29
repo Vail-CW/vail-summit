@@ -1553,6 +1553,7 @@ static lv_obj_t* vail_tone_label = NULL;     // Tone setting display
 static lv_obj_t* vail_keytype_label = NULL;  // Key type setting display
 static lv_obj_t* vail_chat_input_box = NULL; // Always-visible input at bottom of chat view
 static lv_obj_t* vail_chat_input_label = NULL; // Label showing typed text in chat input
+static lv_obj_t* vail_chat_room_label = NULL;  // Room label in chat header
 static int vail_current_view = 0;  // 0 = Info Panel, 1 = Chat View
 
 // Settings modal elements
@@ -2657,10 +2658,11 @@ lv_obj_t* createVailRepeaterScreen() {
     lv_obj_set_style_border_width(chat_header, 0, 0);
     lv_obj_clear_flag(chat_header, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t* chat_room_label = lv_label_create(chat_header);
-    lv_label_set_text(chat_room_label, "Room: General");
-    lv_obj_set_style_text_color(chat_room_label, LV_COLOR_TEXT_PRIMARY, 0);
-    lv_obj_align(chat_room_label, LV_ALIGN_LEFT_MID, 15, 0);
+    vail_chat_room_label = lv_label_create(chat_header);
+    String chatRoomText = "Room: " + vailChannel;
+    lv_label_set_text(vail_chat_room_label, chatRoomText.c_str());
+    lv_obj_set_style_text_color(vail_chat_room_label, LV_COLOR_TEXT_PRIMARY, 0);
+    lv_obj_align(vail_chat_room_label, LV_ALIGN_LEFT_MID, 15, 0);
 
     // Chat textarea (history)
     int chat_area_height = content_height - 28 - 42;  // Header (28) and input box (36 + 6 padding)
@@ -2822,9 +2824,13 @@ void updateVailScreenLVGL() {
         }
     }
 
-    // Update room name
+    // Update room name (both info panel and chat header)
     if (vail_room_label != NULL) {
         lv_label_set_text(vail_room_label, vailChannel.c_str());
+    }
+    if (vail_chat_room_label != NULL) {
+        String chatRoomText = "Room: " + vailChannel;
+        lv_label_set_text(vail_chat_room_label, chatRoomText.c_str());
     }
 
     // Update user count

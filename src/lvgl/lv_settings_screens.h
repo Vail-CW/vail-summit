@@ -866,7 +866,7 @@ static void callsign_textarea_key_handler(lv_event_t* e) {
                 saveCallsign(callsign);
                 vailCallsign = callsign;  // Update global
 
-                beep(TONE_SELECT, BEEP_MEDIUM);
+                // Note: onLVGLBackNavigation() already plays a nav beep
                 Serial.printf("[Callsign] Saved: %s\n", callsign.c_str());
             }
         }
