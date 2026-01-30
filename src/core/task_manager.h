@@ -81,6 +81,34 @@ struct PaddleState {
 static volatile PaddleState paddleState = {false, false, 0, 0};
 
 // ============================================
+// Core 0 Paddle Callback Support
+// ============================================
+// Allows modes to register a callback for paddle sampling on Core 0
+// This provides precise ~1ms timing for keyer logic
+
+// Paddle callback function type
+// Called from Core 0 audio task with current paddle state and millis()
+typedef void (*PaddleCallbackFn)(bool ditPressed, bool dahPressed, unsigned long now);
+
+// Registered paddle callback (set by modes that need Core 0 timing)
+static volatile PaddleCallbackFn paddleCallback = nullptr;
+
+/*
+ * Register a paddle callback to be called from Core 0
+ * Set to nullptr to disable
+ */
+void registerPaddleCallback(PaddleCallbackFn callback) {
+    paddleCallback = callback;
+}
+
+/*
+ * Check if paddle callback is registered
+ */
+bool hasPaddleCallback() {
+    return paddleCallback != nullptr;
+}
+
+// ============================================
 // Async Morse String Playback
 // ============================================
 
@@ -480,8 +508,8 @@ void processAudioRequests() {
 }
 
 /*
- * Sample paddle input
- * Called by audio task for precise timing
+ * Sample paddle input and call registered callback
+ * Called by audio task for precise timing (~1ms intervals)
  */
 void samplePaddleInput() {
     // Read paddle pins
@@ -507,6 +535,11 @@ void samplePaddleInput() {
 
     paddleState.ditPressed = dit;
     paddleState.dahPressed = dah;
+
+    // Call registered paddle callback if set (for Core 0 keyer timing)
+    if (paddleCallback != nullptr) {
+        paddleCallback(dit, dah, now);
+    }
 }
 
 /*

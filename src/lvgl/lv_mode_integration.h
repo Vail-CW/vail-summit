@@ -28,6 +28,7 @@
 #include "lv_pota_screens.h"
 #include "lv_story_time_screens.h"
 #include "lv_web_download_screen.h"
+#include "lv_mailbox_screens.h"
 #include "../core/config.h"
 #include "../core/hardware_init.h"
 #include "../storage/sd_card.h"
@@ -174,9 +175,13 @@
 #define LVGL_MODE_POTA_RECORDER          136
 #define LVGL_MODE_POTA_RECORDER_SETUP    137
 
-// CW DOOM game modes
-#define LVGL_MODE_CW_DOOM_SETTINGS       138
-#define LVGL_MODE_CW_DOOM                139
+// Morse Mailbox modes
+#define LVGL_MODE_MORSE_MAILBOX          140
+#define LVGL_MODE_MORSE_MAILBOX_LINK     141
+#define LVGL_MODE_MORSE_MAILBOX_INBOX    142
+#define LVGL_MODE_MORSE_MAILBOX_PLAYBACK 143
+#define LVGL_MODE_MORSE_MAILBOX_COMPOSE  144
+#define LVGL_MODE_MORSE_MAILBOX_ACCOUNT  145
 
 // ============================================
 // Forward declarations from main file
@@ -397,6 +402,15 @@ lv_obj_t* createScreenForModeInt(int mode) {
     lv_obj_t* storyTimeScreen = createStoryTimeScreenForMode(mode);
     if (storyTimeScreen != NULL) return storyTimeScreen;
 
+    // Morse Mailbox screens
+    if (mode >= LVGL_MODE_MORSE_MAILBOX && mode <= LVGL_MODE_MORSE_MAILBOX_ACCOUNT) {
+        lv_obj_t* mailboxScreen = NULL;
+        if (handleMailboxMode(mode)) {
+            // handleMailboxMode calls loadScreen internally, return NULL to avoid double loading
+            return NULL;
+        }
+    }
+
     // Placeholder screens for unimplemented features
     switch (mode) {
         case LVGL_MODE_BAND_PLANS:
@@ -535,14 +549,15 @@ void initializeModeInt(int mode) {
             cwSpeedGameStart();
             break;
 
-        // CW DOOM game
-        case LVGL_MODE_CW_DOOM_SETTINGS:
-            Serial.println("[ModeInit] Starting CW DOOM - Settings");
-            loadDoomHighScores();
-            break;
-        case LVGL_MODE_CW_DOOM:
-            Serial.println("[ModeInit] Starting CW DOOM - Game");
-            // Game initialization handled by settings screen
+        // Morse Mailbox modes
+        case LVGL_MODE_MORSE_MAILBOX:
+        case LVGL_MODE_MORSE_MAILBOX_LINK:
+        case LVGL_MODE_MORSE_MAILBOX_INBOX:
+        case LVGL_MODE_MORSE_MAILBOX_PLAYBACK:
+        case LVGL_MODE_MORSE_MAILBOX_COMPOSE:
+        case LVGL_MODE_MORSE_MAILBOX_ACCOUNT:
+            Serial.printf("[ModeInit] Starting Morse Mailbox mode %d\n", mode);
+            // Screen creation handled by handleMailboxMode()
             break;
 
         // Network/radio modes
@@ -946,7 +961,6 @@ int getParentModeInt(int mode) {
         case LVGL_MODE_SPARK_WATCH:
         case LVGL_MODE_STORY_TIME:
         case LVGL_MODE_CW_SPEEDER_SELECT:
-        case LVGL_MODE_CW_DOOM_SETTINGS:
             return LVGL_MODE_GAMES_MENU;
 
         // Spark Watch sub-screens
@@ -1100,9 +1114,16 @@ int getParentModeInt(int mode) {
         case LVGL_MODE_CW_SPEEDER:
             return LVGL_MODE_CW_SPEEDER_SELECT;
 
-        // CW DOOM
-        case LVGL_MODE_CW_DOOM:
-            return LVGL_MODE_CW_DOOM_SETTINGS;
+        // Morse Mailbox
+        case LVGL_MODE_MORSE_MAILBOX:
+        case LVGL_MODE_MORSE_MAILBOX_LINK:
+            return LVGL_MODE_CW_MENU;
+        case LVGL_MODE_MORSE_MAILBOX_INBOX:
+        case LVGL_MODE_MORSE_MAILBOX_ACCOUNT:
+            return LVGL_MODE_MORSE_MAILBOX;
+        case LVGL_MODE_MORSE_MAILBOX_PLAYBACK:
+        case LVGL_MODE_MORSE_MAILBOX_COMPOSE:
+            return LVGL_MODE_MORSE_MAILBOX_INBOX;
 
         default:
             return LVGL_MODE_MAIN_MENU;

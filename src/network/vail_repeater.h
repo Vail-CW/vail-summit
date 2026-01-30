@@ -87,19 +87,21 @@ unsigned long lastKeepaliveTime = 0;  // Track last keepalive message
 // Transmit state
 bool vailIsTransmitting = false;
 unsigned long vailTxStartTime = 0;
-bool vailTxToneOn = false;
-unsigned long vailTxElementStart = 0;
 std::vector<uint16_t> vailTxDurations;
 // Echo filtering: Track recent transmission timestamps to filter echoes
 std::deque<int64_t> recentTxTimestamps;
 const size_t MAX_TX_TIMESTAMPS = 20;
-int64_t vailToneStartTimestamp = 0;  // Timestamp when current tone started
 
-// Unified keyer for Vail
+// Core 0 keyer - runs in paddle callback from audio task
 static StraightKeyer* vailKeyer = nullptr;
 static bool vailDitPressed = false;
 static bool vailDahPressed = false;
-static int vailDitDuration = 0;
+
+// Element tracking for network transmission (set by keyer callback on Core 0)
+static volatile unsigned long vailElementStartMillis = 0;
+static volatile bool vailElementActive = false;
+static volatile bool vailElementJustEnded = false;  // Flag for Core 1 to send network msg
+static volatile uint16_t vailElementDuration = 0;   // Duration of just-ended element
 
 // Receive state
 struct VailMessage {
@@ -162,6 +164,8 @@ std::vector<UserInfo> connectedUsers;
 // Forward declarations
 void startVailRepeater(LGFX &display);
 void vailKeyerCallback(bool txOn, int element);
+void vailPaddleCallback(bool ditPressed, bool dahPressed, unsigned long now);
+void processKeyerOutput();  // Process keyer output for network transmission (called from Core 1)
 void drawVailUI(LGFX &display);
 void drawChatUI(LGFX &display);
 void drawRoomSelectionUI(LGFX &display);
@@ -221,14 +225,23 @@ void startVailRepeater(LGFX &display) {
   rxQueue.clear();
   vailTxDurations.clear();
 
-  // Initialize unified keyer
+  // Initialize keyer (runs via callback from Core 0 for precise timing)
   vailDitPressed = false;
   vailDahPressed = false;
-  vailDitDuration = DIT_DURATION(cwSpeed);
+  int ditDuration = DIT_DURATION(cwSpeed);
   vailKeyer = getKeyer(cwKeyType);
   vailKeyer->reset();
-  vailKeyer->setDitDuration(vailDitDuration);
+  vailKeyer->setDitDuration(ditDuration);
   vailKeyer->setTxCallback(vailKeyerCallback);
+
+  // Register paddle callback to run keyer on Core 0
+  registerPaddleCallback(vailPaddleCallback);
+
+  // Reset element tracking
+  vailElementStartMillis = 0;
+  vailElementActive = false;
+  vailElementJustEnded = false;
+  vailElementDuration = 0;
 
   // Initialize chat mode
   vailChatMode = false;
@@ -344,11 +357,20 @@ void disconnectFromVail() {
   activeRooms.clear();
   clockSkewSamples = 0;  // Reset clock sync on disconnect
   vailIsTransmitting = false;
+
+  // Unregister paddle callback and reset keyer
+  registerPaddleCallback(nullptr);
   vailDitPressed = false;
   vailDahPressed = false;
   if (vailKeyer) {
     vailKeyer->reset();
   }
+
+  // Reset element tracking
+  vailElementStartMillis = 0;
+  vailElementActive = false;
+  vailElementJustEnded = false;
+  vailElementDuration = 0;
 
   Serial.println("[Vail] Disconnected and state cleared");
 }
@@ -619,6 +641,91 @@ void sendVailMessage(std::vector<uint16_t> durations, int64_t timestamp) {
   webSocket.sendTXT(output);
 }
 
+// Keyer callback - called from Core 0 when element starts/stops
+// Handles audio directly (Core 0) and sets flags for Core 1 network transmission
+void vailKeyerCallback(bool txOn, int element) {
+  unsigned long now = millis();
+
+  if (txOn) {
+    // Element starting - play sidetone directly (we're on Core 0)
+    startToneInternal(cwTone);
+
+    // Track element start for duration calculation
+    vailElementStartMillis = now;
+    vailElementActive = true;
+
+    // Stop any playback (Core 0 can do this directly)
+    // Note: isPlaying is set by Core 1, but we can safely stop audio
+  } else {
+    // Element ending - stop sidetone directly (we're on Core 0)
+    stopToneInternal();
+
+    // Calculate duration and set flag for Core 1 to send network message
+    if (vailElementActive && vailElementStartMillis > 0) {
+      vailElementDuration = (uint16_t)(now - vailElementStartMillis);
+      vailElementJustEnded = true;  // Signal Core 1 to send
+    }
+
+    vailElementActive = false;
+    vailElementStartMillis = 0;
+  }
+}
+
+// Paddle callback - called from Core 0 audio task every ~1ms
+// Runs keyer state machine with precise timing
+void vailPaddleCallback(bool ditPressed, bool dahPressed, unsigned long now) {
+  if (!vailKeyer) return;
+
+  // Feed paddle state changes to keyer
+  if (ditPressed != vailDitPressed) {
+    vailKeyer->key(PADDLE_DIT, ditPressed);
+    vailDitPressed = ditPressed;
+  }
+  if (dahPressed != vailDahPressed) {
+    vailKeyer->key(PADDLE_DAH, dahPressed);
+    vailDahPressed = dahPressed;
+  }
+
+  // Tick keyer state machine with precise timing
+  vailKeyer->tick(now);
+}
+
+// Process keyer output - called from Core 1 main loop
+// Checks for completed elements and sends network messages
+void processKeyerOutput() {
+  unsigned long now = millis();
+
+  // Check if keyer just finished an element (set by callback on Core 0)
+  if (vailElementJustEnded) {
+    vailElementJustEnded = false;  // Clear flag
+
+    // Calculate server timestamp (must be done on Core 1)
+    int64_t serverTs = getCurrentTimestamp();
+
+    // Send element to network
+    sendVailMessage({vailElementDuration}, serverTs);
+    vailTxStartTime = now;  // Reset idle timer
+
+    if (!vailIsTransmitting) {
+      vailIsTransmitting = true;
+      vailTxDurations.clear();
+    }
+  }
+
+  // Stop any playback if transmitting (Core 1 manages playback state)
+  if (vailElementActive && isPlaying) {
+    requestStopTone();
+    isPlaying = false;
+    playbackToneFrequency = 0;
+  }
+
+  // Reset transmission state after 2 seconds of inactivity
+  bool keyerActive = (vailKeyer && vailKeyer->isTxActive());
+  if (vailIsTransmitting && !keyerActive && (now - vailTxStartTime > 2000)) {
+    vailIsTransmitting = false;
+  }
+}
+
 // Update Vail repeater (call in main loop)
 // Note: Legacy UI rendering removed - LVGL handles all UI updates via updateVailScreenLVGL()
 void updateVailRepeater(LGFX &display) {
@@ -631,8 +738,10 @@ void updateVailRepeater(LGFX &display) {
     lastKeepaliveTime = millis();
   }
 
-  // Update paddle transmission
-  updateVailPaddles();
+  // Process keyer output for network transmission
+  // Keyer timing runs on Core 0 via paddle callback with precise 1ms resolution
+  // Audio is also handled directly on Core 0
+  processKeyerOutput();
 
   // Playback received messages
   playbackMessages();
@@ -640,77 +749,12 @@ void updateVailRepeater(LGFX &display) {
   // Note: UI updates are now handled by LVGL via updateVailScreenLVGL()
 }
 
-// Keyer callback for Vail - sends network messages and plays sidetone
-// Tracks element start time to calculate duration when tone ends
-static unsigned long vailKeyerElementStart = 0;
-
-void vailKeyerCallback(bool txOn, int element) {
-  unsigned long now = millis();
-
-  // Stop any playback before transmitting to prevent audio conflicts
-  if (txOn && isPlaying) {
-    requestStopTone();
-    isPlaying = false;
-    playbackToneFrequency = 0;
-  }
-
-  if (txOn) {
-    // Tone starting
-    vailKeyerElementStart = now;
-    vailToneStartTimestamp = getCurrentTimestamp();
-
-    if (!vailIsTransmitting) {
-      vailIsTransmitting = true;
-      vailTxStartTime = now;
-      vailTxDurations.clear();
-    }
-
-    requestStartTone(cwTone);
-  } else {
-    // Tone stopping - send the element
-    if (vailKeyerElementStart > 0) {
-      uint16_t duration = (uint16_t)(now - vailKeyerElementStart);
-      sendVailMessage({duration}, vailToneStartTimestamp);
-      vailTxStartTime = now;  // Reset idle timer
-    }
-    vailKeyerElementStart = 0;
-    requestStopTone();
-  }
-}
-
-// Handle paddle input for transmission (using unified keyer)
-void updateVailPaddles() {
-  if (!vailKeyer) return;
-
-  bool newDitPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
-  bool newDahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
-
-  unsigned long now = millis();
-
-  // Feed paddle state to unified keyer
-  if (newDitPressed != vailDitPressed) {
-    vailKeyer->key(PADDLE_DIT, newDitPressed);
-    vailDitPressed = newDitPressed;
-  }
-  if (newDahPressed != vailDahPressed) {
-    vailKeyer->key(PADDLE_DAH, newDahPressed);
-    vailDahPressed = newDahPressed;
-  }
-
-  // Tick the keyer state machine
-  vailKeyer->tick(now);
-
-  // Reset transmission state after 2 seconds of inactivity
-  if (vailIsTransmitting && !vailKeyer->isTxActive() && (now - vailTxStartTime > 2000)) {
-    vailIsTransmitting = false;
-  }
-}
-
 // Playback received messages (non-blocking)
 // Uses dual-core audio API: all audio requests are non-blocking, handled by Core 0
 void playbackMessages() {
   // Don't play if transmitting - transmission has audio priority
-  if (vailIsTransmitting || (vailKeyer && vailKeyer->isTxActive())) {
+  bool keyerActive = (vailKeyer && vailKeyer->isTxActive());
+  if (vailIsTransmitting || keyerActive || vailElementActive) {
     if (isPlaying) {
       // Stop playback if we started transmitting
       requestStopTone();  // Non-blocking - audio task handles stop
@@ -1156,7 +1200,9 @@ int handleVailInput(char key, LGFX &display) {
   if (key == KEY_LEFT) {
     if (cwSpeed > 5) {
       cwSpeed--;
-      vailDitDuration = DIT_DURATION(cwSpeed);
+      if (vailKeyer) {
+        vailKeyer->setDitDuration(DIT_DURATION(cwSpeed));
+      }
       saveCWSettings();
       beep(TONE_MENU_NAV, BEEP_SHORT);
     }
@@ -1166,7 +1212,9 @@ int handleVailInput(char key, LGFX &display) {
   if (key == KEY_RIGHT) {
     if (cwSpeed < 40) {
       cwSpeed++;
-      vailDitDuration = DIT_DURATION(cwSpeed);
+      if (vailKeyer) {
+        vailKeyer->setDitDuration(DIT_DURATION(cwSpeed));
+      }
       saveCWSettings();
       beep(TONE_MENU_NAV, BEEP_SHORT);
     }

@@ -46,11 +46,12 @@ static const LVMenuItem cwMenuItems[] = {
     {LV_SYMBOL_EDIT, "Training", 1},           // MODE_TRAINING_MENU
     {LV_SYMBOL_REFRESH, "Practice", 6},        // MODE_PRACTICE
     {LV_SYMBOL_UPLOAD, "Vail Repeater", 31},   // MODE_VAIL_REPEATER
+    {LV_SYMBOL_ENVELOPE, "Morse Mailbox", 140}, // MODE_MORSE_MAILBOX
     {LV_SYMBOL_BLUETOOTH, "Bluetooth", 32},    // MODE_BLUETOOTH_MENU
     {LV_SYMBOL_POWER, "Radio Output", 19},     // MODE_RADIO_OUTPUT
     {LV_SYMBOL_SAVE, "CW Memories", 20}        // MODE_CW_MEMORIES
 };
-#define CW_MENU_COUNT 6
+#define CW_MENU_COUNT 7
 
 // Training submenu items
 static const LVMenuItem trainingMenuItems[] = {
@@ -68,10 +69,9 @@ static const LVMenuItem gamesMenuItems[] = {
     {LV_SYMBOL_LOOP, "Memory Chain", 17},      // MODE_MORSE_MEMORY
     {LV_SYMBOL_AUDIO, "Spark Watch", 78},      // MODE_SPARK_WATCH
     {LV_SYMBOL_FILE, "Story Time", 89},        // LVGL_MODE_STORY_TIME
-    {LV_SYMBOL_CHARGE, "CW Speeder", 134},     // LVGL_MODE_CW_SPEEDER_SELECT
-    {LV_SYMBOL_EYE_OPEN, "CW DOOM", 138}       // LVGL_MODE_CW_DOOM_SETTINGS
+    {LV_SYMBOL_CHARGE, "CW Speeder", 134}      // LVGL_MODE_CW_SPEEDER_SELECT
 };
-#define GAMES_MENU_COUNT 6
+#define GAMES_MENU_COUNT 5
 
 // Settings submenu items
 static const LVMenuItem settingsMenuItems[] = {
@@ -280,8 +280,15 @@ static const int MENU_HEADER_HEIGHT = 50;
 extern int batteryPercent;
 extern bool wifiConnected;
 
+// Mailbox status icon (for unread indicator)
+static lv_obj_t* mailbox_status_icon = NULL;
+
+// Forward declaration for mailbox unread check
+extern bool hasUnreadMailboxMessages();
+extern bool isMailboxLinked();
+
 /*
- * Create a modern header bar with title and status icons (battery, WiFi)
+ * Create a modern header bar with title and status icons (battery, WiFi, Mailbox)
  */
 lv_obj_t* createHeader(lv_obj_t* parent, const char* title) {
     lv_obj_t* header = lv_obj_create(parent);
@@ -299,6 +306,17 @@ lv_obj_t* createHeader(lv_obj_t* parent, const char* title) {
     lv_obj_set_style_text_font(lbl_title, getThemeFonts()->font_input, 0);  // Theme font
     lv_obj_set_style_text_color(lbl_title, LV_COLOR_TEXT_PRIMARY, 0);
     lv_obj_align(lbl_title, LV_ALIGN_LEFT_MID, 5, 0);
+
+    // Mailbox icon (envelope) - shows when unread messages exist
+    mailbox_status_icon = lv_label_create(header);
+    lv_label_set_text(mailbox_status_icon, LV_SYMBOL_ENVELOPE);
+    lv_obj_set_style_text_font(mailbox_status_icon, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(mailbox_status_icon, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_align(mailbox_status_icon, LV_ALIGN_RIGHT_MID, -85, 0);
+    // Hide by default - only show when there are unread messages
+    if (!isMailboxLinked() || !hasUnreadMailboxMessages()) {
+        lv_obj_add_flag(mailbox_status_icon, LV_OBJ_FLAG_HIDDEN);
+    }
 
     // WiFi icon - use Montserrat for LVGL symbols
     // Color indicates connectivity state:
@@ -341,6 +359,22 @@ lv_obj_t* createHeader(lv_obj_t* parent, const char* title) {
     }
 
     return header;
+}
+
+/*
+ * Update the mailbox status icon visibility based on unread messages
+ * Call this after polling or reading messages
+ */
+void updateMailboxStatusIcon() {
+    if (mailbox_status_icon == NULL || !lv_obj_is_valid(mailbox_status_icon)) {
+        return;  // No icon to update or icon was deleted
+    }
+
+    if (isMailboxLinked() && hasUnreadMailboxMessages()) {
+        lv_obj_clear_flag(mailbox_status_icon, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(mailbox_status_icon, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 /*
