@@ -83,7 +83,14 @@ enum MenuMode {
   MODE_VAIL_MASTER_CHARSET,
   // CW Speeder Game
   MODE_CW_SPEEDER_SELECT,
-  MODE_CW_SPEEDER
+  MODE_CW_SPEEDER,
+  // Morse Mailbox (explicit values to avoid conflicts with LVGL modes)
+  MODE_MORSE_MAILBOX = 140,     // Main entry - shows link or inbox depending on state
+  MODE_MORSE_MAILBOX_LINK,      // 141 - Device linking screen
+  MODE_MORSE_MAILBOX_INBOX,     // 142 - Inbox message list
+  MODE_MORSE_MAILBOX_PLAYBACK,  // 143 - Message playback screen
+  MODE_MORSE_MAILBOX_COMPOSE,   // 144 - Compose/send message screen
+  MODE_MORSE_MAILBOX_ACCOUNT    // 145 - Account info/unlink screen
 };
 
 extern MenuMode currentMode;

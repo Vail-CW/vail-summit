@@ -80,6 +80,7 @@ using namespace lgfx::v1::fonts;
 
 // Connectivity
 #include "src/network/vail_repeater.h"
+#include "src/network/morse_mailbox.h"
 
 // Radio modes (CW memories must be included before radio_output)
 #include "src/radio/radio_cw_memories.h"
@@ -347,6 +348,10 @@ void setup() {
   // Load Vail Repeater settings (saved room)
   Serial.println("Loading Vail settings...");
   loadVailSettings();
+
+  // Initialize Morse Mailbox (load settings, start polling if linked)
+  Serial.println("Initializing Morse Mailbox...");
+  initMailboxPolling();
   setSplashStage(5);  // "Starting web server..."
 
   // Load Koch Method progress
@@ -532,6 +537,9 @@ void loop() {
     updateVailScreenLVGL();  // Update LVGL UI elements
   }
 
+  // Update Morse Mailbox polling (runs in background regardless of mode)
+  updateMailboxPolling();
+
   // Update Morse Shooter game if in game mode
   if (currentMode == MODE_MORSE_SHOOTER) {
     updateMorseShooterInput(tft);
@@ -552,12 +560,6 @@ void loop() {
     bool ditPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
     bool dahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
     cwSpeedHandlePaddle(ditPressed, dahPressed);
-  }
-
-  // Update CW DOOM game if in game mode
-  if (currentMode == LVGL_MODE_CW_DOOM) {
-    updateDoomGame();
-    updateCWDoomDisplay();
   }
 
   // Update Vail Master if in practice mode
