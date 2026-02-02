@@ -25,7 +25,20 @@
 #define MAX_LIVES 3               // Lives (letters that can hit ground)
 
 // ============================================
-// Difficulty System
+// Game Modes
+// ============================================
+
+enum ShooterGameMode {
+    SHOOTER_MODE_CLASSIC = 0,
+    SHOOTER_MODE_PROGRESSIVE = 1,
+    SHOOTER_MODE_WORD = 2,
+    SHOOTER_MODE_CALLSIGN = 3
+};
+
+static const char* GAME_MODE_NAMES[] = {"Classic", "Progressive", "Word", "Callsign"};
+
+// ============================================
+// Difficulty System (Expanded)
 // ============================================
 
 enum ShooterDifficulty {
@@ -34,6 +47,81 @@ enum ShooterDifficulty {
     SHOOTER_HARD = 2
 };
 
+// Preset difficulty levels (expanded)
+enum ShooterPreset {
+    PRESET_CUSTOM = 0,
+    PRESET_BEGINNER = 1,
+    PRESET_EASY = 2,
+    PRESET_MEDIUM = 3,
+    PRESET_HARD = 4,
+    PRESET_EXPERT = 5,
+    PRESET_INSANE = 6
+};
+
+static const char* PRESET_NAMES[] = {"Custom", "Beginner", "Easy", "Medium", "Hard", "Expert", "Insane"};
+
+// Character set flags (bitmask)
+#define CHARSET_FLAG_LETTERS     0x01
+#define CHARSET_FLAG_NUMBERS     0x02
+#define CHARSET_FLAG_PUNCTUATION 0x04
+#define CHARSET_FLAG_PROSIGNS    0x08
+
+// Character sets
+static const char CHARSET_BEGINNER[] = "ETIANMS";
+static const char CHARSET_LETTERS[] = "ETIANMSURWDKGOHVFLPJBXCYZQ";
+static const char CHARSET_NUMBERS[] = "0123456789";
+static const char CHARSET_PUNCTUATION[] = ".,?/=-";
+static const char CHARSET_PROSIGNS[] = "";  // Prosigns handled specially
+
+// Legacy charsets for compatibility
+static const char CHARSET_EASY[] = "ETIANMS";
+static const char CHARSET_MEDIUM[] = "ETIANMSURWDKGOHVFLPJBXCYZQ";
+static const char CHARSET_HARD[] = "ETIANMSURWDKGOHVFLPJBXCYZQ0123456789";
+
+// Full settings structure for granular control
+struct ShooterSettings {
+    uint8_t gameMode;        // ShooterGameMode
+    uint8_t preset;          // ShooterPreset
+    uint8_t fallSpeed;       // 1-10 scale
+    uint8_t spawnRate;       // 1-10 scale
+    uint8_t maxLetters;      // 3-8 concurrent falling objects
+    uint8_t startLives;      // 1-5 lives
+    uint8_t charsetFlags;    // Bitmask of character groups
+};
+
+// Default settings
+static ShooterSettings shooterSettings = {
+    SHOOTER_MODE_CLASSIC,    // gameMode
+    PRESET_MEDIUM,           // preset
+    5,                       // fallSpeed (1-10)
+    5,                       // spawnRate (1-10)
+    5,                       // maxLetters
+    3,                       // startLives
+    CHARSET_FLAG_LETTERS     // charsetFlags
+};
+
+// Preset configurations: {speed, spawn, lives, maxLetters, charsetFlags}
+struct PresetConfig {
+    uint8_t fallSpeed;
+    uint8_t spawnRate;
+    uint8_t startLives;
+    uint8_t maxLetters;
+    uint8_t charsetFlags;
+    const char* charset;     // Direct charset pointer for presets
+    int charsetSize;
+};
+
+static const PresetConfig PRESET_CONFIGS[] = {
+    {5, 5, 3, 5, CHARSET_FLAG_LETTERS, CHARSET_MEDIUM, 26},                              // Custom (defaults)
+    {1, 1, 5, 3, CHARSET_FLAG_LETTERS, CHARSET_BEGINNER, 7},                             // Beginner
+    {3, 3, 3, 4, CHARSET_FLAG_LETTERS, CHARSET_BEGINNER, 7},                             // Easy
+    {5, 5, 3, 5, CHARSET_FLAG_LETTERS, CHARSET_MEDIUM, 26},                              // Medium
+    {7, 7, 3, 5, CHARSET_FLAG_LETTERS | CHARSET_FLAG_NUMBERS, CHARSET_HARD, 36},         // Hard
+    {8, 8, 2, 6, CHARSET_FLAG_LETTERS | CHARSET_FLAG_NUMBERS | CHARSET_FLAG_PUNCTUATION, CHARSET_HARD, 36}, // Expert
+    {10, 10, 1, 8, CHARSET_FLAG_LETTERS | CHARSET_FLAG_NUMBERS | CHARSET_FLAG_PUNCTUATION, CHARSET_HARD, 36} // Insane
+};
+
+// Legacy DifficultyParams for backward compatibility
 struct DifficultyParams {
     int spawnInterval;      // ms between spawns
     float fallSpeed;        // pixels per update
@@ -44,21 +132,178 @@ struct DifficultyParams {
     const char* name;       // display name
 };
 
-// Character sets for each difficulty
-static const char CHARSET_EASY[] = "ETIANMS";
-static const char CHARSET_MEDIUM[] = "ETIANMSURWDKGOHVFLPJBXCYZQ";
-static const char CHARSET_HARD[] = "ETIANMSURWDKGOHVFLPJBXCYZQ0123456789";
-
-// Difficulty parameters table
+// Difficulty parameters table (legacy - still used for now)
 static const DifficultyParams DIFF_PARAMS[] = {
     { 4000, 0.5f, CHARSET_EASY,   7,  3, 1, "Easy" },
     { 3000, 1.0f, CHARSET_MEDIUM, 26, 3, 2, "Medium" },
     { 2000, 1.5f, CHARSET_HARD,   36, 3, 3, "Hard" }
 };
 
-// Current difficulty setting
+// Mapping functions: convert 1-10 scale to actual values
+inline float speedToPixels(uint8_t level) {
+    // 1 → 0.3, 10 → 2.5 (linear interpolation)
+    return 0.3f + (level - 1) * 0.244f;
+}
+
+inline uint32_t spawnToInterval(uint8_t level) {
+    // 1 → 5000ms, 10 → 1000ms
+    return 5000 - (level - 1) * 444;
+}
+
+// Current difficulty setting (legacy)
 static ShooterDifficulty shooterDifficulty = SHOOTER_MEDIUM;
-static int shooterHighScores[3] = {0, 0, 0};  // Per difficulty
+static int shooterHighScores[3] = {0, 0, 0};  // Per difficulty (legacy)
+
+// Per-mode high scores
+static int shooterHighScoreClassic = 0;
+static int shooterHighScoreProgressive = 0;
+static int shooterHighScoreWord = 0;
+static int shooterHighScoreCallsign = 0;
+
+// ============================================
+// Combo Scoring System
+// ============================================
+
+static int comboCount = 0;
+static unsigned long lastHitTime = 0;
+static unsigned long comboDisplayUntil = 0;  // When to hide combo display
+
+// Get current combo multiplier based on streak
+inline int getComboMultiplier() {
+    if (comboCount >= 20) return 10;
+    if (comboCount >= 10) return 5;
+    if (comboCount >= 5)  return 3;
+    if (comboCount >= 3)  return 2;
+    return 1;
+}
+
+// Get speed bonus for quick hits (call immediately after hit)
+inline int getSpeedBonus(float letterY) {
+    int bonus = 0;
+    unsigned long now = millis();
+
+    // Quick hit bonus (hit within 1 second of spawn)
+    if (letterY < 50) {  // Still near top of screen
+        bonus += 5;
+    }
+
+    // Top-third bonus
+    if (letterY < 70) {  // Upper portion of play area
+        bonus += 3;
+    }
+
+    return bonus;
+}
+
+// Reset combo on miss
+inline void resetCombo() {
+    if (comboCount >= 3) {
+        // Show "STREAK LOST" feedback (handled by UI)
+        Serial.printf("[Shooter] Combo lost! Was at %d\n", comboCount);
+    }
+    comboCount = 0;
+}
+
+// Record a hit and return total points earned
+inline int recordHit(float letterY) {
+    comboCount++;
+    lastHitTime = millis();
+    comboDisplayUntil = lastHitTime + 1500;  // Show combo for 1.5 seconds
+
+    int multiplier = getComboMultiplier();
+    int basePoints = 10;
+    int speedBonus = getSpeedBonus(letterY);
+    int totalPoints = (basePoints * multiplier) + speedBonus;
+
+    Serial.printf("[Shooter] Hit! Combo=%d, Mult=%dx, Speed bonus=%d, Total=%d\n",
+                  comboCount, multiplier, speedBonus, totalPoints);
+
+    return totalPoints;
+}
+
+// ============================================
+// Progressive Mode State
+// ============================================
+
+static int progressiveLevel = 1;
+static int progressiveHits = 0;
+static unsigned long progressiveLevelStartTime = 0;
+static unsigned long progressiveTimeSurvived = 0;
+
+// Character groups for progressive unlocking
+static const char* PROGRESSIVE_CHARSETS[] = {
+    "ET",                                         // Level 1
+    "ETIANM",                                     // Level 2
+    "ETIANMSURWDKGO",                            // Level 3
+    "ETIANMSURWDKGOHVFLPJBXCYZQ",               // Level 4
+    "ETIANMSURWDKGOHVFLPJBXCYZQ0123456789",     // Level 5
+    "ETIANMSURWDKGOHVFLPJBXCYZQ0123456789.,?/"  // Level 6+
+};
+static const int PROGRESSIVE_CHARSET_SIZES[] = {2, 6, 14, 26, 36, 40};
+
+// ============================================
+// Word Mode Data
+// ============================================
+
+// Word lists by difficulty
+static const char* WORDS_EASY[] = {"CQ", "DE", "HI", "OK", "IT", "IS", "TO", "OF", "73", "88"};
+static const int WORDS_EASY_COUNT = 10;
+
+static const char* WORDS_MEDIUM[] = {"CALL", "COPY", "NAME", "QTH", "RST", "BAND", "FREQ", "WIRE", "TEST", "GOOD"};
+static const int WORDS_MEDIUM_COUNT = 10;
+
+static const char* WORDS_HARD[] = {"ANTENNA", "WEATHER", "STATION", "AMATEUR", "CONTEST", "REPEATER", "SIGNAL"};
+static const int WORDS_HARD_COUNT = 7;
+
+// Structure for falling words
+struct FallingWord {
+    char word[12];           // Max 11 chars + null
+    uint8_t length;
+    uint8_t lettersTyped;    // Progress tracker
+    float x, y;
+    bool active;
+    unsigned long spawnTime;
+};
+
+static FallingWord fallingWords[MAX_FALLING_LETTERS];
+
+// ============================================
+// Callsign Mode Data
+// ============================================
+
+// US callsign prefixes
+static const char* US_PREFIXES[] = {"W", "K", "N", "WA", "WB", "WD", "KA", "KB", "KC", "KD", "KE", "KF", "KG"};
+static const int US_PREFIX_COUNT = 13;
+
+// International prefixes
+static const char* INTL_PREFIXES[] = {"VE", "G", "DL", "F", "I", "JA", "VK", "ZL", "EA", "OH", "SM", "PA"};
+static const int INTL_PREFIX_COUNT = 12;
+
+// Generate a random callsign
+inline void generateCallsign(char* buffer, bool includeInternational = false) {
+    const char** prefixes;
+    int prefixCount;
+
+    if (includeInternational && random(100) < 30) {  // 30% chance of international
+        prefixes = INTL_PREFIXES;
+        prefixCount = INTL_PREFIX_COUNT;
+    } else {
+        prefixes = US_PREFIXES;
+        prefixCount = US_PREFIX_COUNT;
+    }
+
+    const char* prefix = prefixes[random(prefixCount)];
+    int digit = random(10);
+
+    // Suffix: 1-3 letters
+    int suffixLen = random(1, 4);
+    char suffix[4] = {0};
+    for (int i = 0; i < suffixLen; i++) {
+        suffix[i] = 'A' + random(26);
+    }
+
+    sprintf(buffer, "%s%d%s", prefix, digit, suffix);
+}
 
 // ============================================
 // Game State Structures
@@ -154,33 +399,177 @@ void shooterKeyerCallback(bool txOn, int element) {
 void loadShooterPrefs() {
     Preferences prefs;
     prefs.begin("shooter", true);  // read-only
+
+    // Load legacy difficulty
     shooterDifficulty = (ShooterDifficulty)prefs.getInt("difficulty", SHOOTER_MEDIUM);
     if (shooterDifficulty > SHOOTER_HARD) shooterDifficulty = SHOOTER_MEDIUM;
+
+    // Load legacy high scores
     shooterHighScores[0] = prefs.getInt("hs_easy", 0);
     shooterHighScores[1] = prefs.getInt("hs_medium", 0);
     shooterHighScores[2] = prefs.getInt("hs_hard", 0);
+
+    // Load expanded settings
+    shooterSettings.gameMode = prefs.getUChar("mode", SHOOTER_MODE_CLASSIC);
+    shooterSettings.preset = prefs.getUChar("preset", PRESET_MEDIUM);
+    shooterSettings.fallSpeed = prefs.getUChar("speed", 5);
+    shooterSettings.spawnRate = prefs.getUChar("spawn", 5);
+    shooterSettings.maxLetters = prefs.getUChar("maxlet", 5);
+    shooterSettings.startLives = prefs.getUChar("lives", 3);
+    shooterSettings.charsetFlags = prefs.getUChar("charset", CHARSET_FLAG_LETTERS);
+
+    // Clamp values to valid ranges
+    if (shooterSettings.gameMode > SHOOTER_MODE_CALLSIGN) shooterSettings.gameMode = SHOOTER_MODE_CLASSIC;
+    if (shooterSettings.preset > PRESET_INSANE) shooterSettings.preset = PRESET_MEDIUM;
+    if (shooterSettings.fallSpeed < 1 || shooterSettings.fallSpeed > 10) shooterSettings.fallSpeed = 5;
+    if (shooterSettings.spawnRate < 1 || shooterSettings.spawnRate > 10) shooterSettings.spawnRate = 5;
+    if (shooterSettings.maxLetters < 3 || shooterSettings.maxLetters > 8) shooterSettings.maxLetters = 5;
+    if (shooterSettings.startLives < 1 || shooterSettings.startLives > 5) shooterSettings.startLives = 3;
+
+    // Load per-mode high scores
+    shooterHighScoreClassic = prefs.getInt("hs_classic", 0);
+    shooterHighScoreProgressive = prefs.getInt("hs_prog", 0);
+    shooterHighScoreWord = prefs.getInt("hs_word", 0);
+    shooterHighScoreCallsign = prefs.getInt("hs_call", 0);
+
     prefs.end();
-    Serial.printf("[Shooter] Loaded prefs: difficulty=%d, HS=[%d,%d,%d]\n",
-                  shooterDifficulty, shooterHighScores[0], shooterHighScores[1], shooterHighScores[2]);
+
+    Serial.printf("[Shooter] Loaded prefs: mode=%d, preset=%d, speed=%d, spawn=%d, lives=%d\n",
+                  shooterSettings.gameMode, shooterSettings.preset,
+                  shooterSettings.fallSpeed, shooterSettings.spawnRate, shooterSettings.startLives);
+    Serial.printf("[Shooter] High scores: classic=%d, prog=%d, word=%d, call=%d\n",
+                  shooterHighScoreClassic, shooterHighScoreProgressive,
+                  shooterHighScoreWord, shooterHighScoreCallsign);
 }
 
 void saveShooterPrefs() {
     Preferences prefs;
     prefs.begin("shooter", false);  // read-write
+
+    // Save legacy difficulty
     prefs.putInt("difficulty", (int)shooterDifficulty);
+
+    // Save expanded settings
+    prefs.putUChar("mode", shooterSettings.gameMode);
+    prefs.putUChar("preset", shooterSettings.preset);
+    prefs.putUChar("speed", shooterSettings.fallSpeed);
+    prefs.putUChar("spawn", shooterSettings.spawnRate);
+    prefs.putUChar("maxlet", shooterSettings.maxLetters);
+    prefs.putUChar("lives", shooterSettings.startLives);
+    prefs.putUChar("charset", shooterSettings.charsetFlags);
+
     prefs.end();
-    Serial.printf("[Shooter] Saved difficulty: %d\n", shooterDifficulty);
+    Serial.printf("[Shooter] Saved settings: mode=%d, preset=%d\n",
+                  shooterSettings.gameMode, shooterSettings.preset);
 }
 
 void saveShooterHighScore() {
     Preferences prefs;
     prefs.begin("shooter", false);  // read-write
+
+    // Save legacy high scores
     const char* keys[] = {"hs_easy", "hs_medium", "hs_hard"};
     prefs.putInt(keys[shooterDifficulty], shooterHighScores[shooterDifficulty]);
+
+    // Save per-mode high scores
+    prefs.putInt("hs_classic", shooterHighScoreClassic);
+    prefs.putInt("hs_prog", shooterHighScoreProgressive);
+    prefs.putInt("hs_word", shooterHighScoreWord);
+    prefs.putInt("hs_call", shooterHighScoreCallsign);
+
     prefs.end();
-    Serial.printf("[Shooter] Saved high score for %s: %d\n",
-                  DIFF_PARAMS[shooterDifficulty].name,
-                  shooterHighScores[shooterDifficulty]);
+    Serial.printf("[Shooter] Saved high scores\n");
+}
+
+// Apply preset to settings
+void applyShooterPreset(ShooterPreset preset) {
+    if (preset == PRESET_CUSTOM) return;  // Don't overwrite custom settings
+
+    const PresetConfig& config = PRESET_CONFIGS[preset];
+    shooterSettings.preset = preset;
+    shooterSettings.fallSpeed = config.fallSpeed;
+    shooterSettings.spawnRate = config.spawnRate;
+    shooterSettings.startLives = config.startLives;
+    shooterSettings.maxLetters = config.maxLetters;
+    shooterSettings.charsetFlags = config.charsetFlags;
+
+    Serial.printf("[Shooter] Applied preset %s: speed=%d, spawn=%d, lives=%d\n",
+                  PRESET_NAMES[preset], config.fallSpeed, config.spawnRate, config.startLives);
+}
+
+// Get current effective parameters (from settings or preset)
+void getEffectiveParams(float& fallSpeed, uint32_t& spawnInterval, int& maxLetters, int& lives, const char*& charset, int& charsetSize) {
+    if (shooterSettings.preset != PRESET_CUSTOM) {
+        const PresetConfig& config = PRESET_CONFIGS[shooterSettings.preset];
+        fallSpeed = speedToPixels(config.fallSpeed);
+        spawnInterval = spawnToInterval(config.spawnRate);
+        maxLetters = config.maxLetters;
+        lives = config.startLives;
+        charset = config.charset;
+        charsetSize = config.charsetSize;
+    } else {
+        fallSpeed = speedToPixels(shooterSettings.fallSpeed);
+        spawnInterval = spawnToInterval(shooterSettings.spawnRate);
+        maxLetters = shooterSettings.maxLetters;
+        lives = shooterSettings.startLives;
+        // Build charset from flags
+        charset = CHARSET_MEDIUM;  // Default
+        charsetSize = 26;
+        if (shooterSettings.charsetFlags & CHARSET_FLAG_NUMBERS) {
+            charset = CHARSET_HARD;
+            charsetSize = 36;
+        }
+    }
+}
+
+// Get high score for current mode
+int getCurrentModeHighScore() {
+    switch (shooterSettings.gameMode) {
+        case SHOOTER_MODE_CLASSIC:
+            return shooterHighScoreClassic;
+        case SHOOTER_MODE_PROGRESSIVE:
+            return shooterHighScoreProgressive;
+        case SHOOTER_MODE_WORD:
+            return shooterHighScoreWord;
+        case SHOOTER_MODE_CALLSIGN:
+            return shooterHighScoreCallsign;
+        default:
+            return 0;
+    }
+}
+
+// Update high score for current mode
+void updateCurrentModeHighScore(int score) {
+    bool updated = false;
+    switch (shooterSettings.gameMode) {
+        case SHOOTER_MODE_CLASSIC:
+            if (score > shooterHighScoreClassic) {
+                shooterHighScoreClassic = score;
+                updated = true;
+            }
+            break;
+        case SHOOTER_MODE_PROGRESSIVE:
+            if (score > shooterHighScoreProgressive) {
+                shooterHighScoreProgressive = score;
+                updated = true;
+            }
+            break;
+        case SHOOTER_MODE_WORD:
+            if (score > shooterHighScoreWord) {
+                shooterHighScoreWord = score;
+                updated = true;
+            }
+            break;
+        case SHOOTER_MODE_CALLSIGN:
+            if (score > shooterHighScoreCallsign) {
+                shooterHighScoreCallsign = score;
+                updated = true;
+            }
+            break;
+    }
+    if (updated) {
+        saveShooterHighScore();
+    }
 }
 
 // ============================================
@@ -191,6 +580,7 @@ extern void updateShooterScore(int score);
 extern void updateShooterLives(int lives);
 extern void updateShooterDecoded(const char* text);
 extern void updateShooterLetter(int index, char letter, int x, int y, bool visible);
+extern void updateShooterCombo(int combo, int multiplier);
 extern void showShooterHitEffect(int x, int y);
 extern void showShooterGameOver();
 
@@ -249,6 +639,11 @@ void resetGame() {
     fallingLetters[i].active = false;
   }
 
+  // Clear falling words (for Word/Callsign modes)
+  for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
+    fallingWords[i].active = false;
+  }
+
   // Reset morse input
   morseInput.ditPressed = false;
   morseInput.dahPressed = false;
@@ -270,9 +665,28 @@ void resetGame() {
   shooterLastToneState = false;
   shooterLastElementTime = 0;
 
-  // Reset game variables using difficulty params
+  // Reset combo system
+  comboCount = 0;
+  lastHitTime = 0;
+  comboDisplayUntil = 0;
+
+  // Reset progressive mode state
+  progressiveLevel = 1;
+  progressiveHits = 0;
+  progressiveLevelStartTime = millis();
+  progressiveTimeSurvived = 0;
+
+  // Determine lives from settings or legacy difficulty
+  int startLives = params.startLives;
+  if (shooterSettings.preset != PRESET_CUSTOM) {
+    startLives = PRESET_CONFIGS[shooterSettings.preset].startLives;
+  } else if (shooterSettings.startLives >= 1 && shooterSettings.startLives <= 5) {
+    startLives = shooterSettings.startLives;
+  }
+
+  // Reset game variables
   gameScore = 0;
-  gameLives = params.startLives;
+  gameLives = startLives;
   lastSpawnTime = millis();
   lastGameUpdate = millis();
   gameStartTime = millis();
@@ -283,12 +697,14 @@ void resetGame() {
   updateShooterScore(0);
   updateShooterLives(gameLives);
   updateShooterDecoded("");
+  updateShooterCombo(0, 1);  // Reset combo display
   for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
     updateShooterLetter(i, ' ', 0, 0, false);  // Hide all letters
   }
 
-  Serial.printf("[Shooter] Game reset: difficulty=%s, lives=%d\n",
-                params.name, gameLives);
+  Serial.printf("[Shooter] Game reset: mode=%s, preset=%s, lives=%d\n",
+                GAME_MODE_NAMES[shooterSettings.gameMode],
+                PRESET_NAMES[shooterSettings.preset], gameLives);
 }
 
 /*
@@ -450,15 +866,77 @@ void drawHUD(LGFX& tft) {
   }
 }
 
+// Get current fall speed based on settings/mode
+float getCurrentFallSpeed() {
+  if (shooterSettings.gameMode == SHOOTER_MODE_PROGRESSIVE) {
+    // Progressive mode: speed increases with level
+    float baseSpeed = 0.3f;
+    float speedIncrease = 0.2f * (progressiveLevel - 1);
+    return min(baseSpeed + speedIncrease, 3.0f);  // Cap at 3.0
+  } else if (shooterSettings.preset != PRESET_CUSTOM) {
+    return speedToPixels(PRESET_CONFIGS[shooterSettings.preset].fallSpeed);
+  } else {
+    return speedToPixels(shooterSettings.fallSpeed);
+  }
+}
+
+// Get current spawn interval based on settings/mode
+uint32_t getCurrentSpawnInterval() {
+  if (shooterSettings.gameMode == SHOOTER_MODE_PROGRESSIVE) {
+    // Progressive mode: spawn rate increases with level
+    uint32_t baseInterval = 5000;
+    uint32_t decrease = 300 * (progressiveLevel - 1);
+    return max(baseInterval - decrease, (uint32_t)1000);  // Min 1000ms
+  } else if (shooterSettings.preset != PRESET_CUSTOM) {
+    return spawnToInterval(PRESET_CONFIGS[shooterSettings.preset].spawnRate);
+  } else {
+    return spawnToInterval(shooterSettings.spawnRate);
+  }
+}
+
+// Get current character set based on settings/mode
+void getCurrentCharset(const char*& charset, int& size) {
+  if (shooterSettings.gameMode == SHOOTER_MODE_PROGRESSIVE) {
+    // Progressive mode: unlock characters with level
+    int levelIndex = min(progressiveLevel - 1, 5);  // Max level 6
+    charset = PROGRESSIVE_CHARSETS[levelIndex];
+    size = PROGRESSIVE_CHARSET_SIZES[levelIndex];
+  } else if (shooterSettings.preset != PRESET_CUSTOM) {
+    charset = PRESET_CONFIGS[shooterSettings.preset].charset;
+    size = PRESET_CONFIGS[shooterSettings.preset].charsetSize;
+  } else {
+    // Custom: use charset flags to determine
+    if (shooterSettings.charsetFlags & CHARSET_FLAG_NUMBERS) {
+      charset = CHARSET_HARD;
+      size = 36;
+    } else {
+      charset = CHARSET_MEDIUM;
+      size = 26;
+    }
+  }
+}
+
+// Get current max letters based on settings/mode
+int getCurrentMaxLetters() {
+  if (shooterSettings.gameMode == SHOOTER_MODE_PROGRESSIVE) {
+    // Progressive mode: more letters with level
+    return min(3 + progressiveLevel / 2, 8);
+  } else if (shooterSettings.preset != PRESET_CUSTOM) {
+    return PRESET_CONFIGS[shooterSettings.preset].maxLetters;
+  } else {
+    return shooterSettings.maxLetters;
+  }
+}
+
 /*
- * Update falling letters (physics)
+ * Update falling letters (physics) - supports all modes
  */
 void updateFallingLetters() {
-  const DifficultyParams& params = DIFF_PARAMS[shooterDifficulty];
+  float fallSpeed = getCurrentFallSpeed();
 
   for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
     if (fallingLetters[i].active) {
-      fallingLetters[i].y += params.fallSpeed;
+      fallingLetters[i].y += fallSpeed;
 
       // Update LVGL display (y+40 for header offset)
       updateShooterLetter(i, fallingLetters[i].letter,
@@ -470,36 +948,103 @@ void updateFallingLetters() {
         fallingLetters[i].active = false;
         updateShooterLetter(i, ' ', 0, 0, false);  // Hide letter
         gameLives--;
+        resetCombo();  // Reset combo on ground hit
         updateShooterLives(gameLives);  // Update LVGL
+        updateShooterCombo(0, 1);
         beep(TONE_ERROR, 200);  // Hit ground sound
 
         if (gameLives <= 0) {
           gameOver = true;
+          // Track survival time for progressive mode
+          if (shooterSettings.gameMode == SHOOTER_MODE_PROGRESSIVE) {
+            progressiveTimeSurvived = millis() - gameStartTime;
+            Serial.printf("[Shooter] Progressive game over: Level %d, Time %lu ms\n",
+                          progressiveLevel, progressiveTimeSurvived);
+          }
           showShooterGameOver();  // Show game over overlay
         }
       }
     }
   }
+
+  // Progressive mode: check for level advancement by time
+  if (shooterSettings.gameMode == SHOOTER_MODE_PROGRESSIVE && !gameOver) {
+    unsigned long timeSinceLevel = millis() - progressiveLevelStartTime;
+    if (timeSinceLevel >= 30000) {  // 30 seconds per level
+      progressiveLevel++;
+      progressiveLevelStartTime = millis();
+      Serial.printf("[Shooter] Progressive level up (time)! Now level %d\n", progressiveLevel);
+      beep(1000, 100);  // Level up beep
+    }
+  }
 }
 
 /*
- * Spawn new falling letter
+ * Spawn new falling letter - supports all modes
  */
 void spawnFallingLetter() {
-  const DifficultyParams& params = DIFF_PARAMS[shooterDifficulty];
+  uint32_t spawnInterval = getCurrentSpawnInterval();
+  int maxLetters = getCurrentMaxLetters();
 
-  if (millis() - lastSpawnTime < (unsigned long)params.spawnInterval) {
+  if (millis() - lastSpawnTime < spawnInterval) {
     return;  // Not time to spawn yet
   }
 
-  // Find empty slot
+  // Count active letters
+  int activeCount = 0;
+  int emptySlot = -1;
   for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
-    if (!fallingLetters[i].active) {
-      initFallingLetter(i);
-      lastSpawnTime = millis();
-      return;
+    if (fallingLetters[i].active) {
+      activeCount++;
+    } else if (emptySlot < 0) {
+      emptySlot = i;
     }
   }
+
+  // Don't exceed max letters for current difficulty
+  if (activeCount >= maxLetters || emptySlot < 0) {
+    return;
+  }
+
+  // Initialize the letter based on current mode/settings
+  const char* charset;
+  int charsetSize;
+  getCurrentCharset(charset, charsetSize);
+
+  fallingLetters[emptySlot].letter = charset[random(charsetSize)];
+
+  // Find spawn position with collision avoidance
+  int attempts = 0;
+  bool positionOk = false;
+  int newX;
+  const int SPAWN_Y = 5;
+
+  while (!positionOk && attempts < 20) {
+    newX = random(20, SCREEN_WIDTH - 40);
+    positionOk = true;
+
+    for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
+      if (i != emptySlot && fallingLetters[i].active) {
+        if (abs(newX - (int)fallingLetters[i].x) < 30 &&
+            abs(SPAWN_Y - (int)fallingLetters[i].y) < 40) {
+          positionOk = false;
+          break;
+        }
+      }
+    }
+    attempts++;
+  }
+
+  fallingLetters[emptySlot].x = newX;
+  fallingLetters[emptySlot].y = SPAWN_Y;
+  fallingLetters[emptySlot].active = true;
+
+  // Update LVGL display
+  updateShooterLetter(emptySlot, fallingLetters[emptySlot].letter,
+                     (int)fallingLetters[emptySlot].x,
+                     (int)fallingLetters[emptySlot].y + 40, true);
+
+  lastSpawnTime = millis();
 }
 
 /*
@@ -524,6 +1069,7 @@ bool checkMorseShoot(LGFX& tft) {
       // HIT!
       int targetX = (int)fallingLetters[j].x;
       int targetY = (int)fallingLetters[j].y;
+      float letterY = fallingLetters[j].y;  // Save for speed bonus calc
 
       // Remove letter FIRST (before any redraw)
       fallingLetters[j].active = false;
@@ -541,15 +1087,38 @@ bool checkMorseShoot(LGFX& tft) {
       drawGroundScenery(tft);
       drawFallingLetters(tft);
 
-      // Add score with difficulty multiplier
+      // Calculate score using combo system
+      int pointsEarned = recordHit(letterY);
+
+      // Also apply legacy difficulty multiplier for backward compatibility
       const DifficultyParams& params = DIFF_PARAMS[shooterDifficulty];
-      gameScore += 10 * params.scoreMultiplier;
+      pointsEarned = pointsEarned * params.scoreMultiplier;
+
+      gameScore += pointsEarned;
       updateShooterScore(gameScore);  // Update LVGL
 
-      // Update high score for current difficulty
+      // Update combo display
+      int currentMultiplier = getComboMultiplier();
+      updateShooterCombo(comboCount, currentMultiplier);
+
+      // Update high score for current difficulty (legacy)
       if (gameScore > shooterHighScores[shooterDifficulty]) {
         shooterHighScores[shooterDifficulty] = gameScore;
         saveShooterHighScore();
+      }
+
+      // Update high score for current mode
+      updateCurrentModeHighScore(gameScore);
+
+      // Progressive mode: track hits for level advancement
+      if (shooterSettings.gameMode == SHOOTER_MODE_PROGRESSIVE) {
+        progressiveHits++;
+        if (progressiveHits >= 10) {
+          progressiveHits = 0;
+          progressiveLevel++;
+          Serial.printf("[Shooter] Progressive level up! Now level %d\n", progressiveLevel);
+          // TODO: Update UI to show level change
+        }
       }
 
       // Keep decoded text visible until next input starts
@@ -558,8 +1127,10 @@ bool checkMorseShoot(LGFX& tft) {
     }
   }
 
-  // Decoded character but no matching letter falling - clear text
+  // Decoded character but no matching letter falling - MISS
   beep(600, 100);  // Miss sound
+  resetCombo();    // Reset combo streak
+  updateShooterCombo(0, 1);  // Clear combo display
   shooterDecodedText = "";
   return false;
 }

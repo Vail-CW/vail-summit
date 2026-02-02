@@ -43,7 +43,8 @@ static lv_obj_t* shooter_canvas = NULL;
 static lv_obj_t* shooter_score_label = NULL;
 static lv_obj_t* shooter_lives_container = NULL;
 static lv_obj_t* shooter_decoded_label = NULL;
-static lv_obj_t* shooter_letter_labels[5] = {NULL, NULL, NULL, NULL, NULL};  // Pool of falling letter objects
+static lv_obj_t* shooter_combo_label = NULL;     // Combo multiplier display
+static lv_obj_t* shooter_letter_labels[8] = {NULL};  // Pool of falling letter objects (increased for maxLetters up to 8)
 
 // Canvas buffer for game graphics
 static lv_color_t* shooter_canvas_buf = NULL;
@@ -58,16 +59,24 @@ static lv_obj_t* shooter_explosion_container = NULL;
 static lv_obj_t* shooter_explosion_circles[4] = {NULL, NULL, NULL, NULL};
 static lv_obj_t* shooter_game_over_overlay = NULL;
 static lv_obj_t* shooter_settings_screen = NULL;
+static lv_obj_t* shooter_mode_row = NULL;
+static lv_obj_t* shooter_mode_value = NULL;
+static lv_obj_t* shooter_preset_row = NULL;
+static lv_obj_t* shooter_preset_value = NULL;
 static lv_obj_t* shooter_diff_value = NULL;
 static lv_obj_t* shooter_speed_value = NULL;
 static lv_obj_t* shooter_tone_value = NULL;
 static lv_obj_t* shooter_key_value = NULL;
+static lv_obj_t* shooter_lives_row = NULL;
+static lv_obj_t* shooter_lives_value = NULL;
 static lv_obj_t* shooter_highscore_value = NULL;
 static lv_obj_t* shooter_start_btn = NULL;
 static lv_obj_t* shooter_diff_row = NULL;
 static lv_obj_t* shooter_speed_row = NULL;
 static lv_obj_t* shooter_tone_row = NULL;
 static lv_obj_t* shooter_key_row = NULL;
+static int shooter_settings_focus = 0;
+static int shooter_settings_page = 0;
 
 // Reset all shooter screen static pointers (called before creating new screen)
 // This prevents crashes from stale pointers after screen deletion
@@ -78,7 +87,8 @@ static void cleanupShooterScreenPointers() {
     shooter_score_label = NULL;
     shooter_lives_container = NULL;
     shooter_decoded_label = NULL;
-    for (int i = 0; i < 5; i++) {
+    shooter_combo_label = NULL;
+    for (int i = 0; i < 8; i++) {
         shooter_letter_labels[i] = NULL;
     }
     // Note: Don't free shooter_canvas_buf here - it's reused across screen recreations
@@ -97,16 +107,24 @@ static void cleanupShooterScreenPointers() {
 // Reset settings screen pointers
 static void cleanupShooterSettingsPointers() {
     shooter_settings_screen = NULL;
+    shooter_mode_row = NULL;
+    shooter_mode_value = NULL;
+    shooter_preset_row = NULL;
+    shooter_preset_value = NULL;
     shooter_diff_value = NULL;
     shooter_speed_value = NULL;
     shooter_tone_value = NULL;
     shooter_key_value = NULL;
+    shooter_lives_row = NULL;
+    shooter_lives_value = NULL;
     shooter_highscore_value = NULL;
     shooter_start_btn = NULL;
     shooter_diff_row = NULL;
     shooter_speed_row = NULL;
     shooter_tone_row = NULL;
     shooter_key_row = NULL;
+    shooter_settings_focus = 0;
+    shooter_settings_page = 0;
 }
 
 lv_obj_t* createMorseShooterScreen() {
@@ -149,22 +167,34 @@ lv_obj_t* createMorseShooterScreen() {
     lv_obj_set_style_text_color(shooter_score_label, LV_COLOR_ACCENT_CYAN, 0);
     lv_obj_set_style_text_font(shooter_score_label, getThemeFonts()->font_subtitle, 0);
 
-    // Lives (hearts)
+    // Combo display (between score and lives)
+    lv_obj_t* combo_container = lv_obj_create(hud);
+    lv_obj_set_size(combo_container, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(combo_container, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(combo_container, 0, 0);
+    lv_obj_set_style_pad_all(combo_container, 0, 0);
+
+    shooter_combo_label = lv_label_create(combo_container);
+    lv_label_set_text(shooter_combo_label, "");  // Hidden initially
+    lv_obj_set_style_text_color(shooter_combo_label, LV_COLOR_WARNING, 0);
+    lv_obj_set_style_text_font(shooter_combo_label, getThemeFonts()->font_subtitle, 0);
+
+    // Lives (hearts) - support up to 5 lives
     shooter_lives_container = lv_obj_create(hud);
     lv_obj_set_size(shooter_lives_container, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_layout(shooter_lives_container, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(shooter_lives_container, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(shooter_lives_container, 5, 0);
+    lv_obj_set_style_pad_column(shooter_lives_container, 3, 0);
     lv_obj_set_style_bg_opa(shooter_lives_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(shooter_lives_container, 0, 0);
     lv_obj_set_style_pad_all(shooter_lives_container, 0, 0);
 
-    // Initialize 3 heart icons
-    for (int i = 0; i < 3; i++) {
+    // Initialize 5 heart icons (max supported lives)
+    for (int i = 0; i < 5; i++) {
         lv_obj_t* heart = lv_label_create(shooter_lives_container);
         lv_label_set_text(heart, LV_SYMBOL_OK);
-        lv_obj_set_style_text_color(heart, LV_COLOR_ERROR, 0);
-        lv_obj_set_style_text_font(heart, getThemeFonts()->font_subtitle, 0);
+        lv_obj_set_style_text_color(heart, LV_COLOR_TEXT_DISABLED, 0);  // Start hidden/gray
+        lv_obj_set_style_text_font(heart, getThemeFonts()->font_body, 0);  // Smaller font for 5 hearts
     }
 
     // Game canvas area (for scenery)
@@ -186,8 +216,8 @@ lv_obj_t* createMorseShooterScreen() {
         lv_canvas_fill_bg(shooter_canvas, LV_COLOR_BG_DEEP, LV_OPA_COVER);
     }
 
-    // Create falling letter labels (object pool)
-    for (int i = 0; i < 5; i++) {
+    // Create falling letter labels (object pool - supports up to 8)
+    for (int i = 0; i < 8; i++) {
         shooter_letter_labels[i] = lv_label_create(screen);
         lv_label_set_text(shooter_letter_labels[i], "");
         lv_obj_set_style_text_font(shooter_letter_labels[i], getThemeFonts()->font_large, 0);
@@ -243,17 +273,46 @@ void updateShooterScore(int score) {
     }
 }
 
-// Update lives display
+// Update lives display (supports 1-5 lives)
 void updateShooterLives(int lives) {
     if (shooter_lives_container != NULL) {
         uint32_t child_count = lv_obj_get_child_cnt(shooter_lives_container);
-        for (uint32_t i = 0; i < child_count && i < 3; i++) {
+        for (uint32_t i = 0; i < child_count && i < 5; i++) {
             lv_obj_t* heart = lv_obj_get_child(shooter_lives_container, i);
             if ((int)i < lives) {
+                // Active heart - red
                 lv_obj_set_style_text_color(heart, LV_COLOR_ERROR, 0);
+                lv_obj_clear_flag(heart, LV_OBJ_FLAG_HIDDEN);
             } else {
+                // Lost heart - gray (but still visible for context)
                 lv_obj_set_style_text_color(heart, LV_COLOR_TEXT_DISABLED, 0);
+                // Hide hearts beyond max lives for this game
+                // Show gray hearts for lost lives
             }
+        }
+    }
+}
+
+// Update combo display
+void updateShooterCombo(int combo, int multiplier) {
+    if (shooter_combo_label != NULL) {
+        if (combo >= 3 && multiplier > 1) {
+            // Show combo with multiplier
+            lv_label_set_text_fmt(shooter_combo_label, "x%d!", multiplier);
+
+            // Color based on multiplier level
+            if (multiplier >= 10) {
+                lv_obj_set_style_text_color(shooter_combo_label, lv_color_hex(0xFF00FF), 0);  // Magenta for 10x
+            } else if (multiplier >= 5) {
+                lv_obj_set_style_text_color(shooter_combo_label, lv_color_hex(0xFF4400), 0);  // Orange for 5x
+            } else if (multiplier >= 3) {
+                lv_obj_set_style_text_color(shooter_combo_label, LV_COLOR_WARNING, 0);  // Yellow for 3x
+            } else {
+                lv_obj_set_style_text_color(shooter_combo_label, LV_COLOR_ACCENT_GREEN, 0);  // Green for 2x
+            }
+        } else {
+            // Hide combo display when not active
+            lv_label_set_text(shooter_combo_label, "");
         }
     }
 }
@@ -269,14 +328,44 @@ void updateShooterDecoded(const char* text) {
     }
 }
 
-// Show/hide/position a falling letter
+// Show/hide/position a falling letter (supports up to 8 letters)
 void updateShooterLetter(int index, char letter, int x, int y, bool visible) {
-    if (index >= 0 && index < 5 && shooter_letter_labels[index] != NULL) {
+    if (index >= 0 && index < 8 && shooter_letter_labels[index] != NULL) {
         if (visible) {
             char buf[2] = {letter, '\0'};
             lv_label_set_text(shooter_letter_labels[index], buf);
             lv_obj_set_pos(shooter_letter_labels[index], x, y);
             lv_obj_clear_flag(shooter_letter_labels[index], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(shooter_letter_labels[index], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
+// Show/hide/position a falling word (for Word and Callsign modes)
+void updateShooterWord(int index, const char* word, int lettersTyped, int x, int y, bool visible) {
+    if (index >= 0 && index < 8 && shooter_letter_labels[index] != NULL) {
+        if (visible && word != NULL) {
+            // Build display string with typed letters highlighted
+            // Format: completed letters shown normally, remaining with dots
+            String display = "";
+            int len = strlen(word);
+            for (int i = 0; i < len; i++) {
+                display += word[i];
+                if (i < len - 1) {
+                    display += (i < lettersTyped) ? " " : ".";
+                }
+            }
+            lv_label_set_text(shooter_letter_labels[index], display.c_str());
+            lv_obj_set_pos(shooter_letter_labels[index], x, y);
+            lv_obj_clear_flag(shooter_letter_labels[index], LV_OBJ_FLAG_HIDDEN);
+
+            // Color: partially completed words show progress
+            if (lettersTyped > 0 && lettersTyped < len) {
+                lv_obj_set_style_text_color(shooter_letter_labels[index], LV_COLOR_ACCENT_GREEN, 0);
+            } else {
+                lv_obj_set_style_text_color(shooter_letter_labels[index], LV_COLOR_WARNING, 0);
+            }
         } else {
             lv_obj_add_flag(shooter_letter_labels[index], LV_OBJ_FLAG_HIDDEN);
         }
@@ -755,12 +844,15 @@ enum ShooterScreenState {
 };
 static ShooterScreenState shooterScreenState = SHOOTER_STATE_SETTINGS;
 
-// (Settings screen widget pointers declared via forward declarations above)
+// External settings from game_morse_shooter.h
+extern ShooterSettings shooterSettings;
+extern int shooterHighScoreClassic;
+extern int shooterHighScoreProgressive;
+extern int shooterHighScoreWord;
+extern int shooterHighScoreCallsign;
+extern void applyShooterPreset(ShooterPreset preset);
 
-// Track which row is focused (0=difficulty, 1=speed, 2=tone, 3=key, 4=start)
-static int shooter_settings_focus = 0;
-
-// Difficulty names for display
+// Difficulty names for display (legacy)
 static const char* shooter_diff_names[] = {"Easy", "Medium", "Hard"};
 
 // Key type names
@@ -773,8 +865,13 @@ void startShooterFromSettings();
 
 // Update focus styling on settings rows
 static void shooter_settings_update_focus() {
-    lv_obj_t* rows[] = {shooter_diff_row, shooter_speed_row, shooter_tone_row, shooter_key_row, shooter_start_btn};
-    const int num_rows = 5;
+    // All possible focusable rows
+    lv_obj_t* rows[] = {
+        shooter_mode_row, shooter_preset_row, shooter_diff_row,
+        shooter_speed_row, shooter_tone_row, shooter_key_row,
+        shooter_lives_row, shooter_start_btn
+    };
+    const int num_rows = 8;
 
     for (int i = 0; i < num_rows; i++) {
         if (rows[i] == NULL) continue;
@@ -791,26 +888,70 @@ static void shooter_settings_update_focus() {
     }
 }
 
-// Update value labels to reflect current settings
-static void shooter_settings_update_values() {
-    if (shooter_diff_value != NULL) {
-        lv_label_set_text(shooter_diff_value, shooter_diff_names[shooterDifficulty]);
-    }
-    if (shooter_speed_value != NULL) {
-        lv_label_set_text_fmt(shooter_speed_value, "%d WPM", cwSpeed);
-    }
-    if (shooter_tone_value != NULL) {
-        lv_label_set_text_fmt(shooter_tone_value, "%d Hz", cwTone);
-    }
-    if (shooter_key_value != NULL) {
-        lv_label_set_text(shooter_key_value, shooter_key_names[cwKeyType]);
-    }
-    if (shooter_highscore_value != NULL) {
-        lv_label_set_text_fmt(shooter_highscore_value, "%d", shooterHighScores[shooterDifficulty]);
+// Get high score for current mode
+static int getShooterHighScoreForMode() {
+    switch (shooterSettings.gameMode) {
+        case 0: return shooterHighScoreClassic;      // SHOOTER_MODE_CLASSIC
+        case 1: return shooterHighScoreProgressive;  // SHOOTER_MODE_PROGRESSIVE
+        case 2: return shooterHighScoreWord;         // SHOOTER_MODE_WORD
+        case 3: return shooterHighScoreCallsign;     // SHOOTER_MODE_CALLSIGN
+        default: return shooterHighScores[shooterDifficulty];
     }
 }
 
-// Key event callback for settings screen
+// Update value labels to reflect current settings
+static void shooter_settings_update_values() {
+    // Mode
+    if (shooter_mode_value != NULL) {
+        const char* modeNames[] = {"Classic", "Progressive", "Word", "Callsign"};
+        lv_label_set_text(shooter_mode_value, modeNames[shooterSettings.gameMode]);
+    }
+
+    // Preset
+    if (shooter_preset_value != NULL) {
+        const char* presetNames[] = {"Custom", "Beginner", "Easy", "Medium", "Hard", "Expert", "Insane"};
+        lv_label_set_text(shooter_preset_value, presetNames[shooterSettings.preset]);
+    }
+
+    // Legacy difficulty (still used for backward compat)
+    if (shooter_diff_value != NULL) {
+        lv_label_set_text(shooter_diff_value, shooter_diff_names[shooterDifficulty]);
+    }
+
+    // Speed (WPM)
+    if (shooter_speed_value != NULL) {
+        lv_label_set_text_fmt(shooter_speed_value, "%d WPM", cwSpeed);
+    }
+
+    // Tone
+    if (shooter_tone_value != NULL) {
+        lv_label_set_text_fmt(shooter_tone_value, "%d Hz", cwTone);
+    }
+
+    // Key type
+    if (shooter_key_value != NULL) {
+        lv_label_set_text(shooter_key_value, shooter_key_names[cwKeyType]);
+    }
+
+    // Lives
+    if (shooter_lives_value != NULL) {
+        // Show lives based on preset or custom setting
+        int lives = shooterSettings.startLives;
+        if (shooterSettings.preset != 0) {  // PRESET_CUSTOM
+            // Get lives from preset config
+            extern const PresetConfig PRESET_CONFIGS[];
+            lives = PRESET_CONFIGS[shooterSettings.preset].startLives;
+        }
+        lv_label_set_text_fmt(shooter_lives_value, "%d", lives);
+    }
+
+    // High score for current mode
+    if (shooter_highscore_value != NULL) {
+        lv_label_set_text_fmt(shooter_highscore_value, "%d", getShooterHighScoreForMode());
+    }
+}
+
+// Key event callback for settings screen (expanded for new options)
 static void shooter_settings_key_cb(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code != LV_EVENT_KEY) return;
@@ -818,95 +959,140 @@ static void shooter_settings_key_cb(lv_event_t* e) {
     uint32_t key = lv_event_get_key(e);
     Serial.printf("[Shooter Settings] Key: %lu (0x%02lX), focus=%d\n", key, key, shooter_settings_focus);
 
+    // Row mapping: 0=mode, 1=preset, 2=difficulty, 3=speed, 4=tone, 5=keytype, 6=lives, 7=start
+    const int MAX_FOCUS = 7;
+
     switch(key) {
         case LV_KEY_UP:
             shooter_settings_focus--;
-            if (shooter_settings_focus < 0) shooter_settings_focus = 4;
+            if (shooter_settings_focus < 0) shooter_settings_focus = MAX_FOCUS;
             shooter_settings_update_focus();
             beep(TONE_MENU_NAV, BEEP_SHORT);
             break;
 
         case LV_KEY_DOWN:
             shooter_settings_focus++;
-            if (shooter_settings_focus > 4) shooter_settings_focus = 0;
+            if (shooter_settings_focus > MAX_FOCUS) shooter_settings_focus = 0;
             shooter_settings_update_focus();
             beep(TONE_MENU_NAV, BEEP_SHORT);
             break;
 
         case LV_KEY_LEFT:
             switch (shooter_settings_focus) {
-                case 0:  // Difficulty
+                case 0:  // Game Mode
+                    if (shooterSettings.gameMode > 0) {
+                        shooterSettings.gameMode--;
+                        shooter_settings_update_values();
+                        beep(TONE_MENU_NAV, BEEP_SHORT);
+                    }
+                    break;
+                case 1:  // Preset
+                    if (shooterSettings.preset > 0) {
+                        shooterSettings.preset--;
+                        applyShooterPreset((ShooterPreset)shooterSettings.preset);
+                        shooter_settings_update_values();
+                        beep(TONE_MENU_NAV, BEEP_SHORT);
+                    }
+                    break;
+                case 2:  // Difficulty (legacy)
                     if (shooterDifficulty > SHOOTER_EASY) {
                         shooterDifficulty = (ShooterDifficulty)(shooterDifficulty - 1);
                         shooter_settings_update_values();
                         beep(TONE_MENU_NAV, BEEP_SHORT);
                     }
                     break;
-                case 1:  // Speed
+                case 3:  // Speed (WPM)
                     if (cwSpeed > 5) {
                         cwSpeed--;
                         shooter_settings_update_values();
                         beep(TONE_MENU_NAV, BEEP_SHORT);
                     }
                     break;
-                case 2:  // Tone
+                case 4:  // Tone
                     if (cwTone > 400) {
                         cwTone -= 50;
                         shooter_settings_update_values();
                         beep(TONE_MENU_NAV, BEEP_SHORT);
                     }
                     break;
-                case 3:  // Key Type (cycle: Straight -> Iambic A -> Iambic B)
+                case 5:  // Key Type
                     if (cwKeyType == KEY_IAMBIC_B) {
                         cwKeyType = KEY_IAMBIC_A;
                     } else if (cwKeyType == KEY_IAMBIC_A) {
                         cwKeyType = KEY_STRAIGHT;
                     }
-                    // If already KEY_STRAIGHT, stay there (no wrap on left)
                     shooter_settings_update_values();
                     beep(TONE_MENU_NAV, BEEP_SHORT);
+                    break;
+                case 6:  // Lives (custom only)
+                    if (shooterSettings.preset == 0 && shooterSettings.startLives > 1) {
+                        shooterSettings.startLives--;
+                        shooter_settings_update_values();
+                        beep(TONE_MENU_NAV, BEEP_SHORT);
+                    }
                     break;
             }
             break;
 
         case LV_KEY_RIGHT:
             switch (shooter_settings_focus) {
-                case 0:  // Difficulty
+                case 0:  // Game Mode
+                    if (shooterSettings.gameMode < 3) {  // SHOOTER_MODE_CALLSIGN
+                        shooterSettings.gameMode++;
+                        shooter_settings_update_values();
+                        beep(TONE_MENU_NAV, BEEP_SHORT);
+                    }
+                    break;
+                case 1:  // Preset
+                    if (shooterSettings.preset < 6) {  // PRESET_INSANE
+                        shooterSettings.preset++;
+                        applyShooterPreset((ShooterPreset)shooterSettings.preset);
+                        shooter_settings_update_values();
+                        beep(TONE_MENU_NAV, BEEP_SHORT);
+                    }
+                    break;
+                case 2:  // Difficulty (legacy)
                     if (shooterDifficulty < SHOOTER_HARD) {
                         shooterDifficulty = (ShooterDifficulty)(shooterDifficulty + 1);
                         shooter_settings_update_values();
                         beep(TONE_MENU_NAV, BEEP_SHORT);
                     }
                     break;
-                case 1:  // Speed
+                case 3:  // Speed (WPM)
                     if (cwSpeed < 40) {
                         cwSpeed++;
                         shooter_settings_update_values();
                         beep(TONE_MENU_NAV, BEEP_SHORT);
                     }
                     break;
-                case 2:  // Tone
+                case 4:  // Tone
                     if (cwTone < 1200) {
                         cwTone += 50;
                         shooter_settings_update_values();
                         beep(TONE_MENU_NAV, BEEP_SHORT);
                     }
                     break;
-                case 3:  // Key Type (cycle: Straight -> Iambic A -> Iambic B)
+                case 5:  // Key Type
                     if (cwKeyType == KEY_STRAIGHT) {
                         cwKeyType = KEY_IAMBIC_A;
                     } else if (cwKeyType == KEY_IAMBIC_A) {
                         cwKeyType = KEY_IAMBIC_B;
                     }
-                    // If already KEY_IAMBIC_B, stay there (no wrap on right)
                     shooter_settings_update_values();
                     beep(TONE_MENU_NAV, BEEP_SHORT);
+                    break;
+                case 6:  // Lives (custom only)
+                    if (shooterSettings.preset == 0 && shooterSettings.startLives < 5) {
+                        shooterSettings.startLives++;
+                        shooter_settings_update_values();
+                        beep(TONE_MENU_NAV, BEEP_SHORT);
+                    }
                     break;
             }
             break;
 
         case LV_KEY_ENTER:
-            if (shooter_settings_focus == 4) {  // Start button
+            if (shooter_settings_focus == MAX_FOCUS) {  // Start button
                 // Save settings and start game
                 saveShooterPrefs();
                 saveCWSettings();
@@ -969,50 +1155,54 @@ lv_obj_t* createMorseShooterSettingsScreen() {
     lv_obj_set_style_text_font(shooter_highscore_value, getThemeFonts()->font_title, 0);
     lv_obj_align(shooter_highscore_value, LV_ALIGN_BOTTOM_MID, 0, 0);
 
-    // Settings container - reduced height to avoid overlap with START button
+    // Settings container - scrollable to fit all options
     lv_obj_t* settings_card = lv_obj_create(screen);
-    lv_obj_set_size(settings_card, SCREEN_WIDTH - 40, 150);
+    lv_obj_set_size(settings_card, SCREEN_WIDTH - 40, SCREEN_HEIGHT - HEADER_HEIGHT - FOOTER_HEIGHT - 80);
     lv_obj_set_pos(settings_card, 20, HEADER_HEIGHT + 10);
     lv_obj_set_layout(settings_card, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(settings_card, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(settings_card, 4, 0);
-    lv_obj_set_style_pad_all(settings_card, 8, 0);
+    lv_obj_set_style_pad_row(settings_card, 2, 0);
+    lv_obj_set_style_pad_all(settings_card, 6, 0);
     applyCardStyle(settings_card);
-    lv_obj_clear_flag(settings_card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(settings_card, LV_DIR_VER);  // Vertical scroll if needed
 
-    // Helper to create a settings row
+    // Helper to create a compact settings row
     auto createSettingsRow = [&](const char* label_text, lv_obj_t** row_out, lv_obj_t** value_out) {
         lv_obj_t* row = lv_obj_create(settings_card);
-        lv_obj_set_size(row, SCREEN_WIDTH - 80, 28);
+        lv_obj_set_size(row, SCREEN_WIDTH - 80, 22);  // Compact height
         lv_obj_set_layout(row, LV_LAYOUT_FLEX);
         lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_style_bg_color(row, LV_COLOR_BG_LAYER2, 0);
         lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(row, 6, 0);
+        lv_obj_set_style_radius(row, 4, 0);
         lv_obj_set_style_border_width(row, 1, 0);
         lv_obj_set_style_border_color(row, LV_COLOR_BORDER_SUBTLE, 0);
-        lv_obj_set_style_pad_hor(row, 15, 0);
+        lv_obj_set_style_pad_hor(row, 10, 0);
+        lv_obj_set_style_pad_ver(row, 2, 0);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
         lv_obj_t* lbl = lv_label_create(row);
         lv_label_set_text(lbl, label_text);
         lv_obj_set_style_text_color(lbl, LV_COLOR_TEXT_PRIMARY, 0);
-        lv_obj_set_style_text_font(lbl, getThemeFonts()->font_body, 0);
+        lv_obj_set_style_text_font(lbl, getThemeFonts()->font_small, 0);
 
         lv_obj_t* val = lv_label_create(row);
         lv_obj_set_style_text_color(val, LV_COLOR_ACCENT_CYAN, 0);
-        lv_obj_set_style_text_font(val, getThemeFonts()->font_body, 0);
+        lv_obj_set_style_text_font(val, getThemeFonts()->font_small, 0);
 
         *row_out = row;
         *value_out = val;
     };
 
-    // Create settings rows
+    // Create settings rows - expanded options
+    createSettingsRow("Mode", &shooter_mode_row, &shooter_mode_value);
+    createSettingsRow("Preset", &shooter_preset_row, &shooter_preset_value);
     createSettingsRow("Difficulty", &shooter_diff_row, &shooter_diff_value);
     createSettingsRow("Speed", &shooter_speed_row, &shooter_speed_value);
     createSettingsRow("Tone", &shooter_tone_row, &shooter_tone_value);
     createSettingsRow("Key Type", &shooter_key_row, &shooter_key_value);
+    createSettingsRow("Lives", &shooter_lives_row, &shooter_lives_value);
 
     // Start button
     shooter_start_btn = lv_btn_create(screen);
@@ -1062,7 +1252,7 @@ lv_obj_t* createMorseShooterSettingsScreen() {
     lv_group_focus_obj(focus_container);
 
     // Initialize values and focus
-    shooter_settings_focus = 4;  // Start on START button
+    shooter_settings_focus = 7;  // Start on START button (index 7 with new rows)
     shooter_settings_update_values();
     shooter_settings_update_focus();
 
