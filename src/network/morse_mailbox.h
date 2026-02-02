@@ -10,6 +10,7 @@
 #include <ArduinoJson.h>
 #include <WiFi.h>
 #include "../settings/settings_mailbox.h"
+#include "../core/secrets.h"
 #include "internet_check.h"
 
 // ============================================
@@ -17,8 +18,8 @@
 // ============================================
 // Note: Firebase Cloud Functions are deployed at their export name, not REST paths
 // e.g., api_device_requestCode -> /api_device_requestCode
-#define MAILBOX_FUNCTIONS_BASE "https://us-central1-morse-mailbox.cloudfunctions.net"
-#define FIREBASE_API_KEY "REDACTED_MAILBOX_API_KEY"
+#define MAILBOX_FUNCTIONS_BASE MAILBOX_FUNCTIONS_BASE_URL
+#define FIREBASE_API_KEY FIREBASE_MAILBOX_API_KEY
 #define MAILBOX_DEVICE_TYPE "vail_summit"
 #define MAILBOX_HTTP_TIMEOUT 10000  // 10 seconds
 

@@ -11,14 +11,14 @@
 #include <WiFi.h>
 #include "../settings/settings_cwschool.h"
 #include "../core/config.h"
+#include "../core/secrets.h"
 #include "internet_check.h"
 
 // ============================================
 // API Configuration
 // ============================================
-#define CWSCHOOL_FUNCTIONS_BASE "https://us-central1-vail-cw-school.cloudfunctions.net"
-#define CWSCHOOL_FIREBASE_API_KEY "REDACTED_CWSCHOOL_API_KEY"
-#define CWSCHOOL_LINK_DEVICE_URL "https://learncw.vailmorse.com/link-device"
+#define CWSCHOOL_FUNCTIONS_BASE CWSCHOOL_FUNCTIONS_BASE_URL
+#define CWSCHOOL_FIREBASE_API_KEY FIREBASE_CWSCHOOL_API_KEY
 #define CWSCHOOL_DEVICE_TYPE "vail_summit"
 #define CWSCHOOL_HTTP_TIMEOUT 15000  // 15 seconds
 

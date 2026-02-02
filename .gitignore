@@ -22,6 +22,12 @@ arduino-cli/
 # Arduino CLI cache/data (created during builds)
 data/
 
+# Local secrets (for development with real API keys)
+secrets_local.h
+src/core/secrets_local.h
+.env
+*.env.local
+
 # OS files
 .DS_Store
 Thumbs.db
