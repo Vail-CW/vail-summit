@@ -16,10 +16,9 @@
 // ============================================
 // API Configuration
 // ============================================
-// Note: Update these when CW School Cloud Functions are deployed
-// The base URL should be the Firebase Cloud Functions URL for the CW School project
 #define CWSCHOOL_FUNCTIONS_BASE "https://us-central1-vail-cw-school.cloudfunctions.net"
-#define CWSCHOOL_FIREBASE_API_KEY "YOUR_FIREBASE_API_KEY_HERE"  // TODO: Get from CW School team
+#define CWSCHOOL_FIREBASE_API_KEY "REDACTED_CWSCHOOL_API_KEY"
+#define CWSCHOOL_LINK_DEVICE_URL "https://learncw.vailmorse.com/link-device"
 #define CWSCHOOL_DEVICE_TYPE "vail_summit"
 #define CWSCHOOL_HTTP_TIMEOUT 15000  // 15 seconds
 

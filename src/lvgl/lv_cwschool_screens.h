@@ -289,7 +289,7 @@ lv_obj_t* createCWSchoolLinkScreen() {
 
     // Instructions
     lv_obj_t* instr = lv_label_create(content);
-    lv_label_set_text(instr, "Visit vail.school/link-device");
+    lv_label_set_text(instr, "Visit learncw.vailmorse.com/link-device");
     lv_obj_set_style_text_font(instr, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(instr, LV_COLOR_TEXT_SECONDARY, 0);
 

@@ -33,7 +33,8 @@ The Summit device firmware requires the following configuration values from the 
 | Value | Purpose | Example |
 |-------|---------|---------|
 | `CWSCHOOL_FUNCTIONS_BASE` | Cloud Functions base URL | `https://us-central1-vail-cw-school.cloudfunctions.net` |
-| `CWSCHOOL_FIREBASE_API_KEY` | Firebase Web API Key | `AIzaSy...` |
+| `CWSCHOOL_FIREBASE_API_KEY` | Firebase Web API Key | `REDACTED_CWSCHOOL_API_KEY` |
+| `CWSCHOOL_LINK_DEVICE_URL` | Link device web page | `https://learncw.vailmorse.com/link-device` |
 
 These are configured in `src/network/cwschool_link.h` on the device side.
 
@@ -129,7 +130,7 @@ Note: The `device_id` field is optional on first link (server generates new ID) 
 ```json
 {
   "code": "ABC123",
-  "link_url": "https://vail.school/link-device",
+  "link_url": "https://learncw.vailmorse.com/link-device",
   "expires_in": 600,
   "device_id": "ESP32-AABBCCDD1122"
 }
@@ -575,7 +576,7 @@ service cloud.firestore {
 
 ### 6.1 Device Link Page (`/link-device`)
 
-**Route:** `https://vail.school/link-device`
+**Route:** `https://learncw.vailmorse.com/link-device`
 
 **UI Flow:**
 1. If not logged in → redirect to login with return URL
