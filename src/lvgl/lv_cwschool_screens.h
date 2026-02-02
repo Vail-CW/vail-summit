@@ -32,31 +32,6 @@ static lv_timer_t* cwschool_link_timer = NULL;
 static lv_obj_t* cwschool_account_screen = NULL;
 
 // ============================================
-// Linear Navigation Handler
-// ============================================
-
-static void cwschool_linear_nav_handler(lv_event_t* e) {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code != LV_EVENT_KEY) return;
-
-    uint32_t key = lv_event_get_key(e);
-
-    // Block TAB and horizontal navigation in vertical lists
-    if (key == '\t' || key == LV_KEY_NEXT || key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    // Auto-scroll to focused item on vertical navigation
-    if (key == LV_KEY_UP || key == LV_KEY_DOWN || key == LV_KEY_PREV) {
-        lv_obj_t* target = lv_event_get_target(e);
-        if (target) {
-            lv_obj_scroll_to_view(target, LV_ANIM_ON);
-        }
-    }
-}
-
-// ============================================
 // Device Linking Screen
 // ============================================
 
@@ -489,7 +464,7 @@ lv_obj_t* createCWSchoolAccountScreen() {
         lv_obj_center(unlink_lbl);
 
         lv_obj_add_event_cb(unlink_btn, cwschool_unlink_confirm, LV_EVENT_CLICKED, NULL);
-        lv_obj_add_event_cb(unlink_btn, cwschool_linear_nav_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(unlink_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
         addNavigableWidget(unlink_btn);
     } else {
         // Link button if not linked
@@ -508,7 +483,7 @@ lv_obj_t* createCWSchoolAccountScreen() {
         lv_obj_add_event_cb(link_btn, [](lv_event_t* e) {
             setCurrentModeFromInt(151);  // MODE_CWSCHOOL_LINK
         }, LV_EVENT_CLICKED, NULL);
-        lv_obj_add_event_cb(link_btn, cwschool_linear_nav_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(link_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
         addNavigableWidget(link_btn);
     }
 
@@ -591,7 +566,7 @@ lv_obj_t* createCWSchoolMenuScreen() {
             setCurrentModeFromInt(151);  // MODE_CWSCHOOL_LINK
         }
     }, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(account_btn, cwschool_linear_nav_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(account_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(account_btn);
 
     // Training button - navigate to Vail Course module selection
@@ -610,7 +585,7 @@ lv_obj_t* createCWSchoolMenuScreen() {
     lv_obj_add_event_cb(training_btn, [](lv_event_t* e) {
         setCurrentModeFromInt(160);  // MODE_VAIL_COURSE_MODULE_SELECT
     }, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(training_btn, cwschool_linear_nav_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(training_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(training_btn);
 
     // Progress button - show course progress
@@ -629,7 +604,7 @@ lv_obj_t* createCWSchoolMenuScreen() {
     lv_obj_add_event_cb(progress_btn, [](lv_event_t* e) {
         setCurrentModeFromInt(163);  // MODE_VAIL_COURSE_PROGRESS
     }, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(progress_btn, cwschool_linear_nav_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(progress_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(progress_btn);
 
     // Footer
