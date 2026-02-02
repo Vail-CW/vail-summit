@@ -47,9 +47,9 @@ unsigned long lastElementTime = 0;  // Track last element for timeout flush
 
 // Decoder display line management
 #define DECODER_CHARS_PER_LINE 27
-#define DECODER_MAX_LINES 3
+#define DECODER_MAX_LINES 4
 
-// Helper to manage line wrapping and scrolling
+// Helper to manage line wrapping and clearing when full
 void manageDecoderLines() {
     // Insert line break if current line is too long
     int lastNewline = decodedText.lastIndexOf('\n');
@@ -59,17 +59,14 @@ void manageDecoderLines() {
         decodedText += '\n';
     }
 
-    // Count lines and remove oldest if too many
+    // Count lines and clear all if exceeding max (wipe and start fresh)
     int lineCount = 1;
     for (int i = 0; i < decodedText.length(); i++) {
         if (decodedText[i] == '\n') lineCount++;
     }
 
     if (lineCount > DECODER_MAX_LINES) {
-        int firstNewline = decodedText.indexOf('\n');
-        if (firstNewline >= 0) {
-            decodedText = decodedText.substring(firstNewline + 1);
-        }
+        decodedText = "";  // Clear all and start at top
     }
 }
 

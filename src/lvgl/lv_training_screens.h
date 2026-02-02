@@ -238,9 +238,9 @@ lv_obj_t* createPracticeScreen() {
     lv_obj_set_style_text_font(practice_key_label, getThemeFonts()->font_subtitle, 0);
     lv_obj_align(practice_key_label, LV_ALIGN_BOTTOM_MID, 0, 0);
 
-    // Decoder box - expanded now that stats row is removed
+    // Decoder box - sized for 4 lines of decoded text
     practice_decoder_box = lv_obj_create(screen);
-    lv_obj_set_size(practice_decoder_box, SCREEN_WIDTH - 20, 130);  // Wider box (20px margin total)
+    lv_obj_set_size(practice_decoder_box, SCREEN_WIDTH - 20, 145);  // Taller to fit 4 lines
     lv_obj_set_pos(practice_decoder_box, 10, HEADER_HEIGHT + 70);
     lv_obj_set_style_bg_color(practice_decoder_box, LV_COLOR_BG_LAYER2, 0);
     lv_obj_set_style_border_color(practice_decoder_box, LV_COLOR_BORDER_SUBTLE, 0);
