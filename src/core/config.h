@@ -109,6 +109,7 @@
 
 // Paddle Settings
 #define PADDLE_ACTIVE   LOW   // Paddles are active LOW (pullup enabled)
+#define PADDLE_DEBOUNCE_MS 10 // Debounce time in milliseconds (prevents double-dits from contact bounce)
 
 // ============================================
 // Capacitive Touch Pads - Built-in Key

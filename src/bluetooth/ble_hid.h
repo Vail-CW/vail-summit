@@ -500,11 +500,9 @@ void updateBTHID() {
     }
   }
 
-  // Read paddle inputs
-  bool ditPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) ||
-                    (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
-  bool dahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) ||
-                    (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
+  // Get paddle state from centralized handler (includes debounce)
+  bool ditPressed, dahPressed;
+  getPaddleState(&ditPressed, &dahPressed);
 
   // Update visual indicators if paddle state changed
   if (ditPressed != btHID.lastDitPressed || dahPressed != btHID.lastDahPressed) {

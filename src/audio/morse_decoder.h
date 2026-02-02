@@ -50,8 +50,8 @@ String morseToText(const String& pattern) {
     }
   }
 
-  // Check punctuation
-  const char* punctuation = ".,?'/()-&:;=+-_\"$@";
+  // Check punctuation (must match morseTable order: period, comma, question, apostrophe, exclamation, slash, parens, etc.)
+  const char* punctuation = ".,?'!/()&:;=+-_\"$@";
   for (int i = 0; i < 18; i++) {
     if (pattern == String(morseTable[36 + i])) {
       return String(punctuation[i]);

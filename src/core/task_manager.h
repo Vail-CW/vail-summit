@@ -76,9 +76,14 @@ struct PaddleState {
     volatile bool dahPressed;
     volatile unsigned long ditPressTime;
     volatile unsigned long dahPressTime;
+    // Debounce state
+    volatile bool ditRaw;
+    volatile bool dahRaw;
+    volatile unsigned long ditLastChange;
+    volatile unsigned long dahLastChange;
 };
 
-static volatile PaddleState paddleState = {false, false, 0, 0};
+static volatile PaddleState paddleState = {false, false, 0, 0, false, false, 0, 0};
 
 // ============================================
 // Core 0 Paddle Callback Support
@@ -510,22 +515,44 @@ void processAudioRequests() {
 /*
  * Sample paddle input and call registered callback
  * Called by audio task for precise timing (~1ms intervals)
+ * Includes debounce to prevent double-dits from contact bounce
  */
 void samplePaddleInput() {
-    // Read paddle pins
-    bool dit = (digitalRead(DIT_PIN) == PADDLE_ACTIVE);
-    bool dah = (digitalRead(DAH_PIN) == PADDLE_ACTIVE);
+    // Read raw paddle pins
+    bool rawDit = (digitalRead(DIT_PIN) == PADDLE_ACTIVE);
+    bool rawDah = (digitalRead(DAH_PIN) == PADDLE_ACTIVE);
 
     // Read capacitive touch
-    if (!dit) {
-        dit = (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
+    if (!rawDit) {
+        rawDit = (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
     }
-    if (!dah) {
-        dah = (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
+    if (!rawDah) {
+        rawDah = (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
+    }
+
+    unsigned long now = millis();
+
+    // Debounce dit paddle - only register change after stable for PADDLE_DEBOUNCE_MS
+    if (rawDit != paddleState.ditRaw) {
+        paddleState.ditLastChange = now;
+        paddleState.ditRaw = rawDit;
+    }
+    bool dit = paddleState.ditPressed;
+    if ((now - paddleState.ditLastChange) >= PADDLE_DEBOUNCE_MS) {
+        dit = paddleState.ditRaw;
+    }
+
+    // Debounce dah paddle
+    if (rawDah != paddleState.dahRaw) {
+        paddleState.dahLastChange = now;
+        paddleState.dahRaw = rawDah;
+    }
+    bool dah = paddleState.dahPressed;
+    if ((now - paddleState.dahLastChange) >= PADDLE_DEBOUNCE_MS) {
+        dah = paddleState.dahRaw;
     }
 
     // Update state with timestamps
-    unsigned long now = millis();
     if (dit && !paddleState.ditPressed) {
         paddleState.ditPressTime = now;
     }

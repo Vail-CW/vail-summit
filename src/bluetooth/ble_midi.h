@@ -499,10 +499,9 @@ void btMidiInitKeyer() {
 
 // Passthrough handler (raw dit/dah)
 void btMidiPassthroughHandler() {
-  bool ditPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) ||
-                    (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
-  bool dahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) ||
-                    (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
+  // Get paddle state from centralized handler (includes debounce)
+  bool ditPressed, dahPressed;
+  getPaddleState(&ditPressed, &dahPressed);
 
   // Send dit state changes
   if (ditPressed != btMIDI.lastDitPressed) {
@@ -542,10 +541,9 @@ void btMidiKeyerHandler() {
   }
   if (!btMIDIKeyer) return;  // Still null = passthrough mode
 
-  bool ditPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) ||
-                    (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
-  bool dahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) ||
-                    (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
+  // Get paddle state from centralized handler (includes debounce)
+  bool ditPressed, dahPressed;
+  getPaddleState(&ditPressed, &dahPressed);
 
   unsigned long currentTime = millis();
 

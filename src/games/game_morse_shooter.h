@@ -1144,11 +1144,13 @@ void updateMorseInputFast(LGFX& tft) {
 
   unsigned long now = millis();
 
-  // Read paddle inputs
-  bool newDitPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
+  // Get paddle state from centralized handler (includes debounce)
+  bool newDitPressed, newDahPressed;
+  getPaddleState(&newDitPressed, &newDahPressed);
   // In straight key mode, ignore DAH pin entirely - the TRS ring may be grounded
-  bool newDahPressed = (cwKeyType == KEY_STRAIGHT) ? false :
-                       ((digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD));
+  if (cwKeyType == KEY_STRAIGHT) {
+    newDahPressed = false;
+  }
 
   morseInput.ditPressed = newDitPressed;
   morseInput.dahPressed = newDahPressed;

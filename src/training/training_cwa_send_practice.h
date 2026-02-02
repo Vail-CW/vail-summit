@@ -328,9 +328,9 @@ void updateCWASendingPractice() {
     }
   }
 
-  // Read paddle inputs
-  bool newDitPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
-  bool newDahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
+  // Get paddle state from centralized handler (includes debounce)
+  bool newDitPressed, newDahPressed;
+  getPaddleState(&newDitPressed, &newDahPressed);
 
   // Feed paddle state to unified keyer
   if (newDitPressed != cwaSendDitPressed) {

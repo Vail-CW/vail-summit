@@ -443,9 +443,9 @@ void updateRadioOutput() {
   // Process message queue first (for web-based transmission)
   processRadioMessageQueue();
 
-  // Read paddle/key inputs (physical and capacitive touch)
-  bool newDitPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
-  bool newDahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
+  // Get paddle state from centralized handler (includes debounce)
+  bool newDitPressed, newDahPressed;
+  getPaddleState(&newDitPressed, &newDahPressed);
 
   if (radioMode == RADIO_MODE_SUMMIT_KEYER) {
     // Summit Keyer mode: Do keying logic on Summit, output straight key format
@@ -466,6 +466,9 @@ void updateRadioOutput() {
 
   } else {
     // Radio Keyer mode: Passthrough contacts to radio
+    // Update state for passthrough mode too
+    radioDitPressed = newDitPressed;
+    radioDahPressed = newDahPressed;
 
     if (cwKeyType == KEY_STRAIGHT) {
       // Straight key: output on DIT pin
@@ -544,8 +547,8 @@ void processRadioMessageQueue() {
   }
 
   // Don't start new message if user is keying OR if keyer state machine is active
-  bool ditPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
-  bool dahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
+  bool ditPressed, dahPressed;
+  getPaddleState(&ditPressed, &dahPressed);
 
   // In Summit Keyer mode, also check if keyer state machine is busy
   if (radioMode == RADIO_MODE_SUMMIT_KEYER) {

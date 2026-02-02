@@ -1048,9 +1048,8 @@ void updateLICWSendingPractice() {
         }
     }
 
-    // Read paddle inputs
-    licw_send_dit_pressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
-    licw_send_dah_pressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
+    // Get paddle state from centralized handler (includes debounce)
+    getPaddleState(&licw_send_dit_pressed, &licw_send_dah_pressed);
 
     // Handle keyer
     if (cwKeyType == KEY_STRAIGHT) {

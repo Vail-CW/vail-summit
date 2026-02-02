@@ -230,9 +230,9 @@ void updatePracticeOscillator() {
     }
   }
 
-  // Read paddle/key inputs (physical + capacitive touch)
-  bool newDitPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
-  bool newDahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
+  // Get paddle state from centralized handler (includes debounce)
+  bool newDitPressed, newDahPressed;
+  getPaddleState(&newDitPressed, &newDahPressed);
 
   // Feed paddle state to unified keyer
   if (newDitPressed != ditPressed) {
