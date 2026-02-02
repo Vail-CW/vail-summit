@@ -23,6 +23,14 @@
 // Forward declarations
 void continueTone(int frequency);
 
+// Boot preset options
+enum BootPreset {
+    BOOT_NORMAL = 0,      // Boot at last saved volume
+    BOOT_LOW_VOLUME = 1,  // Boot at 10% (legacy quiet boot)
+    BOOT_HEADPHONES = 2,  // Boot at headphones preset
+    BOOT_SPEAKER = 3      // Boot at speaker preset
+};
+
 // Global audio state
 static bool i2s_initialized = false;
 static bool tone_playing = false;
@@ -31,30 +39,70 @@ static unsigned long tone_duration = 0;
 static float phase = 0.0;  // Phase accumulator for continuous tone
 static int current_frequency = 0;
 static int audio_volume = DEFAULT_VOLUME;  // Volume 0-100%
-static bool quiet_boot_enabled = false;    // Boot at low volume (10%)
+static bool quiet_boot_enabled = false;    // Boot at low volume (10%) - legacy, migrated to bootPreset
+static int headphones_preset = 25;         // Headphones preset volume
+static int speaker_preset = 75;            // Speaker preset volume
+static int boot_preset = BOOT_NORMAL;      // Boot volume option
 static Preferences volumePrefs;
 
 /*
  * Load volume from preferences
- * Also loads quiet boot setting and applies 10% override if enabled
+ * Also loads presets and boot option, with migration from legacy quietboot
  */
 void loadVolume() {
   volumePrefs.begin("audio", false);
+
+  // Load main volume
   audio_volume = volumePrefs.getInt("volume", DEFAULT_VOLUME);
   if (audio_volume < VOLUME_MIN || audio_volume > VOLUME_MAX) {
     audio_volume = DEFAULT_VOLUME;
   }
-  // Load quiet boot setting
+
+  // Load presets
+  headphones_preset = volumePrefs.getInt("presetHP", 25);
+  speaker_preset = volumePrefs.getInt("presetSpk", 75);
+
+  // Migration: check for legacy quietboot setting
+  bool hasBootPreset = volumePrefs.isKey("bootPreset");
   quiet_boot_enabled = volumePrefs.getBool("quietboot", false);
+
+  if (!hasBootPreset) {
+    // First run after update - migrate from quietboot
+    if (quiet_boot_enabled) {
+      boot_preset = BOOT_LOW_VOLUME;
+      Serial.println("Migrated quietboot=true to BOOT_LOW_VOLUME");
+    } else {
+      boot_preset = BOOT_NORMAL;
+    }
+    volumePrefs.putInt("bootPreset", boot_preset);
+  } else {
+    boot_preset = volumePrefs.getInt("bootPreset", BOOT_NORMAL);
+  }
+
   volumePrefs.end();
 
   Serial.printf("Loaded volume: %d%%\n", audio_volume);
-  Serial.printf("Quiet boot: %s\n", quiet_boot_enabled ? "enabled" : "disabled");
+  Serial.printf("Headphones preset: %d%%, Speaker preset: %d%%\n", headphones_preset, speaker_preset);
+  Serial.printf("Boot preset: %d\n", boot_preset);
 
-  // Apply quiet boot override (10% volume on startup)
-  if (quiet_boot_enabled) {
-    audio_volume = 10;
-    Serial.println("Quiet boot active: volume set to 10%");
+  // Apply boot preset override
+  switch (boot_preset) {
+    case BOOT_LOW_VOLUME:
+      audio_volume = 10;
+      Serial.println("Boot preset: Low volume (10%)");
+      break;
+    case BOOT_HEADPHONES:
+      audio_volume = headphones_preset;
+      Serial.printf("Boot preset: Headphones (%d%%)\n", audio_volume);
+      break;
+    case BOOT_SPEAKER:
+      audio_volume = speaker_preset;
+      Serial.printf("Boot preset: Speaker (%d%%)\n", audio_volume);
+      break;
+    case BOOT_NORMAL:
+    default:
+      Serial.println("Boot preset: Normal (saved volume)");
+      break;
   }
 }
 
@@ -117,6 +165,76 @@ bool getQuietBootEnabled() {
  */
 void setQuietBootEnabled(bool enabled) {
   saveQuietBoot(enabled);
+}
+
+/*
+ * Get headphones preset volume
+ */
+int getHeadphonesPreset() {
+  return headphones_preset;
+}
+
+/*
+ * Set headphones preset volume
+ */
+void setHeadphonesPreset(int vol) {
+  headphones_preset = constrain(vol, VOLUME_MIN, VOLUME_MAX);
+  volumePrefs.begin("audio", false);
+  volumePrefs.putInt("presetHP", headphones_preset);
+  volumePrefs.end();
+  Serial.printf("Saved headphones preset: %d%%\n", headphones_preset);
+}
+
+/*
+ * Get speaker preset volume
+ */
+int getSpeakerPreset() {
+  return speaker_preset;
+}
+
+/*
+ * Set speaker preset volume
+ */
+void setSpeakerPreset(int vol) {
+  speaker_preset = constrain(vol, VOLUME_MIN, VOLUME_MAX);
+  volumePrefs.begin("audio", false);
+  volumePrefs.putInt("presetSpk", speaker_preset);
+  volumePrefs.end();
+  Serial.printf("Saved speaker preset: %d%%\n", speaker_preset);
+}
+
+/*
+ * Get boot preset option
+ */
+int getBootPreset() {
+  return boot_preset;
+}
+
+/*
+ * Set boot preset option
+ */
+void setBootPreset(int preset) {
+  boot_preset = preset;
+  volumePrefs.begin("audio", false);
+  volumePrefs.putInt("bootPreset", boot_preset);
+  volumePrefs.end();
+  Serial.printf("Saved boot preset: %d\n", boot_preset);
+}
+
+/*
+ * Apply headphones preset - sets current volume to headphones preset value
+ */
+void applyHeadphonesPreset() {
+  setVolume(headphones_preset);
+  Serial.printf("Applied headphones preset: %d%%\n", headphones_preset);
+}
+
+/*
+ * Apply speaker preset - sets current volume to speaker preset value
+ */
+void applySpeakerPreset() {
+  setVolume(speaker_preset);
+  Serial.printf("Applied speaker preset: %d%%\n", speaker_preset);
 }
 
 /*

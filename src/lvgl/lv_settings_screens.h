@@ -20,6 +20,14 @@ extern int getVolume();
 extern void setVolume(int vol);
 extern bool getQuietBootEnabled();
 extern void setQuietBootEnabled(bool enabled);
+extern int getHeadphonesPreset();
+extern void setHeadphonesPreset(int vol);
+extern int getSpeakerPreset();
+extern void setSpeakerPreset(int vol);
+extern int getBootPreset();
+extern void setBootPreset(int preset);
+extern void applyHeadphonesPreset();
+extern void applySpeakerPreset();
 
 // Brightness settings (from settings_brightness.h)
 extern int brightnessValue;
@@ -53,8 +61,39 @@ static lv_obj_t* volume_screen = NULL;
 static lv_obj_t* volume_slider = NULL;
 static lv_obj_t* volume_value_label = NULL;
 
+// Preset UI elements
+static lv_obj_t* headphones_value_label = NULL;
+static lv_obj_t* speaker_value_label = NULL;
+static lv_obj_t* headphones_apply_btn = NULL;
+static lv_obj_t* headphones_save_btn = NULL;
+static lv_obj_t* speaker_apply_btn = NULL;
+static lv_obj_t* speaker_save_btn = NULL;
+static lv_obj_t* boot_preset_label = NULL;
+static int boot_preset_index = 0;  // Local UI state for boot preset
+
+// Boot preset names for selector display
+static const char* boot_preset_names[] = {"Normal", "Low (10%)", "Headphones", "Speaker"};
+static const int boot_preset_count = 4;
+
 // Forward declaration for key acceleration
 extern int getKeyAccelerationStep();
+
+// Update preset value labels
+static void update_preset_displays() {
+    if (headphones_value_label != NULL) {
+        lv_label_set_text_fmt(headphones_value_label, "%d%%", getHeadphonesPreset());
+    }
+    if (speaker_value_label != NULL) {
+        lv_label_set_text_fmt(speaker_value_label, "%d%%", getSpeakerPreset());
+    }
+}
+
+// Update boot preset selector display
+static void update_boot_preset_display() {
+    if (boot_preset_label != NULL) {
+        lv_label_set_text_fmt(boot_preset_label, "< %s >", boot_preset_names[boot_preset_index]);
+    }
+}
 
 static void volume_slider_event_cb(lv_event_t* e) {
     lv_obj_t* slider = lv_event_get_target(e);
@@ -113,7 +152,7 @@ static void volume_slider_key_cb(lv_event_t* e) {
         lv_event_stop_bubbling(e);
     }
 
-    // DOWN navigates to quiet boot toggle
+    // DOWN navigates to next widget
     if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
         lv_group_focus_next(getLVGLInputGroup());
         lv_event_stop_processing(e);
@@ -127,55 +166,205 @@ static void volume_slider_key_cb(lv_event_t* e) {
     }
 }
 
-// Track quiet boot state locally for the toggle button
-static bool quiet_boot_local_state = false;
-static lv_obj_t* quiet_boot_label = NULL;
-
-// Update the quiet boot toggle button display
-static void update_quiet_boot_display() {
-    if (quiet_boot_label != NULL) {
-        lv_label_set_text(quiet_boot_label, quiet_boot_local_state ? "ON" : "OFF");
-        lv_obj_set_style_text_color(quiet_boot_label,
-            quiet_boot_local_state ? LV_COLOR_ACCENT_GREEN : LV_COLOR_WARNING, 0);
-    }
-}
-
-// Key handler for quiet boot toggle button - ENTER to toggle, UP/DOWN to navigate
-static void quiet_boot_toggle_key_handler(lv_event_t* e) {
+// Key handler for headphones apply button
+static void headphones_apply_key_handler(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
     uint32_t key = lv_event_get_key(e);
 
-    // ENTER toggles the setting
     if (key == LV_KEY_ENTER) {
-        quiet_boot_local_state = !quiet_boot_local_state;
-        setQuietBootEnabled(quiet_boot_local_state);
-        update_quiet_boot_display();
+        applyHeadphonesPreset();
+        // Update slider and value label
+        if (volume_slider != NULL) {
+            lv_slider_set_value(volume_slider, getVolume(), LV_ANIM_ON);
+        }
+        if (volume_value_label != NULL) {
+            lv_label_set_text_fmt(volume_value_label, "%d%%", getVolume());
+        }
         beep(TONE_SELECT, BEEP_SHORT);
         lv_event_stop_processing(e);
         return;
     }
 
-    // UP navigates back to slider
     if (key == LV_KEY_UP || key == LV_KEY_PREV) {
         lv_group_focus_prev(getLVGLInputGroup());
         lv_event_stop_processing(e);
         return;
     }
 
-    // DOWN from toggle - nothing below, block navigation
+    if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
+        lv_group_focus_next(getLVGLInputGroup());
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // Block LEFT/RIGHT - no horizontal navigation from here
+    if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
+        lv_event_stop_processing(e);
+        return;
+    }
+}
+
+// Key handler for headphones save button
+static void headphones_save_key_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
+
+    if (key == LV_KEY_ENTER) {
+        setHeadphonesPreset(getVolume());
+        update_preset_displays();
+        beep(TONE_SELECT, BEEP_MEDIUM);
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
+        lv_group_focus_prev(getLVGLInputGroup());
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
+        lv_group_focus_next(getLVGLInputGroup());
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
+        lv_event_stop_processing(e);
+        return;
+    }
+}
+
+// Key handler for speaker apply button
+static void speaker_apply_key_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
+
+    if (key == LV_KEY_ENTER) {
+        applySpeakerPreset();
+        // Update slider and value label
+        if (volume_slider != NULL) {
+            lv_slider_set_value(volume_slider, getVolume(), LV_ANIM_ON);
+        }
+        if (volume_value_label != NULL) {
+            lv_label_set_text_fmt(volume_value_label, "%d%%", getVolume());
+        }
+        beep(TONE_SELECT, BEEP_SHORT);
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
+        lv_group_focus_prev(getLVGLInputGroup());
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
+        lv_group_focus_next(getLVGLInputGroup());
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
+        lv_event_stop_processing(e);
+        return;
+    }
+}
+
+// Key handler for speaker save button
+static void speaker_save_key_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
+
+    if (key == LV_KEY_ENTER) {
+        setSpeakerPreset(getVolume());
+        update_preset_displays();
+        beep(TONE_SELECT, BEEP_MEDIUM);
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
+        lv_group_focus_prev(getLVGLInputGroup());
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
+        lv_group_focus_next(getLVGLInputGroup());
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
+        lv_event_stop_processing(e);
+        return;
+    }
+}
+
+// Key handler for boot preset selector - LEFT/RIGHT to cycle, UP/DOWN to navigate
+static void boot_preset_key_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
+
+    // LEFT/RIGHT cycles through boot options
+    if (key == LV_KEY_LEFT) {
+        boot_preset_index = (boot_preset_index - 1 + boot_preset_count) % boot_preset_count;
+        setBootPreset(boot_preset_index);
+        update_boot_preset_display();
+        beep(TONE_MENU_NAV, BEEP_SHORT);
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    if (key == LV_KEY_RIGHT) {
+        boot_preset_index = (boot_preset_index + 1) % boot_preset_count;
+        setBootPreset(boot_preset_index);
+        update_boot_preset_display();
+        beep(TONE_MENU_NAV, BEEP_SHORT);
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // UP navigates to previous widget
+    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
+        lv_group_focus_prev(getLVGLInputGroup());
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // DOWN from boot preset - nothing below, block navigation
     if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
         lv_event_stop_processing(e);
         return;
     }
 
-    // Block LEFT/RIGHT
-    if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
+    // Block ENTER - no action needed, L/R already handles it
+    if (key == LV_KEY_ENTER) {
         lv_event_stop_processing(e);
         return;
     }
+}
 
-    // Block all other keys
-    lv_event_stop_processing(e);
+// Helper to create a preset button with consistent styling
+static lv_obj_t* create_preset_button(lv_obj_t* parent, const char* text) {
+    lv_obj_t* btn = lv_btn_create(parent);
+    lv_obj_set_size(btn, 55, 24);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0x555555), LV_STATE_FOCUSED);
+    lv_obj_set_style_radius(btn, 4, 0);
+    lv_obj_set_style_border_width(btn, 1, 0);
+    lv_obj_set_style_border_color(btn, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_border_color(btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+    lv_obj_set_style_pad_all(btn, 2, 0);
+
+    lv_obj_t* label = lv_label_create(btn);
+    lv_label_set_text(label, text);
+    lv_obj_set_style_text_font(label, getThemeFonts()->font_small, 0);
+    lv_obj_center(label);
+
+    return btn;
 }
 
 lv_obj_t* createVolumeSettingsScreen() {
@@ -197,17 +386,18 @@ lv_obj_t* createVolumeSettingsScreen() {
     // Status bar (WiFi + battery) on the right side
     createCompactStatusBar(screen);
 
-    // Content area
+    // Content area - taller to fit presets
     lv_obj_t* content = lv_obj_create(screen);
-    lv_obj_set_size(content, SCREEN_WIDTH - 60, 180);
-    lv_obj_center(content);
+    lv_obj_set_size(content, SCREEN_WIDTH - 40, SCREEN_HEIGHT - HEADER_HEIGHT - FOOTER_HEIGHT - 20);
+    lv_obj_set_pos(content, 20, HEADER_HEIGHT + 10);
     lv_obj_set_layout(content, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(content, 12, 0);
+    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(content, 8, 0);
+    lv_obj_set_style_pad_all(content, 12, 0);
     applyCardStyle(content);
 
-    // Volume value (large display) - use theme font
+    // Volume value (large display)
     volume_value_label = lv_label_create(content);
     lv_label_set_text_fmt(volume_value_label, "%d%%", getVolume());
     lv_obj_set_style_text_font(volume_value_label, getThemeFonts()->font_large, 0);
@@ -215,54 +405,147 @@ lv_obj_t* createVolumeSettingsScreen() {
 
     // Volume slider
     volume_slider = lv_slider_create(content);
-    lv_obj_set_width(volume_slider, SCREEN_WIDTH - 120);
+    lv_obj_set_width(volume_slider, lv_pct(100));
     lv_slider_set_range(volume_slider, VOLUME_MIN, VOLUME_MAX);
     lv_slider_set_value(volume_slider, getVolume(), LV_ANIM_OFF);
     applySliderStyle(volume_slider);
     lv_obj_add_event_cb(volume_slider, volume_slider_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
-    // Add key handler for acceleration support
     lv_obj_add_event_cb(volume_slider, volume_slider_key_cb, LV_EVENT_KEY, NULL);
-
-    // Make slider navigable
     addNavigableWidget(volume_slider);
 
-    // Boot at Low Volume toggle row (using button instead of switch to avoid LVGL quirks)
-    lv_obj_t* toggle_row = lv_obj_create(content);
-    lv_obj_set_size(toggle_row, lv_pct(100), LV_SIZE_CONTENT);
-    lv_obj_set_layout(toggle_row, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(toggle_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(toggle_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(toggle_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(toggle_row, 0, 0);
-    lv_obj_set_style_pad_all(toggle_row, 0, 0);
+    // Presets row container
+    lv_obj_t* presets_row = lv_obj_create(content);
+    lv_obj_set_size(presets_row, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_layout(presets_row, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(presets_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(presets_row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_bg_opa(presets_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(presets_row, 0, 0);
+    lv_obj_set_style_pad_all(presets_row, 0, 0);
 
-    lv_obj_t* toggle_text = lv_label_create(toggle_row);
-    lv_label_set_text(toggle_text, "Boot at Low Volume");
-    lv_obj_add_style(toggle_text, getStyleLabelBody(), 0);
+    // Headphones preset card
+    lv_obj_t* hp_card = lv_obj_create(presets_row);
+    lv_obj_set_size(hp_card, 120, LV_SIZE_CONTENT);
+    lv_obj_set_layout(hp_card, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(hp_card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(hp_card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(hp_card, 6, 0);
+    lv_obj_set_style_pad_row(hp_card, 4, 0);
+    lv_obj_set_style_bg_color(hp_card, lv_color_hex(0x1a2a2a), 0);
+    lv_obj_set_style_radius(hp_card, 6, 0);
+    lv_obj_set_style_border_width(hp_card, 1, 0);
+    lv_obj_set_style_border_color(hp_card, lv_color_hex(0x3a5a5a), 0);
+    lv_obj_clear_flag(hp_card, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Create a simple button with ON/OFF label instead of using lv_switch
-    lv_obj_t* toggle_btn = lv_btn_create(toggle_row);
-    lv_obj_set_size(toggle_btn, 50, 28);
-    lv_obj_set_style_bg_color(toggle_btn, lv_color_hex(0x333333), 0);
-    lv_obj_set_style_bg_color(toggle_btn, lv_color_hex(0x555555), LV_STATE_FOCUSED);
-    lv_obj_set_style_radius(toggle_btn, 4, 0);
-    lv_obj_set_style_border_width(toggle_btn, 1, 0);
-    lv_obj_set_style_border_color(toggle_btn, lv_color_hex(0x666666), 0);
-    lv_obj_set_style_border_color(toggle_btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
-    lv_obj_set_style_pad_all(toggle_btn, 4, 0);
+    lv_obj_t* hp_title = lv_label_create(hp_card);
+    lv_label_set_text(hp_title, "Headphones");
+    lv_obj_set_style_text_font(hp_title, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(hp_title, LV_COLOR_TEXT_SECONDARY, 0);
 
-    // Initialize local state from saved preference
-    quiet_boot_local_state = getQuietBootEnabled();
+    headphones_value_label = lv_label_create(hp_card);
+    lv_label_set_text_fmt(headphones_value_label, "%d%%", getHeadphonesPreset());
+    lv_obj_set_style_text_font(headphones_value_label, getThemeFonts()->font_subtitle, 0);
+    lv_obj_set_style_text_color(headphones_value_label, LV_COLOR_ACCENT_CYAN, 0);
 
-    // Label inside button showing ON/OFF
-    quiet_boot_label = lv_label_create(toggle_btn);
-    lv_obj_center(quiet_boot_label);
-    lv_obj_set_style_text_font(quiet_boot_label, getThemeFonts()->font_small, 0);
-    update_quiet_boot_display();
+    // Headphones button row
+    lv_obj_t* hp_btns = lv_obj_create(hp_card);
+    lv_obj_set_size(hp_btns, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_layout(hp_btns, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(hp_btns, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(hp_btns, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(hp_btns, 4, 0);
+    lv_obj_set_style_bg_opa(hp_btns, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(hp_btns, 0, 0);
+    lv_obj_set_style_pad_all(hp_btns, 0, 0);
 
-    // Add key handler
-    lv_obj_add_event_cb(toggle_btn, quiet_boot_toggle_key_handler, LV_EVENT_KEY, NULL);
-    addNavigableWidget(toggle_btn);
+    headphones_apply_btn = create_preset_button(hp_btns, "Apply");
+    lv_obj_add_event_cb(headphones_apply_btn, headphones_apply_key_handler, LV_EVENT_KEY, NULL);
+    addNavigableWidget(headphones_apply_btn);
+
+    headphones_save_btn = create_preset_button(hp_btns, "Save");
+    lv_obj_add_event_cb(headphones_save_btn, headphones_save_key_handler, LV_EVENT_KEY, NULL);
+    addNavigableWidget(headphones_save_btn);
+
+    // Speaker preset card
+    lv_obj_t* spk_card = lv_obj_create(presets_row);
+    lv_obj_set_size(spk_card, 120, LV_SIZE_CONTENT);
+    lv_obj_set_layout(spk_card, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(spk_card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(spk_card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(spk_card, 6, 0);
+    lv_obj_set_style_pad_row(spk_card, 4, 0);
+    lv_obj_set_style_bg_color(spk_card, lv_color_hex(0x1a2a2a), 0);
+    lv_obj_set_style_radius(spk_card, 6, 0);
+    lv_obj_set_style_border_width(spk_card, 1, 0);
+    lv_obj_set_style_border_color(spk_card, lv_color_hex(0x3a5a5a), 0);
+    lv_obj_clear_flag(spk_card, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* spk_title = lv_label_create(spk_card);
+    lv_label_set_text(spk_title, "Speaker");
+    lv_obj_set_style_text_font(spk_title, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(spk_title, LV_COLOR_TEXT_SECONDARY, 0);
+
+    speaker_value_label = lv_label_create(spk_card);
+    lv_label_set_text_fmt(speaker_value_label, "%d%%", getSpeakerPreset());
+    lv_obj_set_style_text_font(speaker_value_label, getThemeFonts()->font_subtitle, 0);
+    lv_obj_set_style_text_color(speaker_value_label, LV_COLOR_ACCENT_CYAN, 0);
+
+    // Speaker button row
+    lv_obj_t* spk_btns = lv_obj_create(spk_card);
+    lv_obj_set_size(spk_btns, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_layout(spk_btns, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(spk_btns, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(spk_btns, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(spk_btns, 4, 0);
+    lv_obj_set_style_bg_opa(spk_btns, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(spk_btns, 0, 0);
+    lv_obj_set_style_pad_all(spk_btns, 0, 0);
+
+    speaker_apply_btn = create_preset_button(spk_btns, "Apply");
+    lv_obj_add_event_cb(speaker_apply_btn, speaker_apply_key_handler, LV_EVENT_KEY, NULL);
+    addNavigableWidget(speaker_apply_btn);
+
+    speaker_save_btn = create_preset_button(spk_btns, "Save");
+    lv_obj_add_event_cb(speaker_save_btn, speaker_save_key_handler, LV_EVENT_KEY, NULL);
+    addNavigableWidget(speaker_save_btn);
+
+    // Boot Volume selector row
+    lv_obj_t* boot_row = lv_obj_create(content);
+    lv_obj_set_size(boot_row, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_layout(boot_row, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(boot_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(boot_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_bg_opa(boot_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(boot_row, 0, 0);
+    lv_obj_set_style_pad_all(boot_row, 0, 0);
+    lv_obj_set_style_pad_top(boot_row, 4, 0);
+
+    lv_obj_t* boot_text = lv_label_create(boot_row);
+    lv_label_set_text(boot_text, "Boot Volume");
+    lv_obj_add_style(boot_text, getStyleLabelBody(), 0);
+
+    // Boot preset selector button (arrow-style like CW Settings)
+    lv_obj_t* boot_btn = lv_btn_create(boot_row);
+    lv_obj_set_size(boot_btn, 110, 28);
+    lv_obj_set_style_bg_color(boot_btn, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_bg_color(boot_btn, lv_color_hex(0x555555), LV_STATE_FOCUSED);
+    lv_obj_set_style_radius(boot_btn, 4, 0);
+    lv_obj_set_style_border_width(boot_btn, 1, 0);
+    lv_obj_set_style_border_color(boot_btn, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_border_color(boot_btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+    lv_obj_set_style_pad_all(boot_btn, 4, 0);
+
+    // Initialize boot preset index from saved preference
+    boot_preset_index = getBootPreset();
+
+    // Label inside button showing "< Normal >"
+    boot_preset_label = lv_label_create(boot_btn);
+    lv_obj_center(boot_preset_label);
+    lv_obj_set_style_text_font(boot_preset_label, getThemeFonts()->font_small, 0);
+    update_boot_preset_display();
+
+    lv_obj_add_event_cb(boot_btn, boot_preset_key_handler, LV_EVENT_KEY, NULL);
+    addNavigableWidget(boot_btn);
 
     // Footer
     lv_obj_t* footer = lv_obj_create(screen);
@@ -273,7 +556,7 @@ lv_obj_t* createVolumeSettingsScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, FOOTER_ADJUST_ESC);  // Use standardized footer
+    lv_label_set_text(help, FOOTER_NAV_ADJUST_ESC);
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
