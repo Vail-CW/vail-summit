@@ -49,6 +49,20 @@ static bool mailbox_is_playing = false;
 // Account screen state
 static lv_obj_t* mailbox_account_screen = NULL;
 
+// Inbox screen navigation tracking
+static lv_obj_t* mailbox_inbox_header_btns[2] = {NULL};  // Compose, Account
+static int mailbox_inbox_header_btn_count = 0;
+static lv_obj_t* mailbox_inbox_message_items[MAILBOX_INBOX_CACHE_SIZE] = {NULL};
+static int mailbox_inbox_message_count = 0;
+
+// Playback screen button tracking
+static lv_obj_t* mailbox_playback_btns[2] = {NULL};  // play_btn, speed_btn
+static int mailbox_playback_btn_count = 0;
+
+// Compose screen button tracking
+static lv_obj_t* mailbox_compose_focusable[3] = {NULL};  // recipient, record, send
+static int mailbox_compose_focusable_count = 0;
+
 // ============================================
 // Linear Navigation Handler (for vertical lists)
 // ============================================
@@ -72,6 +86,154 @@ static void mailbox_linear_nav_handler(lv_event_t* e) {
             lv_obj_scroll_to_view(target, LV_ANIM_ON);
         }
     }
+}
+
+/*
+ * Header row navigation for horizontal buttons
+ * LEFT/RIGHT between buttons, DOWN to message list
+ */
+static void mailbox_header_nav_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
+
+    if (key == '\t' || key == LV_KEY_NEXT) {
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    lv_obj_t* target = lv_event_get_target(e);
+    int current_idx = -1;
+    for (int i = 0; i < mailbox_inbox_header_btn_count; i++) {
+        if (mailbox_inbox_header_btns[i] == target) { current_idx = i; break; }
+    }
+    if (current_idx < 0) return;
+
+    if (key == LV_KEY_LEFT && current_idx > 0) {
+        lv_group_focus_obj(mailbox_inbox_header_btns[current_idx - 1]);
+        lv_event_stop_processing(e);
+    } else if (key == LV_KEY_RIGHT && current_idx < mailbox_inbox_header_btn_count - 1) {
+        lv_group_focus_obj(mailbox_inbox_header_btns[current_idx + 1]);
+        lv_event_stop_processing(e);
+    } else if (key == LV_KEY_DOWN) {
+        if (mailbox_inbox_message_count > 0 && mailbox_inbox_message_items[0]) {
+            lv_group_focus_obj(mailbox_inbox_message_items[0]);
+            lv_obj_scroll_to_view(mailbox_inbox_message_items[0], LV_ANIM_ON);
+        }
+        lv_event_stop_processing(e);
+    } else if (key == LV_KEY_UP || key == LV_KEY_PREV || key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
+        lv_event_stop_processing(e);  // Block at boundaries
+    }
+}
+
+/*
+ * Message list navigation - UP from first item goes to header
+ */
+static void mailbox_list_nav_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
+
+    if (key == '\t' || key == LV_KEY_NEXT || key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    lv_obj_t* target = lv_event_get_target(e);
+    int current_idx = -1;
+    for (int i = 0; i < mailbox_inbox_message_count; i++) {
+        if (mailbox_inbox_message_items[i] == target) { current_idx = i; break; }
+    }
+    if (current_idx < 0) return;
+
+    if ((key == LV_KEY_UP || key == LV_KEY_PREV) && current_idx == 0) {
+        // At first message, go to last header button
+        if (mailbox_inbox_header_btn_count > 0) {
+            lv_group_focus_obj(mailbox_inbox_header_btns[mailbox_inbox_header_btn_count - 1]);
+        }
+        lv_event_stop_processing(e);
+    } else if (key == LV_KEY_UP || key == LV_KEY_PREV) {
+        lv_group_focus_obj(mailbox_inbox_message_items[current_idx - 1]);
+        lv_obj_scroll_to_view(mailbox_inbox_message_items[current_idx - 1], LV_ANIM_ON);
+        lv_event_stop_processing(e);
+    } else if (key == LV_KEY_DOWN && current_idx < mailbox_inbox_message_count - 1) {
+        lv_group_focus_obj(mailbox_inbox_message_items[current_idx + 1]);
+        lv_obj_scroll_to_view(mailbox_inbox_message_items[current_idx + 1], LV_ANIM_ON);
+        lv_event_stop_processing(e);
+    } else if (key == LV_KEY_DOWN) {
+        lv_event_stop_processing(e);  // At bottom
+    }
+}
+
+// Inbox key handler for refresh
+static void mailbox_inbox_key_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
+
+    if (key == 'r' || key == 'R') {
+        invalidateMailboxInboxCache();
+        setCurrentModeFromInt(142);  // Reload inbox
+        lv_event_stop_processing(e);
+    }
+}
+
+/*
+ * Compose screen - vertical between input/buttons, horizontal between buttons
+ */
+static void mailbox_compose_nav_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
+
+    if (key == '\t' || key == LV_KEY_NEXT) {
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    lv_obj_t* target = lv_event_get_target(e);
+    int current_idx = -1;
+    for (int i = 0; i < mailbox_compose_focusable_count; i++) {
+        if (mailbox_compose_focusable[i] == target) { current_idx = i; break; }
+    }
+    if (current_idx < 0) return;
+
+    // idx 0 = input, 1 = record btn, 2 = send btn
+    if (key == LV_KEY_DOWN && current_idx == 0) {
+        lv_group_focus_obj(mailbox_compose_focusable[1]);
+        lv_event_stop_processing(e);
+    } else if ((key == LV_KEY_UP || key == LV_KEY_PREV) && current_idx > 0) {
+        lv_group_focus_obj(mailbox_compose_focusable[0]);
+        lv_event_stop_processing(e);
+    } else if (key == LV_KEY_LEFT && current_idx == 2) {
+        lv_group_focus_obj(mailbox_compose_focusable[1]);
+        lv_event_stop_processing(e);
+    } else if (key == LV_KEY_RIGHT && current_idx == 1) {
+        lv_group_focus_obj(mailbox_compose_focusable[2]);
+        lv_event_stop_processing(e);
+    } else if (key == LV_KEY_UP || key == LV_KEY_DOWN || key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
+        lv_event_stop_processing(e);
+    }
+}
+
+/*
+ * Playback screen - LEFT/RIGHT between play and speed buttons
+ */
+static void mailbox_playback_nav_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
+
+    if (key == '\t' || key == LV_KEY_NEXT || key == LV_KEY_UP || key == LV_KEY_DOWN || key == LV_KEY_PREV) {
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    lv_obj_t* target = lv_event_get_target(e);
+
+    // Play button - L/R navigates
+    if (target == mailbox_playback_btns[0]) {
+        if (key == LV_KEY_RIGHT && mailbox_playback_btn_count > 1) {
+            lv_group_focus_obj(mailbox_playback_btns[1]);
+        }
+        lv_event_stop_processing(e);
+    }
+    // Speed button - let mailbox_speed_adjust handle L/R for speed adjustment
 }
 
 // ============================================
@@ -363,6 +525,12 @@ static void mailbox_inbox_item_click(lv_event_t* e) {
  * Create inbox screen
  */
 lv_obj_t* createMailboxInboxScreen() {
+    // Reset navigation tracking
+    mailbox_inbox_header_btn_count = 0;
+    mailbox_inbox_message_count = 0;
+    memset(mailbox_inbox_header_btns, 0, sizeof(mailbox_inbox_header_btns));
+    memset(mailbox_inbox_message_items, 0, sizeof(mailbox_inbox_message_items));
+
     // Fetch inbox if needed
     if (!isMailboxInboxCacheValid()) {
         fetchMailboxInbox(20, "all");
@@ -401,8 +569,10 @@ lv_obj_t* createMailboxInboxScreen() {
     lv_obj_add_event_cb(compose_btn, [](lv_event_t* e) {
         setCurrentModeFromInt(144);  // MODE_MORSE_MAILBOX_COMPOSE
     }, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(compose_btn, mailbox_linear_nav_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(compose_btn, mailbox_header_nav_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(compose_btn, mailbox_inbox_key_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(compose_btn);
+    mailbox_inbox_header_btns[0] = compose_btn;
 
     // Account button in header
     lv_obj_t* account_btn = lv_btn_create(header);
@@ -420,8 +590,11 @@ lv_obj_t* createMailboxInboxScreen() {
     lv_obj_add_event_cb(account_btn, [](lv_event_t* e) {
         setCurrentModeFromInt(145);  // MODE_MORSE_MAILBOX_ACCOUNT
     }, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(account_btn, mailbox_linear_nav_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(account_btn, mailbox_header_nav_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(account_btn, mailbox_inbox_key_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(account_btn);
+    mailbox_inbox_header_btns[1] = account_btn;
+    mailbox_inbox_header_btn_count = 2;
 
     // Message list
     lv_obj_t* list_container = lv_obj_create(screen);
@@ -516,14 +689,17 @@ lv_obj_t* createMailboxInboxScreen() {
 
             // Click handler
             lv_obj_add_event_cb(item, mailbox_inbox_item_click, LV_EVENT_CLICKED, NULL);
-            lv_obj_add_event_cb(item, mailbox_linear_nav_handler, LV_EVENT_KEY, NULL);
+            lv_obj_add_event_cb(item, mailbox_list_nav_handler, LV_EVENT_KEY, NULL);
+            lv_obj_add_event_cb(item, mailbox_inbox_key_handler, LV_EVENT_KEY, NULL);
             addNavigableWidget(item);
+            mailbox_inbox_message_items[i] = item;
         }
+        mailbox_inbox_message_count = msgCount;
     }
 
     // Footer
     lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, "UP/DN Navigate   ENTER Play   TAB New/Account   ESC Back");
+    lv_label_set_text(footer, "Arrows Navigate   ENTER Play   R Refresh   ESC Back");
     lv_obj_set_style_text_font(footer, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);
@@ -641,11 +817,16 @@ static void mailbox_speed_adjust(lv_event_t* e) {
     if (key == LV_KEY_LEFT) {
         if (mailbox_playback_speed > 0.5f) {
             mailbox_playback_speed -= 0.25f;
+        } else if (mailbox_playback_btn_count > 0) {
+            // At min speed, go back to play button
+            lv_group_focus_obj(mailbox_playback_btns[0]);
         }
+        lv_event_stop_processing(e);
     } else if (key == LV_KEY_RIGHT) {
         if (mailbox_playback_speed < 2.0f) {
             mailbox_playback_speed += 0.25f;
         }
+        lv_event_stop_processing(e);
     }
 
     if (mailbox_speed_label) {
@@ -743,8 +924,9 @@ lv_obj_t* createMailboxPlaybackScreen() {
     lv_obj_center(play_lbl);
 
     lv_obj_add_event_cb(mailbox_play_btn, mailbox_play_btn_click, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(mailbox_play_btn, mailbox_linear_nav_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(mailbox_play_btn, mailbox_playback_nav_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(mailbox_play_btn);
+    mailbox_playback_btns[0] = mailbox_play_btn;
 
     // Speed control
     lv_obj_t* speed_container = lv_obj_create(card);
@@ -782,11 +964,14 @@ lv_obj_t* createMailboxPlaybackScreen() {
     lv_obj_center(adj_lbl);
 
     lv_obj_add_event_cb(speed_btn, mailbox_speed_adjust, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(speed_btn, mailbox_playback_nav_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(speed_btn);
+    mailbox_playback_btns[1] = speed_btn;
+    mailbox_playback_btn_count = 2;
 
     // Footer
     lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, "ENTER Play/Pause   L/R Speed   ESC Back");
+    lv_label_set_text(footer, "ENTER Play/Pause   L/R Navigate/Speed   ESC Back");
     lv_obj_set_style_text_font(footer, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);
@@ -1162,6 +1347,10 @@ static void cleanupComposeKeyer() {
  * Create compose/send message screen
  */
 lv_obj_t* createMailboxComposeScreen() {
+    // Reset navigation tracking
+    mailbox_compose_focusable_count = 0;
+    memset(mailbox_compose_focusable, 0, sizeof(mailbox_compose_focusable));
+
     // Initialize recording state
     clearMailboxRecording();
     setMailboxRecordState(MB_RECORD_READY);
@@ -1234,7 +1423,9 @@ lv_obj_t* createMailboxComposeScreen() {
     lv_obj_set_style_border_color(mailbox_recipient_input, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
     lv_obj_set_style_text_font(mailbox_recipient_input, getThemeFonts()->font_input, 0);
     lv_obj_add_event_cb(mailbox_recipient_input, mailbox_recipient_input_event, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(mailbox_recipient_input, mailbox_compose_nav_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(mailbox_recipient_input);
+    mailbox_compose_focusable[0] = mailbox_recipient_input;
 
     // Status label
     mailbox_record_status_label = lv_label_create(card);
@@ -1273,8 +1464,9 @@ lv_obj_t* createMailboxComposeScreen() {
     lv_obj_center(record_lbl);
 
     lv_obj_add_event_cb(mailbox_record_btn, mailbox_record_btn_click, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(mailbox_record_btn, mailbox_linear_nav_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(mailbox_record_btn, mailbox_compose_nav_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(mailbox_record_btn);
+    mailbox_compose_focusable[1] = mailbox_record_btn;
 
     // Send button
     mailbox_send_btn = lv_btn_create(btn_row);
@@ -1290,12 +1482,14 @@ lv_obj_t* createMailboxComposeScreen() {
     lv_obj_center(send_lbl);
 
     lv_obj_add_event_cb(mailbox_send_btn, mailbox_send_btn_click, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(mailbox_send_btn, mailbox_linear_nav_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(mailbox_send_btn, mailbox_compose_nav_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(mailbox_send_btn);
+    mailbox_compose_focusable[2] = mailbox_send_btn;
+    mailbox_compose_focusable_count = 3;
 
     // Footer
     lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, "TAB Navigate   ENTER Select   ESC Cancel");
+    lv_label_set_text(footer, "Arrows Navigate   ENTER Select   ESC Cancel");
     lv_obj_set_style_text_font(footer, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);
@@ -1329,6 +1523,8 @@ void cleanupMailboxCompose() {
     mailbox_compose_screen = NULL;
     compose_recipient = "";
     compose_input_focused = false;
+    mailbox_compose_focusable_count = 0;
+    memset(mailbox_compose_focusable, 0, sizeof(mailbox_compose_focusable));
 }
 
 // ============================================
@@ -1354,6 +1550,8 @@ void cleanupMailboxPlayback() {
     mailbox_play_btn = NULL;
     mailbox_speed_label = NULL;
     mailbox_playback_screen = NULL;
+    mailbox_playback_btn_count = 0;
+    memset(mailbox_playback_btns, 0, sizeof(mailbox_playback_btns));
 }
 
 // ============================================
