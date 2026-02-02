@@ -47,11 +47,12 @@ static const LVMenuItem cwMenuItems[] = {
     {LV_SYMBOL_REFRESH, "Practice", 6},        // MODE_PRACTICE
     {LV_SYMBOL_UPLOAD, "Vail Repeater", 31},   // MODE_VAIL_REPEATER
     {LV_SYMBOL_ENVELOPE, "Morse Mailbox", 140}, // MODE_MORSE_MAILBOX
+    {LV_SYMBOL_SHUFFLE, "CW School", 150},     // MODE_CWSCHOOL
     {LV_SYMBOL_BLUETOOTH, "Bluetooth", 32},    // MODE_BLUETOOTH_MENU
     {LV_SYMBOL_POWER, "Radio Output", 19},     // MODE_RADIO_OUTPUT
     {LV_SYMBOL_SAVE, "CW Memories", 20}        // MODE_CW_MEMORIES
 };
-#define CW_MENU_COUNT 7
+#define CW_MENU_COUNT 8
 
 // Training submenu items
 static const LVMenuItem trainingMenuItems[] = {

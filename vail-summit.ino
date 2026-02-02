@@ -81,6 +81,16 @@ using namespace lgfx::v1::fonts;
 // Connectivity
 #include "src/network/vail_repeater.h"
 #include "src/network/morse_mailbox.h"
+#include "src/network/cwschool_link.h"
+
+// Practice time tracking (for CW School sync)
+#include "src/settings/settings_practice_time.h"
+
+// Progress sync (CW School cloud sync)
+#include "src/network/progress_sync.h"
+
+// Vail Course training mode
+#include "src/training/training_vail_course_core.h"
 
 // Radio modes (CW memories must be included before radio_output)
 #include "src/radio/radio_cw_memories.h"
@@ -352,6 +362,23 @@ void setup() {
   // Initialize Morse Mailbox (load settings, start polling if linked)
   Serial.println("Initializing Morse Mailbox...");
   initMailboxPolling();
+
+  // Initialize CW School (load settings)
+  Serial.println("Initializing CW School...");
+  initCWSchool();
+
+  // Initialize practice time tracking
+  Serial.println("Loading practice time data...");
+  loadPracticeTimeData();
+
+  // Initialize progress sync
+  Serial.println("Initializing progress sync...");
+  initProgressSync();
+
+  // Initialize Vail Course
+  Serial.println("Initializing Vail Course...");
+  initVailCourse();
+
   setSplashStage(5);  // "Starting web server..."
 
   // Load Koch Method progress
@@ -439,6 +466,10 @@ void loop() {
       updateWiFiScreen();
     }
   }
+
+  // Update practice time activity accumulator (for inactivity detection)
+  // This must run every loop to accurately track active practice time
+  updateActivityAccumulator();
 
   // Check for pending web server restart (after file upload)
   if (isWebServerRestartPending()) {

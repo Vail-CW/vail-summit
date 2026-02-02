@@ -29,7 +29,11 @@
 #include "lv_story_time_screens.h"
 #include "lv_web_download_screen.h"
 #include "lv_mailbox_screens.h"
+#include "lv_cwschool_screens.h"
+#include "lv_vail_course_screens.h"
 #include "../core/config.h"
+#include "../settings/settings_practice_time.h"
+#include "../network/progress_sync.h"
 #include "../core/hardware_init.h"
 #include "../storage/sd_card.h"
 
@@ -182,6 +186,19 @@
 #define LVGL_MODE_MORSE_MAILBOX_PLAYBACK 143
 #define LVGL_MODE_MORSE_MAILBOX_COMPOSE  144
 #define LVGL_MODE_MORSE_MAILBOX_ACCOUNT  145
+
+// CW School modes
+#define LVGL_MODE_CWSCHOOL               150
+#define LVGL_MODE_CWSCHOOL_LINK          151
+#define LVGL_MODE_CWSCHOOL_ACCOUNT       152
+#define LVGL_MODE_CWSCHOOL_TRAINING      153
+#define LVGL_MODE_CWSCHOOL_PROGRESS      154
+
+// Vail Course training modes
+#define LVGL_MODE_VAIL_COURSE_MODULE_SELECT  160
+#define LVGL_MODE_VAIL_COURSE_LESSON_SELECT  161
+#define LVGL_MODE_VAIL_COURSE_LESSON         162
+#define LVGL_MODE_VAIL_COURSE_PROGRESS       163
 
 // ============================================
 // Forward declarations from main file
@@ -338,6 +355,60 @@ bool useLegacyRenderingInt(int mode) {
     return false;
 }
 
+/*
+ * Check if a mode is a training/practice mode (for practice time tracking)
+ * Returns the training mode name for session tracking, or empty string if not a training mode
+ */
+String getTrainingModeName(int mode) {
+    switch (mode) {
+        // Training modes that count toward practice time
+        case LVGL_MODE_PRACTICE:
+            return "Practice";
+        case LVGL_MODE_KOCH_METHOD:
+        case LVGL_MODE_KOCH_PRACTICE:
+            return "Koch";
+        case LVGL_MODE_CW_ACADEMY_COPY_PRACTICE:
+        case LVGL_MODE_CW_ACADEMY_SENDING_PRACTICE:
+        case LVGL_MODE_CW_ACADEMY_QSO_PRACTICE:
+            return "CWA";
+        case LVGL_MODE_HEAR_IT_TYPE_IT:
+        case LVGL_MODE_HEAR_IT_START:
+            return "HearIt";
+        case LVGL_MODE_VAIL_MASTER:
+        case LVGL_MODE_VAIL_MASTER_PRACTICE:
+            return "VailMaster";
+        case LVGL_MODE_LICW_COPY_PRACTICE:
+        case LVGL_MODE_LICW_SEND_PRACTICE:
+        case LVGL_MODE_LICW_TTR_PRACTICE:
+        case LVGL_MODE_LICW_IFR_PRACTICE:
+        case LVGL_MODE_LICW_CSF_INTRO:
+        case LVGL_MODE_LICW_WORD_DISCOVERY:
+        case LVGL_MODE_LICW_QSO_PRACTICE:
+        case LVGL_MODE_LICW_CFP_PRACTICE:
+        case LVGL_MODE_LICW_ADVERSE_COPY:
+            return "LICW";
+        case LVGL_MODE_CWSCHOOL_TRAINING:
+            return "CWSchool";
+        // Games also count as practice time
+        case LVGL_MODE_MORSE_MEMORY:
+            return "MemoryChain";
+        case LVGL_MODE_CW_SPEEDER:
+            return "CWSpeeder";
+        case LVGL_MODE_STORY_TIME_LISTEN:
+        case LVGL_MODE_STORY_TIME_QUIZ:
+            return "StoryTime";
+        default:
+            return "";  // Not a training mode
+    }
+}
+
+/*
+ * Check if a mode is a training/practice mode
+ */
+bool isTrainingModeInt(int mode) {
+    return getTrainingModeName(mode).length() > 0;
+}
+
 // ============================================
 // Mode-to-Screen Mapping
 // ============================================
@@ -411,6 +482,22 @@ lv_obj_t* createScreenForModeInt(int mode) {
         }
     }
 
+    // CW School screens
+    if (mode >= LVGL_MODE_CWSCHOOL && mode <= LVGL_MODE_CWSCHOOL_PROGRESS) {
+        if (handleCWSchoolMode(mode)) {
+            // handleCWSchoolMode calls loadScreen internally, return NULL to avoid double loading
+            return NULL;
+        }
+    }
+
+    // Vail Course screens
+    if (mode >= LVGL_MODE_VAIL_COURSE_MODULE_SELECT && mode <= LVGL_MODE_VAIL_COURSE_PROGRESS) {
+        if (handleVailCourseMode(mode)) {
+            // handleVailCourseMode calls loadScreen internally, return NULL to avoid double loading
+            return NULL;
+        }
+    }
+
     // Placeholder screens for unimplemented features
     switch (mode) {
         case LVGL_MODE_BAND_PLANS:
@@ -444,12 +531,38 @@ lv_obj_t* createScreenForModeInt(int mode) {
 extern int getCurrentModeAsInt();
 extern void setCurrentModeFromInt(int mode);
 
+// Track previous mode for practice session management
+static int previousModeForPractice = LVGL_MODE_MAIN_MENU;
+
 /*
  * Initialize mode-specific state after screen is loaded
  * This calls the appropriate start function for modes that need initialization
  * (decoders, audio callbacks, game state, etc.)
  */
 void initializeModeInt(int mode) {
+    // Practice time tracking: end previous session if leaving training mode
+    String prevModeName = getTrainingModeName(previousModeForPractice);
+    String newModeName = getTrainingModeName(mode);
+
+    if (prevModeName.length() > 0 && prevModeName != newModeName) {
+        // Leaving a training mode (or switching to different training mode)
+        unsigned long sessionDuration = endPracticeSession();
+        Serial.printf("[Practice] Ended %s session: %lu sec\n", prevModeName.c_str(), sessionDuration);
+
+        // Sync session to cloud (if linked and significant duration)
+        if (sessionDuration >= 30) {
+            syncSession(sessionDuration, prevModeName);
+        }
+    }
+
+    if (newModeName.length() > 0 && prevModeName != newModeName) {
+        // Entering a training mode
+        startPracticeSession(newModeName);
+        Serial.printf("[Practice] Started %s session\n", newModeName.c_str());
+    }
+
+    previousModeForPractice = mode;
+
     switch (mode) {
         // Training modes
         case LVGL_MODE_PRACTICE:
@@ -1124,6 +1237,25 @@ int getParentModeInt(int mode) {
         case LVGL_MODE_MORSE_MAILBOX_PLAYBACK:
         case LVGL_MODE_MORSE_MAILBOX_COMPOSE:
             return LVGL_MODE_MORSE_MAILBOX_INBOX;
+
+        // CW School
+        case LVGL_MODE_CWSCHOOL:
+            return LVGL_MODE_CW_MENU;
+        case LVGL_MODE_CWSCHOOL_LINK:
+        case LVGL_MODE_CWSCHOOL_ACCOUNT:
+        case LVGL_MODE_CWSCHOOL_TRAINING:
+        case LVGL_MODE_CWSCHOOL_PROGRESS:
+            return LVGL_MODE_CWSCHOOL;
+
+        // Vail Course parent modes
+        case LVGL_MODE_VAIL_COURSE_MODULE_SELECT:
+            return LVGL_MODE_CWSCHOOL_TRAINING;  // Go back to CW School training
+        case LVGL_MODE_VAIL_COURSE_LESSON_SELECT:
+            return LVGL_MODE_VAIL_COURSE_MODULE_SELECT;
+        case LVGL_MODE_VAIL_COURSE_LESSON:
+            return LVGL_MODE_VAIL_COURSE_LESSON_SELECT;
+        case LVGL_MODE_VAIL_COURSE_PROGRESS:
+            return LVGL_MODE_VAIL_COURSE_MODULE_SELECT;
 
         default:
             return LVGL_MODE_MAIN_MENU;
