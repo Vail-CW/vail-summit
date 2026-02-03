@@ -55,9 +55,10 @@ static lv_obj_t* mailbox_inbox_header_btns[2] = {NULL};  // Compose, Account
 static int mailbox_inbox_header_btn_count = 0;
 static lv_obj_t* mailbox_inbox_message_items[MAILBOX_INBOX_CACHE_SIZE] = {NULL};
 static int mailbox_inbox_message_count = 0;
+static String mailbox_inbox_msgIds[MAILBOX_INBOX_CACHE_SIZE];  // Message IDs for click handler user_data
 
 // Playback screen button tracking
-static lv_obj_t* mailbox_playback_btns[2] = {NULL};  // play_btn, speed_btn
+static lv_obj_t* mailbox_playback_btns[3] = {NULL};  // play_btn, speed_btn, reply_btn
 static int mailbox_playback_btn_count = 0;
 
 // Compose screen button tracking
@@ -214,7 +215,8 @@ static void mailbox_compose_nav_handler(lv_event_t* e) {
 }
 
 /*
- * Playback screen - LEFT/RIGHT between play and speed buttons
+ * Playback screen - LEFT/RIGHT between play, speed, and reply buttons
+ * Button order: [0]=Play, [1]=Speed, [2]=Reply
  */
 static void mailbox_playback_nav_handler(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
@@ -227,14 +229,30 @@ static void mailbox_playback_nav_handler(lv_event_t* e) {
 
     lv_obj_t* target = lv_event_get_target(e);
 
-    // Play button - L/R navigates
+    // Play button - L/R navigates to speed
     if (target == mailbox_playback_btns[0]) {
         if (key == LV_KEY_RIGHT && mailbox_playback_btn_count > 1) {
             lv_group_focus_obj(mailbox_playback_btns[1]);
+        } else if (key == LV_KEY_LEFT) {
+            // At leftmost button, block
         }
         lv_event_stop_processing(e);
     }
-    // Speed button - let mailbox_speed_adjust handle L/R for speed adjustment
+    // Speed button - let mailbox_speed_adjust handle L/R for speed adjustment first
+    // but if at limits, navigate to other buttons
+    else if (target == mailbox_playback_btns[1]) {
+        // Speed button L/R handled by mailbox_speed_adjust
+        // Navigation happens when at speed limits
+    }
+    // Reply button - L/R navigates back to speed
+    else if (target == mailbox_playback_btns[2]) {
+        if (key == LV_KEY_LEFT && mailbox_playback_btn_count > 1) {
+            lv_group_focus_obj(mailbox_playback_btns[1]);
+        } else if (key == LV_KEY_RIGHT) {
+            // At rightmost button, block
+        }
+        lv_event_stop_processing(e);
+    }
 }
 
 // ============================================
@@ -648,10 +666,9 @@ lv_obj_t* createMailboxInboxScreen() {
             lv_obj_set_style_border_color(item, LV_COLOR_BORDER_SUBTLE, 0);
             lv_obj_set_style_border_color(item, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
 
-            // Store message ID for click handler
-            static String msgIds[MAILBOX_INBOX_CACHE_SIZE];
-            msgIds[i] = msg.id;
-            lv_obj_set_user_data(item, &msgIds[i]);
+            // Store message ID for click handler (use file-scope array)
+            mailbox_inbox_msgIds[i] = msg.id;
+            lv_obj_set_user_data(item, &mailbox_inbox_msgIds[i]);
 
             // Row layout
             lv_obj_set_flex_flow(item, LV_FLEX_FLOW_ROW);
@@ -778,8 +795,18 @@ static void mailbox_playback_timer_cb(lv_timer_t* timer) {
 
     if (mailbox_playback_event_index >= timing.size()) {
         // Playback complete
-        mailbox_stop_playback();
+        mailbox_is_playing = false;
         setMailboxPlaybackState(MB_PLAYBACK_COMPLETE);
+
+        // Stop any playing tone
+        extern void requestStopTone();
+        requestStopTone();
+
+        // Update button text to show "Replay"
+        if (mailbox_play_btn) {
+            lv_obj_t* lbl = lv_obj_get_child(mailbox_play_btn, 0);
+            if (lbl) lv_label_set_text(lbl, LV_SYMBOL_REFRESH " Replay");
+        }
 
         // Mark message as read
         markMailboxMessageRead(currentPlaybackMessageId);
@@ -815,9 +842,16 @@ static void mailbox_playback_timer_cb(lv_timer_t* timer) {
 }
 
 static void mailbox_play_btn_click(lv_event_t* e) {
+    MailboxPlaybackState state = getMailboxPlaybackState();
+
     if (mailbox_is_playing) {
         mailbox_stop_playback();
     } else {
+        // Reset to beginning if playback was complete
+        if (state == MB_PLAYBACK_COMPLETE) {
+            mailbox_playback_event_index = 0;
+            setMailboxPlaybackState(MB_PLAYBACK_READY);
+        }
         mailbox_start_playback();
     }
 }
@@ -836,6 +870,9 @@ static void mailbox_speed_adjust(lv_event_t* e) {
     } else if (key == LV_KEY_RIGHT) {
         if (mailbox_playback_speed < 2.0f) {
             mailbox_playback_speed += 0.25f;
+        } else if (mailbox_playback_btn_count > 2) {
+            // At max speed, go to reply button
+            lv_group_focus_obj(mailbox_playback_btns[2]);
         }
         lv_event_stop_processing(e);
     }
@@ -845,6 +882,20 @@ static void mailbox_speed_adjust(lv_event_t* e) {
         snprintf(buf, sizeof(buf), "%.2fx", mailbox_playback_speed);
         lv_label_set_text(mailbox_speed_label, buf);
     }
+}
+
+// Reply button click handler
+static void mailbox_reply_btn_click(lv_event_t* e) {
+    Serial.println("[Mailbox] Reply button clicked");
+    // Stop playback if playing
+    if (mailbox_is_playing) {
+        mailbox_stop_playback();
+    }
+    // Get sender callsign from current message
+    JsonDocument& doc = getCurrentMailboxMessage();
+    mailbox_reply_recipient = doc["sender"]["callsign"].as<String>();
+    Serial.printf("[Mailbox] Setting reply recipient: %s\n", mailbox_reply_recipient.c_str());
+    setCurrentModeFromInt(144);  // MODE_MORSE_MAILBOX_COMPOSE
 }
 
 /*
@@ -939,10 +990,10 @@ lv_obj_t* createMailboxPlaybackScreen() {
     addNavigableWidget(mailbox_play_btn);
     mailbox_playback_btns[0] = mailbox_play_btn;
 
-    // Speed control
+    // Speed control (displayed above the buttons)
     lv_obj_t* speed_container = lv_obj_create(card);
-    lv_obj_set_size(speed_container, 150, 50);
-    lv_obj_align(speed_container, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_set_size(speed_container, 150, 30);
+    lv_obj_align(speed_container, LV_ALIGN_TOP_RIGHT, 0, 30);
     lv_obj_set_style_bg_opa(speed_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(speed_container, 0, 0);
     lv_obj_clear_flag(speed_container, LV_OBJ_FLAG_SCROLLABLE);
@@ -961,16 +1012,16 @@ lv_obj_t* createMailboxPlaybackScreen() {
     lv_obj_set_style_text_color(mailbox_speed_label, LV_COLOR_ACCENT_CYAN, 0);
     lv_obj_align(mailbox_speed_label, LV_ALIGN_RIGHT_MID, 0, 0);
 
-    // Speed adjustment target (invisible, but receives L/R keys)
+    // Speed adjustment button (L/R to adjust)
     lv_obj_t* speed_btn = lv_btn_create(card);
-    lv_obj_set_size(speed_btn, 100, 35);
-    lv_obj_align(speed_btn, LV_ALIGN_BOTTOM_MID, 60, 0);
+    lv_obj_set_size(speed_btn, 90, 40);
+    lv_obj_align(speed_btn, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_style_bg_color(speed_btn, LV_COLOR_CARD_TEAL, 0);
     lv_obj_set_style_bg_color(speed_btn, LV_COLOR_CARD_CYAN, LV_STATE_FOCUSED);
     lv_obj_set_style_radius(speed_btn, 5, 0);
 
     lv_obj_t* adj_lbl = lv_label_create(speed_btn);
-    lv_label_set_text(adj_lbl, "L/R Speed");
+    lv_label_set_text(adj_lbl, LV_SYMBOL_LEFT " " LV_SYMBOL_RIGHT);
     lv_obj_set_style_text_font(adj_lbl, getThemeFonts()->font_body, 0);
     lv_obj_center(adj_lbl);
 
@@ -978,11 +1029,29 @@ lv_obj_t* createMailboxPlaybackScreen() {
     lv_obj_add_event_cb(speed_btn, mailbox_playback_nav_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(speed_btn);
     mailbox_playback_btns[1] = speed_btn;
-    mailbox_playback_btn_count = 2;
+
+    // Reply button
+    lv_obj_t* reply_btn = lv_btn_create(card);
+    lv_obj_set_size(reply_btn, 100, 40);
+    lv_obj_align(reply_btn, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_set_style_bg_color(reply_btn, LV_COLOR_SUCCESS, 0);
+    lv_obj_set_style_bg_color(reply_btn, LV_COLOR_ACCENT_GREEN, LV_STATE_FOCUSED);
+    lv_obj_set_style_radius(reply_btn, 5, 0);
+
+    lv_obj_t* reply_lbl = lv_label_create(reply_btn);
+    lv_label_set_text(reply_lbl, LV_SYMBOL_EDIT " Reply");
+    lv_obj_set_style_text_font(reply_lbl, getThemeFonts()->font_body, 0);
+    lv_obj_center(reply_lbl);
+
+    lv_obj_add_event_cb(reply_btn, mailbox_reply_btn_click, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(reply_btn, mailbox_playback_nav_handler, LV_EVENT_KEY, NULL);
+    addNavigableWidget(reply_btn);
+    mailbox_playback_btns[2] = reply_btn;
+    mailbox_playback_btn_count = 3;
 
     // Footer
     lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, "ENTER Play/Pause   L/R Navigate/Speed   ESC Back");
+    lv_label_set_text(footer, "ENTER Select   L/R Navigate   ESC Back");
     lv_obj_set_style_text_font(footer, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);
@@ -1437,6 +1506,14 @@ lv_obj_t* createMailboxComposeScreen() {
     lv_obj_add_event_cb(mailbox_recipient_input, mailbox_compose_nav_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(mailbox_recipient_input);
     mailbox_compose_focusable[0] = mailbox_recipient_input;
+
+    // Pre-fill recipient if replying to a message
+    if (mailbox_reply_recipient.length() > 0) {
+        Serial.printf("[Mailbox] Pre-filling recipient: %s\n", mailbox_reply_recipient.c_str());
+        lv_textarea_set_text(mailbox_recipient_input, mailbox_reply_recipient.c_str());
+        compose_recipient = mailbox_reply_recipient;
+        mailbox_reply_recipient = "";  // Clear after use
+    }
 
     // Status label
     mailbox_record_status_label = lv_label_create(card);
