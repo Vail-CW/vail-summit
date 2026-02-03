@@ -4032,6 +4032,7 @@ static lv_obj_t* cwa_copy_prompt_label = NULL;
 static lv_obj_t* cwa_copy_input_label = NULL;
 static lv_obj_t* cwa_copy_feedback_label = NULL;
 static lv_obj_t* cwa_copy_target_label = NULL;
+static lv_timer_t* cwa_copy_autoplay_timer = NULL;
 
 // State machine for copy practice
 enum CWACopyState {
@@ -4039,6 +4040,7 @@ enum CWACopyState {
     CWA_COPY_PLAYING,      // Playing morse
     CWA_COPY_INPUT,        // Waiting for input
     CWA_COPY_FEEDBACK,     // Showing feedback
+    CWA_COPY_WAITING,      // Waiting before auto-play (1 sec delay)
     CWA_COPY_COMPLETE      // Session complete
 };
 static CWACopyState cwaCopyUIState = CWA_COPY_READY;
@@ -4047,6 +4049,12 @@ static CWACopyState cwaCopyUIState = CWA_COPY_READY;
  * Initialize copy practice state for LVGL mode
  */
 void initCWACopyPractice() {
+    // Cancel any pending auto-play timer from previous session
+    if (cwa_copy_autoplay_timer) {
+        lv_timer_del(cwa_copy_autoplay_timer);
+        cwa_copy_autoplay_timer = NULL;
+    }
+
     cwaCopyRound = 0;
     cwaCopyCorrect = 0;
     cwaCopyTotal = 0;
@@ -4096,6 +4104,14 @@ void updateCWACopyPracticeUI() {
         lv_label_set_text(cwa_copy_feedback_label, correct ? "CORRECT!" : "INCORRECT");
         lv_obj_set_style_text_color(cwa_copy_feedback_label, correct ? LV_COLOR_SUCCESS : LV_COLOR_ERROR, 0);
         lv_label_set_text_fmt(cwa_copy_target_label, "Answer: %s", cwaCopyTarget.c_str());
+    } else {
+        // Clear feedback labels when not in feedback state
+        if (cwa_copy_feedback_label) {
+            lv_label_set_text(cwa_copy_feedback_label, "");
+        }
+        if (cwa_copy_target_label) {
+            lv_label_set_text(cwa_copy_target_label, "");
+        }
     }
 
     // Update prompt based on state
@@ -4116,8 +4132,38 @@ void updateCWACopyPracticeUI() {
             case CWA_COPY_COMPLETE:
                 lv_label_set_text(cwa_copy_prompt_label, "Session Complete!");
                 break;
+            case CWA_COPY_WAITING:
+                lv_label_set_text(cwa_copy_prompt_label, "Get ready...");
+                break;
         }
     }
+}
+
+/*
+ * Timer callback for auto-play after 1 second delay
+ */
+static void cwa_copy_autoplay_timer_cb(lv_timer_t* timer) {
+    // Delete the timer (one-shot)
+    lv_timer_del(timer);
+    cwa_copy_autoplay_timer = NULL;
+
+    // Check if we're still in the waiting state (might have been cancelled)
+    if (cwaCopyUIState != CWA_COPY_WAITING) return;
+
+    // Start next round
+    cwaCopyRound++;
+    cwaCopyTarget = generateCWAContent();
+    cwaCopyInput = "";
+    Serial.printf("[CWACopy] Auto-playing: %s\n", cwaCopyTarget.c_str());
+
+    cwaCopyUIState = CWA_COPY_PLAYING;
+    updateCWACopyPracticeUI();
+
+    playMorseString(cwaCopyTarget.c_str(), cwSpeed, cwTone);
+
+    // Switch to input mode
+    cwaCopyUIState = CWA_COPY_INPUT;
+    updateCWACopyPracticeUI();
 }
 
 /*
@@ -4132,6 +4178,11 @@ static void cwa_copy_key_event_cb(lv_event_t* e) {
 
     // Handle ESC always
     if (key == LV_KEY_ESC) {
+        // Cancel any pending auto-play timer
+        if (cwa_copy_autoplay_timer) {
+            lv_timer_del(cwa_copy_autoplay_timer);
+            cwa_copy_autoplay_timer = NULL;
+        }
         // Cleanup is handled by back navigation
         return;
     }
@@ -4185,12 +4236,17 @@ static void cwa_copy_key_event_cb(lv_event_t* e) {
                 if (cwaCopyInput.equalsIgnoreCase(cwaCopyTarget)) {
                     cwaCopyCorrect++;
                     beep(1000, 200);  // Success beep
-                    // Auto-advance on correct answer - go straight to next round
+                    // Auto-advance on correct answer with 1-second delay
                     if (cwaCopyRound >= 10) {
                         cwaCopyUIState = CWA_COPY_COMPLETE;
                     } else {
-                        cwaCopyUIState = CWA_COPY_READY;
                         cwaCopyInput = "";
+                        cwaCopyUIState = CWA_COPY_WAITING;
+                        updateCWACopyPracticeUI();
+                        if (cwa_copy_autoplay_timer) {
+                            lv_timer_del(cwa_copy_autoplay_timer);
+                        }
+                        cwa_copy_autoplay_timer = lv_timer_create(cwa_copy_autoplay_timer_cb, 1000, NULL);
                     }
                 } else {
                     beep(400, 300);  // Error beep
@@ -4216,15 +4272,24 @@ static void cwa_copy_key_event_cb(lv_event_t* e) {
             break;
 
         case CWA_COPY_FEEDBACK:
-            // Any key continues
+            // Any key continues to next round with auto-play
             if (cwaCopyRound >= 10) {
                 cwaCopyUIState = CWA_COPY_COMPLETE;
                 updateCWACopyPracticeUI();
             } else {
-                cwaCopyUIState = CWA_COPY_READY;
+                // Start 1-second delay before auto-play
                 cwaCopyInput = "";
+                cwaCopyUIState = CWA_COPY_WAITING;
                 updateCWACopyPracticeUI();
+                if (cwa_copy_autoplay_timer) {
+                    lv_timer_del(cwa_copy_autoplay_timer);
+                }
+                cwa_copy_autoplay_timer = lv_timer_create(cwa_copy_autoplay_timer_cb, 1000, NULL);
             }
+            break;
+
+        case CWA_COPY_WAITING:
+            // Ignore keys while waiting for auto-play (except ESC handled at top)
             break;
 
         case CWA_COPY_COMPLETE:
