@@ -4,15 +4,17 @@
  * This file contains API keys and other secrets that should NOT be committed
  * to source control with real values.
  *
- * For local development: Use placeholder values (default) or create a local
- * secrets_local.h file (gitignored) with your own test keys.
- *
- * For production builds: GitHub Actions injects real values via build flags:
- *   --build-property "build.extra_flags=-DFIREBASE_MAILBOX_API_KEY=\"...\""
+ * For local development: Create secrets_local.h (gitignored) with your keys.
+ * For production builds: GitHub Actions injects values via build flags.
  */
 
 #ifndef SECRETS_H
 #define SECRETS_H
+
+// Include local secrets if available (gitignored file for development)
+#if __has_include("secrets_local.h")
+    #include "secrets_local.h"
+#endif
 
 // ============================================
 // Morse Mailbox - Firebase Configuration
