@@ -29,6 +29,7 @@
 #include "lv_story_time_screens.h"
 #include "lv_web_download_screen.h"
 #include "lv_mailbox_screens.h"
+#include "lv_morse_notes_screens.h"
 #include "lv_cwschool_screens.h"
 #include "lv_vail_course_screens.h"
 #include "../core/config.h"
@@ -186,6 +187,12 @@
 #define LVGL_MODE_MORSE_MAILBOX_PLAYBACK 143
 #define LVGL_MODE_MORSE_MAILBOX_COMPOSE  144
 #define LVGL_MODE_MORSE_MAILBOX_ACCOUNT  145
+
+// Morse Notes modes
+#define LVGL_MODE_MORSE_NOTES_LIBRARY    165
+#define LVGL_MODE_MORSE_NOTES_RECORD     166
+#define LVGL_MODE_MORSE_NOTES_PLAYBACK   167
+#define LVGL_MODE_MORSE_NOTES_SETTINGS   168
 
 // CW School modes
 #define LVGL_MODE_CWSCHOOL               150
@@ -490,6 +497,20 @@ lv_obj_t* createScreenForModeInt(int mode) {
         }
     }
 
+    // Morse Notes screens
+    if (mode >= LVGL_MODE_MORSE_NOTES_LIBRARY && mode <= LVGL_MODE_MORSE_NOTES_SETTINGS) {
+        switch (mode) {
+            case LVGL_MODE_MORSE_NOTES_LIBRARY:
+                return createMorseNotesLibraryScreen();
+            case LVGL_MODE_MORSE_NOTES_RECORD:
+                return createMorseNotesRecordScreen();
+            case LVGL_MODE_MORSE_NOTES_PLAYBACK:
+                return createMorseNotesPlaybackScreen();
+            case LVGL_MODE_MORSE_NOTES_SETTINGS:
+                return createMorseNotesSettingsScreen();
+        }
+    }
+
     // Vail Course screens
     if (mode >= LVGL_MODE_VAIL_COURSE_MODULE_SELECT && mode <= LVGL_MODE_VAIL_COURSE_PROGRESS) {
         if (handleVailCourseMode(mode)) {
@@ -671,6 +692,15 @@ void initializeModeInt(int mode) {
         case LVGL_MODE_MORSE_MAILBOX_ACCOUNT:
             Serial.printf("[ModeInit] Starting Morse Mailbox mode %d\n", mode);
             // Screen creation handled by handleMailboxMode()
+            break;
+
+        // Morse Notes modes
+        case LVGL_MODE_MORSE_NOTES_LIBRARY:
+        case LVGL_MODE_MORSE_NOTES_RECORD:
+        case LVGL_MODE_MORSE_NOTES_PLAYBACK:
+        case LVGL_MODE_MORSE_NOTES_SETTINGS:
+            Serial.printf("[ModeInit] Starting Morse Notes mode %d\n", mode);
+            // Screen creation handled in onLVGLMenuSelect()
             break;
 
         // Network/radio modes
@@ -1237,6 +1267,14 @@ int getParentModeInt(int mode) {
         case LVGL_MODE_MORSE_MAILBOX_PLAYBACK:
         case LVGL_MODE_MORSE_MAILBOX_COMPOSE:
             return LVGL_MODE_MORSE_MAILBOX_INBOX;
+
+        // Morse Notes
+        case LVGL_MODE_MORSE_NOTES_LIBRARY:
+            return LVGL_MODE_CW_MENU;
+        case LVGL_MODE_MORSE_NOTES_RECORD:
+        case LVGL_MODE_MORSE_NOTES_PLAYBACK:
+        case LVGL_MODE_MORSE_NOTES_SETTINGS:
+            return LVGL_MODE_MORSE_NOTES_LIBRARY;
 
         // CW School
         case LVGL_MODE_CWSCHOOL:

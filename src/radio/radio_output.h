@@ -64,6 +64,10 @@ bool radioOutputUseLVGL = true;  // Default to LVGL mode
 // Parameters: keyDown (true=key pressed, false=key released), timestamp (millis())
 void (*radioKeyingCallback)(bool keyDown, unsigned long timestamp) = nullptr;
 
+// Morse Notes keying callback
+// Parameters: keyDown (true=key pressed, false=key released), timestamp (millis())
+void (*morseNotesKeyCallback)(bool keyDown, unsigned long timestamp) = nullptr;
+
 // Forward declarations
 void startRadioOutput(LGFX &display);
 void drawRadioOutputUI(LGFX &display);
@@ -433,6 +437,11 @@ void radioKeyerCallback(bool txOn, int element) {
   // Call keying callback for POTA Recorder timing capture
   if (radioKeyingCallback) {
     radioKeyingCallback(txOn, currentTime);
+  }
+
+  // Call Morse Notes keying callback for recording
+  if (morseNotesKeyCallback) {
+    morseNotesKeyCallback(txOn, currentTime);
   }
 }
 
