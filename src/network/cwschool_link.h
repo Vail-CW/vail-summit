@@ -78,9 +78,15 @@ String getValidCWSchoolToken() {
 
 // Exchange custom token for Firebase ID token
 bool exchangeCWSchoolCustomToken(const String& customToken) {
+    Serial.println("[CWSchool] Starting token exchange...");
+    Serial.printf("[CWSchool] Custom token length: %d\n", customToken.length());
+    Serial.printf("[CWSchool] Custom token preview: %.50s...\n", customToken.c_str());
+
     HTTPClient http;
     String url = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=";
     url += CWSCHOOL_FIREBASE_API_KEY;
+
+    Serial.printf("[CWSchool] API Key: %.10s...\n", CWSCHOOL_FIREBASE_API_KEY);
 
     http.begin(url);
     http.setTimeout(CWSCHOOL_HTTP_TIMEOUT);
@@ -93,9 +99,13 @@ bool exchangeCWSchoolCustomToken(const String& customToken) {
     String body;
     serializeJson(doc, body);
 
+    Serial.printf("[CWSchool] POST body length: %d\n", body.length());
+
     int httpCode = http.POST(body);
     String response = http.getString();
     http.end();
+
+    Serial.printf("[CWSchool] Token exchange HTTP code: %d\n", httpCode);
 
     if (httpCode == 200) {
         JsonDocument respDoc;
@@ -106,9 +116,14 @@ bool exchangeCWSchoolCustomToken(const String& customToken) {
 
             if (expiresIn == 0) expiresIn = 3600;  // Default 1 hour
 
+            Serial.printf("[CWSchool] Got ID token length: %d\n", idToken.length());
+            Serial.printf("[CWSchool] Got refresh token length: %d\n", refreshToken.length());
+
             saveCWSchoolTokens(idToken, refreshToken, expiresIn);
             Serial.println("[CWSchool] Token exchange successful");
             return true;
+        } else {
+            Serial.println("[CWSchool] Failed to parse token exchange response");
         }
     }
 

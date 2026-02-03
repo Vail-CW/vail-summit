@@ -129,6 +129,7 @@ static void mailbox_header_nav_handler(lv_event_t* e) {
 
 /*
  * Message list navigation - UP from first item goes to header
+ * Also handles ENTER to trigger click (LVGL default doesn't always work)
  */
 static void mailbox_list_nav_handler(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
@@ -140,6 +141,15 @@ static void mailbox_list_nav_handler(lv_event_t* e) {
     }
 
     lv_obj_t* target = lv_event_get_target(e);
+
+    // Handle ENTER key - manually send clicked event
+    if (key == LV_KEY_ENTER) {
+        Serial.println("[Mailbox] ENTER key detected, sending CLICKED event");
+        lv_event_send(target, LV_EVENT_CLICKED, NULL);
+        lv_event_stop_processing(e);
+        return;
+    }
+
     int current_idx = -1;
     for (int i = 0; i < mailbox_inbox_message_count; i++) {
         if (mailbox_inbox_message_items[i] == target) { current_idx = i; break; }
@@ -675,27 +685,29 @@ lv_obj_t* createMailboxInboxScreen() {
             lv_obj_set_flex_align(item, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
             lv_obj_set_style_pad_hor(item, 15, 0);
 
-            // Status indicator (dot)
+            // Status indicator (dot) - make non-clickable so parent button gets clicks
             lv_obj_t* dot = lv_obj_create(item);
             lv_obj_set_size(dot, 10, 10);
             lv_obj_set_style_radius(dot, 5, 0);
             lv_obj_set_style_bg_color(dot, msg.status == "unread" ? LV_COLOR_SUCCESS : LV_COLOR_TEXT_DISABLED, 0);
             lv_obj_set_style_border_width(dot, 0, 0);
-            lv_obj_clear_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_clear_flag(dot, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
 
-            // Sender info column
+            // Sender info column - use flex layout for proper stacking
             lv_obj_t* info_col = lv_obj_create(item);
-            lv_obj_set_size(info_col, 250, LV_SIZE_CONTENT);
+            lv_obj_set_size(info_col, 280, 45);  // Fixed height for two lines
             lv_obj_set_style_bg_opa(info_col, LV_OPA_TRANSP, 0);
             lv_obj_set_style_border_width(info_col, 0, 0);
             lv_obj_set_style_pad_left(info_col, 10, 0);
-            lv_obj_clear_flag(info_col, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_set_style_pad_ver(info_col, 0, 0);
+            lv_obj_clear_flag(info_col, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_set_flex_flow(info_col, LV_FLEX_FLOW_COLUMN);
+            lv_obj_set_flex_align(info_col, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
 
             lv_obj_t* sender = lv_label_create(info_col);
             lv_label_set_text(sender, msg.senderCallsign.c_str());
             lv_obj_set_style_text_font(sender, getThemeFonts()->font_input, 0);
             lv_obj_set_style_text_color(sender, LV_COLOR_TEXT_PRIMARY, 0);
-            lv_obj_align(sender, LV_ALIGN_TOP_LEFT, 0, 0);
 
             // Parse and format date (simplified - just show date portion)
             String dateStr = msg.sentAt.substring(0, 10);  // "2026-01-29"
@@ -703,7 +715,6 @@ lv_obj_t* createMailboxInboxScreen() {
             lv_label_set_text(date, dateStr.c_str());
             lv_obj_set_style_text_font(date, getThemeFonts()->font_body, 0);
             lv_obj_set_style_text_color(date, LV_COLOR_TEXT_TERTIARY, 0);
-            lv_obj_align(date, LV_ALIGN_BOTTOM_LEFT, 0, 0);
 
             // Duration
             char durBuf[16];
