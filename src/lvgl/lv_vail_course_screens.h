@@ -14,8 +14,9 @@
 #include "../training/training_vail_course_core.h"
 #include "../settings/settings_cwschool.h"
 
-// Forward declaration for mode switching
+// Forward declarations for mode switching
 extern void setCurrentModeFromInt(int mode);
+extern void onLVGLMenuSelect(int target_mode);  // Proper navigation with screen loading
 
 // ============================================
 // Screen State
@@ -124,7 +125,7 @@ static void vail_course_module_click_handler(lv_event_t* e) {
     vailCourseProgress.currentModule = (VailCourseModule)moduleIdx;
 
     // Navigate to lesson select for this module
-    setCurrentModeFromInt(161);  // LVGL_MODE_VAIL_COURSE_LESSON_SELECT
+    onLVGLMenuSelect(161);  // LVGL_MODE_VAIL_COURSE_LESSON_SELECT
 }
 
 /*
@@ -235,7 +236,7 @@ static void vail_course_lesson_click_handler(lv_event_t* e) {
     vailCourseProgress.currentPhase = PHASE_INTRO;
 
     // Navigate to lesson practice
-    setCurrentModeFromInt(162);  // LVGL_MODE_VAIL_COURSE_LESSON
+    onLVGLMenuSelect(162);  // LVGL_MODE_VAIL_COURSE_LESSON
 }
 
 lv_obj_t* createVailCourseLessonSelectScreen() {
@@ -670,7 +671,7 @@ static void vail_course_lesson_key_handler(lv_event_t* e) {
 
             // Go back to lesson select
             endVailCourseSession();
-            setCurrentModeFromInt(161);  // Lesson select
+            onLVGLMenuSelect(161);  // Lesson select
         }
         return;
     }

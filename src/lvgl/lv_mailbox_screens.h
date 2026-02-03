@@ -40,6 +40,7 @@ static lv_obj_t* mailbox_play_btn = NULL;
 static lv_obj_t* mailbox_speed_label = NULL;
 static float mailbox_playback_speed = 1.0f;
 static String currentPlaybackMessageId = "";
+static String mailbox_reply_recipient = "";  // For pre-filling compose screen when replying
 
 // Playback timing state
 static int mailbox_playback_event_index = 0;
@@ -513,11 +514,21 @@ lv_obj_t* createMailboxLinkScreen() {
 
 // Message button click handler
 static void mailbox_inbox_item_click(lv_event_t* e) {
+    Serial.println("[Mailbox] Item click handler called!");
     lv_obj_t* btn = lv_event_get_target(e);
     String* msgId = (String*)lv_obj_get_user_data(btn);
+    Serial.printf("[Mailbox] msgId ptr: %p\n", (void*)msgId);
+    if (msgId) {
+        Serial.printf("[Mailbox] msgId value: '%s', length: %d\n",
+                      msgId->c_str(), msgId->length());
+    }
     if (msgId && msgId->length() > 0) {
         currentPlaybackMessageId = *msgId;
+        Serial.printf("[Mailbox] Switching to playback for message: %s\n",
+                      currentPlaybackMessageId.c_str());
         setCurrentModeFromInt(143);  // MODE_MORSE_MAILBOX_PLAYBACK
+    } else {
+        Serial.println("[Mailbox] ERROR: msgId is null or empty!");
     }
 }
 
