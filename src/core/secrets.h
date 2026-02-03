@@ -50,21 +50,4 @@
     #define CWSCHOOL_LINK_DEVICE_URL "https://learncw.vailmorse.com/link-device"
 #endif
 
-// ============================================
-// Build Information
-// ============================================
-
-// Check if we're using placeholder keys (for runtime warnings)
-#if defined(FIREBASE_MAILBOX_API_KEY) && (strcmp(FIREBASE_MAILBOX_API_KEY, "PLACEHOLDER_MAILBOX_KEY") == 0)
-    #define USING_PLACEHOLDER_MAILBOX_KEY 1
-#else
-    #define USING_PLACEHOLDER_MAILBOX_KEY 0
-#endif
-
-#if defined(FIREBASE_CWSCHOOL_API_KEY) && (strcmp(FIREBASE_CWSCHOOL_API_KEY, "PLACEHOLDER_CWSCHOOL_KEY") == 0)
-    #define USING_PLACEHOLDER_CWSCHOOL_KEY 1
-#else
-    #define USING_PLACEHOLDER_CWSCHOOL_KEY 0
-#endif
-
 #endif // SECRETS_H
