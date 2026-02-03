@@ -46,6 +46,7 @@ static String mailbox_reply_recipient = "";  // For pre-filling compose screen w
 static int mailbox_playback_event_index = 0;
 static unsigned long mailbox_playback_start_time = 0;
 static bool mailbox_is_playing = false;
+static lv_timer_t* mailbox_playback_timer = NULL;  // Track timer for cleanup
 
 // Account screen state
 static lv_obj_t* mailbox_account_screen = NULL;
@@ -67,6 +68,83 @@ static int mailbox_compose_focusable_count = 0;
 
 // Forward declaration for playback control
 static void mailbox_stop_playback();
+
+// Loading overlay state
+static lv_obj_t* mailbox_loading_overlay = NULL;
+static lv_obj_t* mailbox_loading_label = NULL;
+static lv_obj_t* mailbox_loading_spinner = NULL;
+
+/*
+ * Show/hide loading overlay on current screen
+ */
+static void showMailboxLoading(lv_obj_t* screen, const char* message) {
+    if (!screen || !lv_obj_is_valid(screen)) return;
+
+    // Create overlay if needed
+    if (!mailbox_loading_overlay || !lv_obj_is_valid(mailbox_loading_overlay)) {
+        mailbox_loading_overlay = lv_obj_create(screen);
+        lv_obj_set_size(mailbox_loading_overlay, LV_PCT(100), LV_PCT(100));
+        lv_obj_set_style_bg_color(mailbox_loading_overlay, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(mailbox_loading_overlay, LV_OPA_70, 0);
+        lv_obj_set_style_border_width(mailbox_loading_overlay, 0, 0);
+        lv_obj_center(mailbox_loading_overlay);
+        lv_obj_clear_flag(mailbox_loading_overlay, LV_OBJ_FLAG_SCROLLABLE);
+
+        // Spinner
+        mailbox_loading_spinner = lv_spinner_create(mailbox_loading_overlay, 1000, 60);
+        lv_obj_set_size(mailbox_loading_spinner, 50, 50);
+        lv_obj_align(mailbox_loading_spinner, LV_ALIGN_CENTER, 0, -20);
+
+        // Label
+        mailbox_loading_label = lv_label_create(mailbox_loading_overlay);
+        lv_obj_set_style_text_color(mailbox_loading_label, lv_color_white(), 0);
+        lv_obj_set_style_text_font(mailbox_loading_label, getThemeFonts()->font_body, 0);
+        lv_obj_align(mailbox_loading_label, LV_ALIGN_CENTER, 0, 30);
+    }
+
+    lv_label_set_text(mailbox_loading_label, message);
+    lv_obj_clear_flag(mailbox_loading_overlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(mailbox_loading_overlay);
+
+    // Force screen refresh to show loading immediately
+    lv_refr_now(NULL);
+}
+
+static void hideMailboxLoading() {
+    if (mailbox_loading_overlay && lv_obj_is_valid(mailbox_loading_overlay)) {
+        lv_obj_add_flag(mailbox_loading_overlay, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+/*
+ * Clean up mailbox playback state when leaving screen
+ */
+static void cleanupMailboxPlayback() {
+    Serial.println("[Mailbox] Cleaning up playback state");
+
+    // Stop playback and tone
+    mailbox_is_playing = false;
+    extern void requestStopTone();
+    requestStopTone();
+
+    // Delete timer
+    if (mailbox_playback_timer) {
+        lv_timer_del(mailbox_playback_timer);
+        mailbox_playback_timer = NULL;
+    }
+
+    // Clear screen and button pointers
+    mailbox_playback_screen = NULL;
+    mailbox_play_btn = NULL;
+    mailbox_speed_label = NULL;
+    memset(mailbox_playback_btns, 0, sizeof(mailbox_playback_btns));
+    mailbox_playback_btn_count = 0;
+
+    // Clear loading overlay pointer (will be recreated on next screen)
+    mailbox_loading_overlay = NULL;
+    mailbox_loading_label = NULL;
+    mailbox_loading_spinner = NULL;
+}
 
 // ============================================
 // Linear Navigation Handler (for vertical lists)
@@ -247,9 +325,7 @@ static void mailbox_playback_nav_handler(lv_event_t* e) {
     // ESC returns to inbox
     if (key == LV_KEY_ESC) {
         Serial.println("[Mailbox] Playback ESC - returning to inbox");
-        if (mailbox_is_playing) {
-            mailbox_stop_playback();
-        }
+        cleanupMailboxPlayback();
         onLVGLMenuSelect(142);  // MODE_MORSE_MAILBOX_INBOX
         lv_event_stop_processing(e);
         return;
@@ -593,13 +669,17 @@ lv_obj_t* createMailboxInboxScreen() {
     memset(mailbox_inbox_header_btns, 0, sizeof(mailbox_inbox_header_btns));
     memset(mailbox_inbox_message_items, 0, sizeof(mailbox_inbox_message_items));
 
-    // Fetch inbox if needed
-    if (!isMailboxInboxCacheValid()) {
-        fetchMailboxInbox(20, "all");
-    }
-
+    // Create screen first
     lv_obj_t* screen = createScreen();
     applyScreenStyle(screen);
+    mailbox_inbox_screen = screen;
+
+    // Fetch inbox if needed (show loading during fetch)
+    if (!isMailboxInboxCacheValid()) {
+        showMailboxLoading(screen, "Loading inbox...");
+        fetchMailboxInbox(20, "all");
+        hideMailboxLoading();
+    }
 
     // Header
     lv_obj_t* header = lv_obj_create(screen);
@@ -800,7 +880,11 @@ static void mailbox_start_playback() {
     }
 
     // Create playback timer (run every 10ms for timing precision)
-    lv_timer_create(mailbox_playback_timer_cb, 10, NULL);
+    // Delete any existing timer first
+    if (mailbox_playback_timer) {
+        lv_timer_del(mailbox_playback_timer);
+    }
+    mailbox_playback_timer = lv_timer_create(mailbox_playback_timer_cb, 10, NULL);
 }
 
 static void mailbox_stop_playback() {
@@ -811,15 +895,23 @@ static void mailbox_stop_playback() {
     extern void requestStopTone();
     requestStopTone();
 
-    // Update button text
-    if (mailbox_play_btn) {
+    // Delete the playback timer
+    if (mailbox_playback_timer) {
+        lv_timer_del(mailbox_playback_timer);
+        mailbox_playback_timer = NULL;
+    }
+
+    // Update button text (check screen still exists)
+    if (mailbox_playback_screen && lv_obj_is_valid(mailbox_playback_screen) && mailbox_play_btn) {
         lv_obj_t* lbl = lv_obj_get_child(mailbox_play_btn, 0);
         if (lbl) lv_label_set_text(lbl, LV_SYMBOL_PLAY " Play");
     }
 }
 
 static void mailbox_playback_timer_cb(lv_timer_t* timer) {
-    if (!mailbox_is_playing) {
+    // Safety check - stop if not playing or screen destroyed
+    if (!mailbox_is_playing || !mailbox_playback_screen || !lv_obj_is_valid(mailbox_playback_screen)) {
+        mailbox_playback_timer = NULL;
         lv_timer_del(timer);
         return;
     }
@@ -836,14 +928,15 @@ static void mailbox_playback_timer_cb(lv_timer_t* timer) {
         extern void requestStopTone();
         requestStopTone();
 
-        // Update button text to show "Replay"
-        if (mailbox_play_btn) {
+        // Update button text to show "Replay" (check screen still valid)
+        if (mailbox_playback_screen && lv_obj_is_valid(mailbox_playback_screen) && mailbox_play_btn) {
             lv_obj_t* lbl = lv_obj_get_child(mailbox_play_btn, 0);
             if (lbl) lv_label_set_text(lbl, LV_SYMBOL_REFRESH " Replay");
         }
 
         // Mark message as read
         markMailboxMessageRead(currentPlaybackMessageId);
+        mailbox_playback_timer = NULL;
         lv_timer_del(timer);
         return;
     }
@@ -946,12 +1039,22 @@ static void mailbox_reply_btn_click(lv_event_t* e) {
  * Create message playback screen
  */
 lv_obj_t* createMailboxPlaybackScreen() {
-    // Fetch the message
-    if (!fetchMailboxMessage(currentPlaybackMessageId)) {
-        // Error screen
-        lv_obj_t* screen = createScreen();
-        applyScreenStyle(screen);
+    // Create screen first (for loading indicator)
+    lv_obj_t* screen = createScreen();
+    applyScreenStyle(screen);
+    mailbox_playback_screen = screen;
 
+    // Show loading indicator while fetching
+    showMailboxLoading(screen, "Loading message...");
+
+    // Fetch the message (blocking network call)
+    bool success = fetchMailboxMessage(currentPlaybackMessageId);
+
+    // Hide loading
+    hideMailboxLoading();
+
+    if (!success) {
+        // Error - show message and back button
         lv_obj_t* msg = lv_label_create(screen);
         lv_label_set_text(msg, "Failed to load message");
         lv_obj_center(msg);
@@ -961,6 +1064,13 @@ lv_obj_t* createMailboxPlaybackScreen() {
         lv_obj_set_size(focus, 1, 1);
         lv_obj_set_style_bg_opa(focus, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(focus, 0, 0);
+        // Add ESC handler to go back
+        lv_obj_add_event_cb(focus, [](lv_event_t* e) {
+            if (lv_event_get_code(e) == LV_EVENT_KEY && lv_event_get_key(e) == LV_KEY_ESC) {
+                cleanupMailboxPlayback();
+                onLVGLMenuSelect(142);  // Back to inbox
+            }
+        }, LV_EVENT_KEY, NULL);
         addNavigableWidget(focus);
 
         return screen;
@@ -968,9 +1078,7 @@ lv_obj_t* createMailboxPlaybackScreen() {
 
     JsonDocument& doc = getCurrentMailboxMessage();
 
-    lv_obj_t* screen = createScreen();
-    applyScreenStyle(screen);
-
+    // Continue building the screen (already created above)
     // Header
     lv_obj_t* header = lv_obj_create(screen);
     lv_obj_set_size(header, LV_PCT(100), 50);
@@ -1677,15 +1785,6 @@ void cleanupMailboxLinkScreen() {
     mailbox_status_label = NULL;
     mailbox_timer_label = NULL;
     mailbox_link_screen = NULL;
-}
-
-void cleanupMailboxPlayback() {
-    mailbox_stop_playback();
-    mailbox_play_btn = NULL;
-    mailbox_speed_label = NULL;
-    mailbox_playback_screen = NULL;
-    mailbox_playback_btn_count = 0;
-    memset(mailbox_playback_btns, 0, sizeof(mailbox_playback_btns));
 }
 
 // ============================================
