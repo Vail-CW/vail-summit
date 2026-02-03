@@ -353,6 +353,9 @@ struct VailCourseLessonState {
     // Intro phase state
     int introCharIndex;          // Which new character we're introducing
 
+    // Group input accumulation (for PHASE_GROUPS)
+    String groupInputBuffer;     // Accumulated characters for group answer
+
     // UI elements
     lv_obj_t* screen;
     lv_obj_t* phase_label;
@@ -362,6 +365,7 @@ struct VailCourseLessonState {
     lv_obj_t* score_label;       // X/Y correct
     lv_obj_t* prompt_label;      // Instructions
     lv_obj_t* footer_label;
+    lv_obj_t* group_input_label; // Display user's accumulated input (for groups)
 };
 
 static VailCourseLessonState lessonState = {0};
@@ -424,6 +428,77 @@ String generateVailCourseGroup(int length) {
 }
 
 // ============================================
+// Group Input Accumulation (for PHASE_GROUPS)
+// ============================================
+
+// Clear group input buffer
+void clearVailCourseGroupInput() {
+    lessonState.groupInputBuffer = "";
+}
+
+// Add character to group input
+void addVailCourseGroupInputChar(char c) {
+    lessonState.groupInputBuffer += toupper(c);
+    updateVailCourseLessonUI();
+}
+
+// Remove last character from group input
+void backspaceVailCourseGroupInput() {
+    if (lessonState.groupInputBuffer.length() > 0) {
+        lessonState.groupInputBuffer.remove(lessonState.groupInputBuffer.length() - 1);
+        updateVailCourseLessonUI();
+    }
+}
+
+// Submit group input for validation
+void submitVailCourseGroupAnswer() {
+    if (!lessonState.waitingForInput) return;
+    if (lessonState.groupInputBuffer.length() == 0) return;
+
+    lessonState.waitingForInput = false;
+    lessonState.phaseTotal++;
+
+    // Compare full group (case-insensitive)
+    bool correct = lessonState.groupInputBuffer.equalsIgnoreCase(lessonState.currentGroup);
+
+    if (correct) {
+        lessonState.phaseCorrect++;
+
+        // Update mastery for each character in the group
+        for (size_t i = 0; i < lessonState.currentGroup.length(); i++) {
+            int charIdx = getVailCourseCharIndex(lessonState.currentGroup[i]);
+            if (charIdx >= 0) {
+                vailCourseProgress.charMastery[charIdx].attempts++;
+                vailCourseProgress.charMastery[charIdx].correct++;
+                vailCourseProgress.charMastery[charIdx].mastery =
+                    min(1000, vailCourseProgress.charMastery[charIdx].mastery + 50);
+            }
+        }
+    } else {
+        // Penalize all chars in group for incorrect
+        for (size_t i = 0; i < lessonState.currentGroup.length(); i++) {
+            int charIdx = getVailCourseCharIndex(lessonState.currentGroup[i]);
+            if (charIdx >= 0) {
+                vailCourseProgress.charMastery[charIdx].attempts++;
+                vailCourseProgress.charMastery[charIdx].mastery =
+                    max(0, vailCourseProgress.charMastery[charIdx].mastery - 25);
+            }
+        }
+    }
+
+    // Update session stats
+    vailCourseProgress.sessionTotal++;
+    if (correct) vailCourseProgress.sessionCorrect++;
+
+    // Show feedback
+    lessonState.showingFeedback = true;
+    lessonState.feedbackTime = millis();
+
+    recordPracticeActivity();
+    updateVailCourseLessonUI();
+}
+
+// ============================================
 // Lesson Phase State Machine
 // ============================================
 
@@ -436,47 +511,93 @@ void startVailCourseLessonPhase() {
     lessonState.playbackCount = 0;
     lessonState.waitingForInput = false;
     lessonState.showingFeedback = false;
+    clearVailCourseGroupInput();  // Clear group input buffer
     lessonState.availableChars = getVailCourseLessonChars();
 
     switch (phase) {
         case PHASE_INTRO:
-            // Introduce new characters
-            lessonState.introCharIndex = 0;
-            lessonState.phaseItemCount = strlen(vailCourseModuleChars[vailCourseProgress.currentModule]);
-            if (lessonState.phaseItemCount == 0) {
-                // No new chars (words/callsigns module) - skip to mixed
-                vailCourseProgress.currentPhase = PHASE_MIXED;
-                startVailCourseLessonPhase();
-                return;
+            {
+                // Get NEW characters introduced in THIS lesson only
+                String newChars = getVailCourseNewCharsForLesson(
+                    vailCourseProgress.currentModule,
+                    vailCourseProgress.currentLesson
+                );
+
+                lessonState.introCharIndex = 0;
+                lessonState.phaseItemCount = newChars.length();
+
+                if (lessonState.phaseItemCount == 0) {
+                    // No new chars (review lesson or words/callsigns) - skip to solo
+                    vailCourseProgress.currentPhase = PHASE_SOLO;
+                    startVailCourseLessonPhase();
+                    return;
+                }
+
+                // Store new chars for this intro phase
+                lessonState.availableChars = newChars;
+                lessonState.currentChar = newChars[0];
+
+                Serial.printf("[VailCourse] INTRO phase: %d new chars: %s\n",
+                              lessonState.phaseItemCount, newChars.c_str());
             }
-            lessonState.currentChar = vailCourseModuleChars[vailCourseProgress.currentModule][0];
             break;
 
         case PHASE_SOLO:
-            // Practice only the new characters
-            lessonState.phaseItemCount = VAIL_LESSON_SOLO_COUNT;
-            lessonState.availableChars = getVailCourseNewChars();
-            if (lessonState.availableChars.length() == 0) {
-                // No new chars - skip to mixed
-                vailCourseProgress.currentPhase = PHASE_MIXED;
-                startVailCourseLessonPhase();
-                return;
+            {
+                // Practice ONLY newly introduced characters for THIS lesson
+                String newChars = getVailCourseNewCharsForLesson(
+                    vailCourseProgress.currentModule,
+                    vailCourseProgress.currentLesson
+                );
+
+                lessonState.phaseItemCount = VAIL_LESSON_SOLO_COUNT;
+                lessonState.availableChars = newChars;
+
+                if (lessonState.availableChars.length() == 0) {
+                    // No new chars - skip to mixed
+                    vailCourseProgress.currentPhase = PHASE_MIXED;
+                    startVailCourseLessonPhase();
+                    return;
+                }
+
+                lessonState.currentChar = getRandomVailCourseChar();
+
+                Serial.printf("[VailCourse] SOLO phase: %d chars available: %s\n",
+                              lessonState.availableChars.length(),
+                              lessonState.availableChars.c_str());
             }
-            lessonState.currentChar = getRandomVailCourseChar();
             break;
 
         case PHASE_MIXED:
-            // Practice all known characters
-            lessonState.phaseItemCount = VAIL_LESSON_MIXED_COUNT;
-            lessonState.availableChars = getVailCourseLessonChars();
-            lessonState.currentChar = getRandomVailCourseChar();
+            {
+                // Practice ALL characters learned up to current lesson
+                lessonState.phaseItemCount = VAIL_LESSON_MIXED_COUNT;
+                lessonState.availableChars = getVailCourseCharsForLesson(
+                    vailCourseProgress.currentModule,
+                    vailCourseProgress.currentLesson
+                );
+                lessonState.currentChar = getRandomVailCourseChar();
+
+                Serial.printf("[VailCourse] MIXED phase: %d chars available: %s\n",
+                              lessonState.availableChars.length(),
+                              lessonState.availableChars.c_str());
+            }
             break;
 
         case PHASE_GROUPS:
-            // Practice character groups
-            lessonState.phaseItemCount = VAIL_LESSON_GROUP_COUNT;
-            lessonState.availableChars = getVailCourseLessonChars();
-            lessonState.currentGroup = generateVailCourseGroup(2 + random(3)); // 2-4 chars
+            {
+                // Practice character groups using all learned chars
+                lessonState.phaseItemCount = VAIL_LESSON_GROUP_COUNT;
+                lessonState.availableChars = getVailCourseCharsForLesson(
+                    vailCourseProgress.currentModule,
+                    vailCourseProgress.currentLesson
+                );
+                lessonState.currentGroup = generateVailCourseGroup(2 + random(3)); // 2-4 chars
+
+                Serial.printf("[VailCourse] GROUPS phase: %d chars available: %s\n",
+                              lessonState.availableChars.length(),
+                              lessonState.availableChars.c_str());
+            }
             break;
 
         case PHASE_RESULT:
@@ -554,9 +675,10 @@ void checkVailCourseLessonAnswer(char answer) {
     bool correct = false;
 
     if (phase == PHASE_GROUPS) {
-        // For groups, check if answer matches first character (simplified)
-        // In a real implementation, you'd want full group input
-        correct = (toupper(answer) == lessonState.currentGroup[0]);
+        // Groups use accumulation - shouldn't reach here
+        // Handled by submitVailCourseGroupAnswer() instead
+        Serial.println("[VailCourse] Error: checkAnswer called during PHASE_GROUPS");
+        return;
     } else {
         correct = (toupper(answer) == lessonState.currentChar);
     }
@@ -601,6 +723,7 @@ void advanceVailCourseLessonItem() {
     lessonState.phaseItemIndex++;
     lessonState.playbackCount = 0;
     lessonState.showingFeedback = false;
+    clearVailCourseGroupInput();  // Clear group input for next item
 
     VailCoursePhase phase = vailCourseProgress.currentPhase;
 
@@ -613,10 +736,10 @@ void advanceVailCourseLessonItem() {
     // Set up next item
     switch (phase) {
         case PHASE_INTRO:
-            // Move to next new character
+            // Move to next new character in THIS lesson
             lessonState.introCharIndex++;
-            if (lessonState.introCharIndex < (int)strlen(vailCourseModuleChars[vailCourseProgress.currentModule])) {
-                lessonState.currentChar = vailCourseModuleChars[vailCourseProgress.currentModule][lessonState.introCharIndex];
+            if (lessonState.introCharIndex < lessonState.availableChars.length()) {
+                lessonState.currentChar = lessonState.availableChars[lessonState.introCharIndex];
             }
             break;
 
@@ -711,9 +834,22 @@ static void vail_course_lesson_key_handler(lv_event_t* e) {
         return;
     }
 
-    // Waiting for input - check if it's a valid answer key
-    if (isalnum(key) || key == '.' || key == ',' || key == '?' || key == '/') {
-        checkVailCourseLessonAnswer((char)key);
+    // Waiting for input
+    if (vailCourseProgress.currentPhase == PHASE_GROUPS) {
+        // Group input mode: accumulate characters
+        if (isalnum(key) || key == '.' || key == ',' || key == '?' || key == '/') {
+            addVailCourseGroupInputChar((char)key);
+        } else if (key == LV_KEY_BACKSPACE || key == '\b') {
+            backspaceVailCourseGroupInput();
+        } else if (key == LV_KEY_ENTER) {
+            // ENTER submits group answer (space is reserved for playback)
+            submitVailCourseGroupAnswer();
+        }
+    } else {
+        // Single character mode: immediate validation
+        if (isalnum(key) || key == '.' || key == ',' || key == '?' || key == '/') {
+            checkVailCourseLessonAnswer((char)key);
+        }
     }
 }
 
@@ -771,13 +907,38 @@ void updateVailCourseLessonUI() {
 
             case PHASE_GROUPS:
                 if (lessonState.showingFeedback) {
+                    // Show correct answer
                     lv_label_set_text(lessonState.main_label, lessonState.currentGroup.c_str());
+
+                    // Show what user typed for comparison
+                    if (lessonState.group_input_label) {
+                        String inputText = "You typed: " + lessonState.groupInputBuffer;
+                        lv_label_set_text(lessonState.group_input_label, inputText.c_str());
+                        lv_obj_clear_flag(lessonState.group_input_label, LV_OBJ_FLAG_HIDDEN);
+                    }
                 } else if (lessonState.waitingForInput) {
                     lv_label_set_text(lessonState.main_label, "???");
                     lv_obj_set_style_text_color(lessonState.main_label, LV_COLOR_WARNING, 0);
+
+                    // Show current input with cursor
+                    if (lessonState.group_input_label) {
+                        String inputDisplay = lessonState.groupInputBuffer;
+                        if (inputDisplay.length() == 0) {
+                            inputDisplay = "(Type answer)";
+                        } else {
+                            inputDisplay += "_";  // Cursor indicator
+                        }
+                        lv_label_set_text(lessonState.group_input_label, inputDisplay.c_str());
+                        lv_obj_set_style_text_color(lessonState.group_input_label, LV_COLOR_ACCENT_CYAN, 0);
+                        lv_obj_clear_flag(lessonState.group_input_label, LV_OBJ_FLAG_HIDDEN);
+                    }
                 } else {
                     lv_label_set_text(lessonState.main_label, "...");
                     lv_obj_set_style_text_color(lessonState.main_label, LV_COLOR_TEXT_SECONDARY, 0);
+
+                    if (lessonState.group_input_label) {
+                        lv_obj_add_flag(lessonState.group_input_label, LV_OBJ_FLAG_HIDDEN);
+                    }
                 }
                 break;
 
@@ -854,11 +1015,20 @@ void updateVailCourseLessonUI() {
 
             case PHASE_SOLO:
             case PHASE_MIXED:
-            case PHASE_GROUPS:
                 if (lessonState.showingFeedback) {
                     lv_label_set_text(lessonState.prompt_label, "Press SPACE to continue");
                 } else if (lessonState.waitingForInput) {
                     lv_label_set_text(lessonState.prompt_label, "Type your answer");
+                } else {
+                    lv_label_set_text(lessonState.prompt_label, "Press SPACE to play");
+                }
+                break;
+
+            case PHASE_GROUPS:
+                if (lessonState.showingFeedback) {
+                    lv_label_set_text(lessonState.prompt_label, "Press SPACE to continue");
+                } else if (lessonState.waitingForInput) {
+                    lv_label_set_text(lessonState.prompt_label, "Type full group, then ENTER to submit");
                 } else {
                     lv_label_set_text(lessonState.prompt_label, "Press SPACE to play");
                 }
@@ -946,6 +1116,14 @@ lv_obj_t* createVailCourseLessonScreen() {
     lv_obj_set_style_text_font(lessonState.feedback_label, getThemeFonts()->font_input, 0);
     lv_obj_align(lessonState.feedback_label, LV_ALIGN_CENTER, 0, 30);
     lv_obj_add_flag(lessonState.feedback_label, LV_OBJ_FLAG_HIDDEN);
+
+    // Group input display (for PHASE_GROUPS, below main label)
+    lessonState.group_input_label = lv_label_create(content);
+    lv_label_set_text(lessonState.group_input_label, "");
+    lv_obj_set_style_text_font(lessonState.group_input_label, getThemeFonts()->font_input, 0);
+    lv_obj_set_style_text_color(lessonState.group_input_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_align(lessonState.group_input_label, LV_ALIGN_CENTER, 0, 15);
+    lv_obj_add_flag(lessonState.group_input_label, LV_OBJ_FLAG_HIDDEN);
 
     // Score label (bottom left)
     lessonState.score_label = lv_label_create(content);

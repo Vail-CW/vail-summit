@@ -81,6 +81,23 @@ const char* vailCourseModuleChars[] = {
     ""              // Callsigns (uses all learned chars)
 };
 
+// Lesson character definitions: [moduleIdx][lessonIdx] -> characters for that lesson
+// This provides per-lesson character introduction for proper pedagogical progression
+const char* vailCourseLessonChars[MODULE_COUNT][4] = {
+    {"E", "T", ""},             // MODULE_LETTERS_1: L1=E only, L2=T only, L3=review (no new chars)
+    {"A", "N", "I"},            // MODULE_LETTERS_2: L1=A, L2=N, L3=I
+    {"R", "S", "O"},            // MODULE_LETTERS_3: L1=R, L2=S, L3=O
+    {"H", "D", "L"},            // MODULE_LETTERS_4: L1=H, L2=D, L3=L
+    {"C", "U", "M"},            // MODULE_LETTERS_5: L1=C, L2=U, L3=M
+    {"W", "F", "Y"},            // MODULE_LETTERS_6: L1=W, L2=F, L3=Y
+    {"P", "G", "K"},            // MODULE_LETTERS_7: L1=P, L2=G, L3=K
+    {"VB", "XJ", "QZ"},         // MODULE_LETTERS_8: L1=V+B, L2=X+J, L3=Q+Z
+    {"01234", "56789", ""},     // MODULE_NUMBERS: L1=0-4, L2=5-9
+    {".,", "?/", ""},           // MODULE_PUNCTUATION: L1=period+comma, L2=question+slash
+    {"", "", ""},               // MODULE_WORDS_COMMON: uses all learned chars
+    {"", ""}                    // MODULE_CALLSIGNS: uses all learned chars
+};
+
 // Lessons per module
 const int vailCourseLessonCounts[] = {
     3, 3, 3, 3, 3, 3, 3, 3,   // Letters 1-8: 3 lessons each
@@ -287,6 +304,53 @@ String getVailCourseCumulativeChars(VailCourseModule upToModule) {
     for (int i = 0; i <= upToModule && i < MODULE_COUNT; i++) {
         chars += vailCourseModuleChars[i];
     }
+    return chars;
+}
+
+// Get NEW characters introduced in THIS lesson only (for INTRO phase)
+// Returns only characters that haven't been introduced in previous lessons of this module
+String getVailCourseNewCharsForLesson(VailCourseModule module, int lesson) {
+    if (module >= MODULE_COUNT || lesson <= 0) return "";
+
+    int lessonIdx = lesson - 1;  // Convert to 0-based indexing
+    if (lessonIdx >= vailCourseLessonCounts[module]) return "";
+
+    const char* lessonChars = vailCourseLessonChars[module][lessonIdx];
+
+    // For first lesson, all chars in this lesson are new
+    if (lesson == 1) {
+        return String(lessonChars);
+    }
+
+    // For subsequent lessons, return chars from this lesson
+    // (The lesson array is already designed to only contain new chars per lesson)
+    return String(lessonChars);
+}
+
+// Get ALL characters available for current lesson (for MIXED/GROUPS phases)
+// Returns cumulative: all chars from previous modules + all chars from this module up to current lesson
+String getVailCourseCharsForLesson(VailCourseModule module, int lesson) {
+    String chars = "";
+
+    // Add all chars from previous modules
+    for (int m = 0; m < module; m++) {
+        chars += String(vailCourseModuleChars[m]);
+    }
+
+    // Add all chars from this module up to and including current lesson
+    int lessonIdx = lesson - 1;  // Convert to 0-based
+    for (int l = 0; l <= lessonIdx && l < vailCourseLessonCounts[module]; l++) {
+        const char* lessonChars = vailCourseLessonChars[module][l];
+
+        // Add each character if not already present (avoid duplicates)
+        for (size_t i = 0; i < strlen(lessonChars); i++) {
+            char c = lessonChars[i];
+            if (chars.indexOf(c) == -1) {
+                chars += c;
+            }
+        }
+    }
+
     return chars;
 }
 
