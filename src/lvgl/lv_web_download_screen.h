@@ -48,6 +48,7 @@ static lv_obj_t* previous_screen = NULL;
 // ============================================
 
 void showWebFilesDownloadScreen();
+void showWebFilesUpdateNotification();  // Notification-only (no download option)
 void showWebFilesDownloadProgress();
 void showWebFilesDownloadComplete(bool success, const char* message);
 void updateWebDownloadProgressUI();
@@ -200,6 +201,93 @@ void showWebFilesDownloadScreen() {
     focusWidget(btn_download);
 
     webDownloadUIState = WD_UI_PROMPTING;
+    webFilesDownloadPromptShown = true;
+
+    // Play notification sound
+    beep(TONE_MENU_NAV, BEEP_MEDIUM);
+}
+
+// ============================================
+// Update Notification Screen (Notification Only - No Download)
+// ============================================
+
+/**
+ * Show notification that web files update is available
+ * Directs user to WiFi Settings to download - no download option on this screen
+ */
+void showWebFilesUpdateNotification() {
+    Serial.println("[WebDownload] Showing update notification screen");
+
+    // Store reference to return later
+    previous_screen = lv_scr_act();
+
+    // Create new screen
+    web_download_screen = createScreen();
+    applyScreenStyle(web_download_screen);
+
+    // Clear navigation group for this screen
+    clearNavigationGroup();
+
+    // Check if this is an update or fresh install
+    bool isUpdate = isWebFilesUpdatePrompt();
+
+    // Title bar
+    createWebDownloadTitleBar(web_download_screen, isUpdate ? "Web Files Update Available" : "Web Files Missing");
+
+    // Main content card
+    lv_obj_t* card = lv_obj_create(web_download_screen);
+    lv_obj_set_size(card, 420, 180);
+    lv_obj_align(card, LV_ALIGN_CENTER, 0, -10);
+    applyCardStyle(card);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Info icon
+    lv_obj_t* icon = lv_label_create(card);
+    lv_label_set_text(icon, isUpdate ? LV_SYMBOL_REFRESH : LV_SYMBOL_DOWNLOAD);
+    lv_obj_set_style_text_font(icon, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(icon, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_align(icon, LV_ALIGN_TOP_LEFT, 10, 10);
+
+    // Message text - directs user to WiFi Settings
+    lv_obj_t* msg = lv_label_create(card);
+    if (isUpdate) {
+        lv_label_set_text(msg,
+            "A new version of the web interface\n"
+            "is available.\n\n"
+            "To download, go to:\n"
+            "Settings > WiFi > Web Files Update");
+    } else {
+        lv_label_set_text(msg,
+            "SD card detected but web interface\n"
+            "files are missing.\n\n"
+            "To download, go to:\n"
+            "Settings > WiFi > Web Files Update");
+    }
+    lv_obj_add_style(msg, getStyleLabelBody(), 0);
+    lv_obj_set_style_text_line_space(msg, 4, 0);
+    lv_obj_align(msg, LV_ALIGN_TOP_LEFT, 50, 10);
+
+    // OK button
+    lv_obj_t* btn_ok = lv_btn_create(web_download_screen);
+    lv_obj_set_size(btn_ok, 120, 45);
+    lv_obj_align(btn_ok, LV_ALIGN_CENTER, 0, 100);
+    applyButtonStyle(btn_ok);
+    lv_obj_t* btn_ok_label = lv_label_create(btn_ok);
+    lv_label_set_text(btn_ok_label, "OK");
+    lv_obj_center(btn_ok_label);
+    addNavigableWidget(btn_ok);
+
+    // Footer
+    web_download_footer = createWebDownloadFooter(web_download_screen, "Press ENTER or ESC to dismiss");
+
+    // Load screen
+    loadScreen(web_download_screen, SCREEN_ANIM_FADE);
+
+    // Focus OK button
+    focusWidget(btn_ok);
+
+    // Set state to complete (so any key dismisses)
+    webDownloadUIState = WD_UI_COMPLETE;
     webFilesDownloadPromptShown = true;
 
     // Play notification sound

@@ -125,40 +125,9 @@ void setupWebServer() {
   Serial.printf("Web files on SD card: %s\n", webFilesOnSD ? "YES" : "NO");
 
   // ============================================
-  // Web Files Download/Upload API (always available)
+  // Web Files Status API (read-only)
+  // Note: Download/upload removed - web files can only be downloaded via device WiFi Settings menu
   // ============================================
-  webServer.on("/api/webfiles/download", HTTP_POST, [](AsyncWebServerRequest *request) {
-    if (!checkWebAuth(request)) return;
-
-    // Start download in background (non-blocking would require task, for now synchronous)
-    // Note: This blocks the request but provides progress via polling
-    bool success = downloadWebFilesFromGitHub();
-
-    JsonDocument doc;
-    doc["success"] = success;
-    if (!success) {
-      doc["error"] = webDownloadProgress.errorMessage;
-    }
-
-    String output;
-    serializeJson(doc, output);
-    request->send(200, "application/json", output);
-
-    // If successful, update flag (will take effect on next request)
-    if (success) {
-      webFilesOnSD = true;
-    }
-  });
-
-  webServer.on("/api/webfiles/progress", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(200, "application/json", getWebDownloadProgressJson());
-  });
-
-  webServer.on("/api/webfiles/cancel", HTTP_POST, [](AsyncWebServerRequest *request) {
-    cancelWebFileDownload();
-    request->send(200, "application/json", "{\"cancelled\":true}");
-  });
-
   webServer.on("/api/webfiles/status", HTTP_GET, [](AsyncWebServerRequest *request) {
     JsonDocument doc;
     doc["installed"] = webFilesOnSD;
@@ -167,68 +136,6 @@ void setupWebServer() {
     String output;
     serializeJson(doc, output);
     request->send(200, "application/json", output);
-  });
-
-  // Web file upload endpoint (for manual installation)
-  webServer.on("/api/webfiles/upload", HTTP_POST,
-    [](AsyncWebServerRequest *request) {
-      request->send(200, "application/json", "{\"status\":\"complete\"}");
-    },
-    [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-      if (!checkWebAuth(request)) return;
-
-      // Get target path from form data or use filename
-      String path = "/www/" + filename;
-      if (request->hasParam("path", true)) {
-        path = request->getParam("path", true)->value();
-      }
-
-      // Create /www directory if needed
-      if (index == 0) {
-        if (!sdCardAvailable) {
-          initSDCard();
-        }
-        if (!SD.exists("/www")) {
-          SD.mkdir("/www");
-        }
-        createDirectoriesForPath(path.c_str());
-        Serial.printf("Uploading web file: %s\n", path.c_str());
-      }
-
-      // Open file in write mode at start, append mode for subsequent chunks
-      File file;
-      if (index == 0) {
-        file = SD.open(path.c_str(), FILE_WRITE);
-      } else {
-        file = SD.open(path.c_str(), FILE_APPEND);
-      }
-
-      if (file) {
-        file.write(data, len);
-        file.close();
-      }
-
-      if (final) {
-        Serial.printf("Upload complete: %s (%u bytes)\n", path.c_str(), index + len);
-        webFilesOnSD = webFilesExist();  // Re-check
-      }
-    }
-  );
-
-  // Web server restart endpoint (called after file upload to switch from setup to normal mode)
-  webServer.on("/api/webfiles/restart", HTTP_POST, [](AsyncWebServerRequest *request) {
-    if (!checkWebAuth(request)) return;
-
-    // Check if web files now exist
-    webFilesOnSD = webFilesExist();
-
-    if (webFilesOnSD) {
-      request->send(200, "application/json", "{\"success\":true,\"message\":\"Server will restart\"}");
-      // Request restart - will be handled in main loop
-      requestWebServerRestart();
-    } else {
-      request->send(200, "application/json", "{\"success\":false,\"message\":\"No web files found\"}");
-    }
   });
 
   // ============================================

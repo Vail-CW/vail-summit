@@ -479,9 +479,10 @@ void loop() {
   // Perform deferred web files version check (HTTP request - must be in main loop, not event handler)
   performWebFilesCheck();
 
-  // Check for pending web files download prompt (triggered after version check completes)
+  // Check for pending web files update notification (triggered after version check completes)
+  // Note: This only shows a notification - actual download must be done through WiFi Settings menu
   if (isWebFilesPromptPending() && !isWebDownloadScreenActive() && currentMode == MODE_MAIN_MENU) {
-    showWebFilesDownloadScreen();
+    showWebFilesUpdateNotification();
     clearWebFilesPromptPending();
   }
 
