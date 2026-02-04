@@ -55,8 +55,19 @@ struct __attribute__((packed)) WAVHeader {
  * Returns temp filename on success, empty string on failure
  */
 String mnGenerateWAV(unsigned long recordingId) {
-    // Load recording
-    float timings[MN_MAX_RECORDING_EVENTS];
+    // Allocate timing buffer in PSRAM (40KB is too large for stack)
+    float* timings = nullptr;
+    if (psramFound()) {
+        timings = (float*)ps_malloc(MN_MAX_RECORDING_EVENTS * sizeof(float));
+    } else {
+        timings = (float*)malloc(MN_MAX_RECORDING_EVENTS * sizeof(float));
+    }
+
+    if (timings == nullptr) {
+        Serial.println("[MorseNotes] ERROR: Failed to allocate timing buffer for WAV export");
+        return "";
+    }
+
     int eventCount;
     int toneFreq;
     MorseNoteMetadata* metadata;
@@ -72,6 +83,7 @@ String mnGenerateWAV(unsigned long recordingId) {
 
     if (!success || metadata == nullptr) {
         Serial.println("[MorseNotes] ERROR: Failed to load recording for WAV export");
+        free(timings);
         return "";
     }
 
@@ -93,6 +105,7 @@ String mnGenerateWAV(unsigned long recordingId) {
     File file = SD.open(tempFilename, FILE_WRITE);
     if (!file) {
         Serial.println("[MorseNotes] ERROR: Failed to create temp WAV file");
+        free(timings);
         return "";
     }
 
@@ -177,6 +190,9 @@ String mnGenerateWAV(unsigned long recordingId) {
     }
 
     file.close();
+
+    // Free timing buffer
+    free(timings);
 
     Serial.printf("[MorseNotes] WAV generated: %s\n", tempFilename);
     return String(tempFilename);
