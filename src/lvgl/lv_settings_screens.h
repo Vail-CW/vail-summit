@@ -61,13 +61,9 @@ static lv_obj_t* volume_screen = NULL;
 static lv_obj_t* volume_slider = NULL;
 static lv_obj_t* volume_value_label = NULL;
 
-// Preset UI elements
+// Preset display labels (read-only)
 static lv_obj_t* headphones_value_label = NULL;
 static lv_obj_t* speaker_value_label = NULL;
-static lv_obj_t* headphones_apply_btn = NULL;
-static lv_obj_t* headphones_save_btn = NULL;
-static lv_obj_t* speaker_apply_btn = NULL;
-static lv_obj_t* speaker_save_btn = NULL;
 static lv_obj_t* boot_preset_label = NULL;
 static int boot_preset_index = 0;  // Local UI state for boot preset
 
@@ -81,10 +77,10 @@ extern int getKeyAccelerationStep();
 // Update preset value labels
 static void update_preset_displays() {
     if (headphones_value_label != NULL) {
-        lv_label_set_text_fmt(headphones_value_label, "%d%%", getHeadphonesPreset());
+        lv_label_set_text_fmt(headphones_value_label, "h: Headphones %d%%", getHeadphonesPreset());
     }
     if (speaker_value_label != NULL) {
-        lv_label_set_text_fmt(speaker_value_label, "%d%%", getSpeakerPreset());
+        lv_label_set_text_fmt(speaker_value_label, "s: Speaker %d%%", getSpeakerPreset());
     }
 }
 
@@ -113,6 +109,7 @@ static void volume_slider_event_cb(lv_event_t* e) {
 
 // Key handler for volume slider - applies acceleration for faster adjustment
 // Number keys 1-9 = 10%-90%, 0 = 100%
+// Preset shortcuts: h/s = apply preset, H/S (Shift) = save preset
 static void volume_slider_key_cb(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
 
@@ -130,6 +127,49 @@ static void volume_slider_key_cb(lv_event_t* e) {
         lv_slider_set_value(slider, new_val, LV_ANIM_OFF);
         lv_event_send(slider, LV_EVENT_VALUE_CHANGED, NULL);
         lv_event_stop_bubbling(e);
+        return;
+    }
+
+    // Preset shortcuts: h/s = apply, H/S = save
+    if (key == 'h') {
+        // Apply headphones preset
+        applyHeadphonesPreset();
+        lv_slider_set_value(slider, getVolume(), LV_ANIM_ON);
+        if (volume_value_label != NULL) {
+            lv_label_set_text_fmt(volume_value_label, "%d%%", getVolume());
+        }
+        beep(TONE_SELECT, BEEP_SHORT);
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    if (key == 's') {
+        // Apply speaker preset
+        applySpeakerPreset();
+        lv_slider_set_value(slider, getVolume(), LV_ANIM_ON);
+        if (volume_value_label != NULL) {
+            lv_label_set_text_fmt(volume_value_label, "%d%%", getVolume());
+        }
+        beep(TONE_SELECT, BEEP_SHORT);
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    if (key == 'H') {
+        // Save current volume as headphones preset
+        setHeadphonesPreset(getVolume());
+        update_preset_displays();
+        beep(TONE_SELECT, BEEP_MEDIUM);
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    if (key == 'S') {
+        // Save current volume as speaker preset
+        setSpeakerPreset(getVolume());
+        update_preset_displays();
+        beep(TONE_SELECT, BEEP_MEDIUM);
+        lv_event_stop_processing(e);
         return;
     }
 
@@ -161,143 +201,6 @@ static void volume_slider_key_cb(lv_event_t* e) {
 
     // UP from slider - nothing above, block navigation
     if (key == LV_KEY_UP || key == LV_KEY_PREV) {
-        lv_event_stop_processing(e);
-        return;
-    }
-}
-
-// Key handler for headphones apply button
-static void headphones_apply_key_handler(lv_event_t* e) {
-    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
-    uint32_t key = lv_event_get_key(e);
-
-    if (key == LV_KEY_ENTER) {
-        applyHeadphonesPreset();
-        // Update slider and value label
-        if (volume_slider != NULL) {
-            lv_slider_set_value(volume_slider, getVolume(), LV_ANIM_ON);
-        }
-        if (volume_value_label != NULL) {
-            lv_label_set_text_fmt(volume_value_label, "%d%%", getVolume());
-        }
-        beep(TONE_SELECT, BEEP_SHORT);
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
-        lv_group_focus_prev(getLVGLInputGroup());
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
-        lv_group_focus_next(getLVGLInputGroup());
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    // Block LEFT/RIGHT - no horizontal navigation from here
-    if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
-        lv_event_stop_processing(e);
-        return;
-    }
-}
-
-// Key handler for headphones save button
-static void headphones_save_key_handler(lv_event_t* e) {
-    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
-    uint32_t key = lv_event_get_key(e);
-
-    if (key == LV_KEY_ENTER) {
-        setHeadphonesPreset(getVolume());
-        update_preset_displays();
-        beep(TONE_SELECT, BEEP_MEDIUM);
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
-        lv_group_focus_prev(getLVGLInputGroup());
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
-        lv_group_focus_next(getLVGLInputGroup());
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
-        lv_event_stop_processing(e);
-        return;
-    }
-}
-
-// Key handler for speaker apply button
-static void speaker_apply_key_handler(lv_event_t* e) {
-    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
-    uint32_t key = lv_event_get_key(e);
-
-    if (key == LV_KEY_ENTER) {
-        applySpeakerPreset();
-        // Update slider and value label
-        if (volume_slider != NULL) {
-            lv_slider_set_value(volume_slider, getVolume(), LV_ANIM_ON);
-        }
-        if (volume_value_label != NULL) {
-            lv_label_set_text_fmt(volume_value_label, "%d%%", getVolume());
-        }
-        beep(TONE_SELECT, BEEP_SHORT);
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
-        lv_group_focus_prev(getLVGLInputGroup());
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
-        lv_group_focus_next(getLVGLInputGroup());
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
-        lv_event_stop_processing(e);
-        return;
-    }
-}
-
-// Key handler for speaker save button
-static void speaker_save_key_handler(lv_event_t* e) {
-    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
-    uint32_t key = lv_event_get_key(e);
-
-    if (key == LV_KEY_ENTER) {
-        setSpeakerPreset(getVolume());
-        update_preset_displays();
-        beep(TONE_SELECT, BEEP_MEDIUM);
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
-        lv_group_focus_prev(getLVGLInputGroup());
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
-        lv_group_focus_next(getLVGLInputGroup());
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
         lv_event_stop_processing(e);
         return;
     }
@@ -347,26 +250,6 @@ static void boot_preset_key_handler(lv_event_t* e) {
     }
 }
 
-// Helper to create a preset button with consistent styling
-static lv_obj_t* create_preset_button(lv_obj_t* parent, const char* text) {
-    lv_obj_t* btn = lv_btn_create(parent);
-    lv_obj_set_size(btn, 55, 24);
-    lv_obj_set_style_bg_color(btn, lv_color_hex(0x333333), 0);
-    lv_obj_set_style_bg_color(btn, lv_color_hex(0x555555), LV_STATE_FOCUSED);
-    lv_obj_set_style_radius(btn, 4, 0);
-    lv_obj_set_style_border_width(btn, 1, 0);
-    lv_obj_set_style_border_color(btn, lv_color_hex(0x666666), 0);
-    lv_obj_set_style_border_color(btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
-    lv_obj_set_style_pad_all(btn, 2, 0);
-
-    lv_obj_t* label = lv_label_create(btn);
-    lv_label_set_text(label, text);
-    lv_obj_set_style_text_font(label, getThemeFonts()->font_small, 0);
-    lv_obj_center(label);
-
-    return btn;
-}
-
 lv_obj_t* createVolumeSettingsScreen() {
     lv_obj_t* screen = createScreen();
     applyScreenStyle(screen);
@@ -413,7 +296,7 @@ lv_obj_t* createVolumeSettingsScreen() {
     lv_obj_add_event_cb(volume_slider, volume_slider_key_cb, LV_EVENT_KEY, NULL);
     addNavigableWidget(volume_slider);
 
-    // Presets row container
+    // Preset display row (read-only, not focusable)
     lv_obj_t* presets_row = lv_obj_create(content);
     lv_obj_set_size(presets_row, lv_pct(100), LV_SIZE_CONTENT);
     lv_obj_set_layout(presets_row, LV_LAYOUT_FLEX);
@@ -421,93 +304,19 @@ lv_obj_t* createVolumeSettingsScreen() {
     lv_obj_set_flex_align(presets_row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_bg_opa(presets_row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(presets_row, 0, 0);
-    lv_obj_set_style_pad_all(presets_row, 0, 0);
+    lv_obj_set_style_pad_all(presets_row, 4, 0);
 
-    // Headphones preset card
-    lv_obj_t* hp_card = lv_obj_create(presets_row);
-    lv_obj_set_size(hp_card, 120, LV_SIZE_CONTENT);
-    lv_obj_set_layout(hp_card, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(hp_card, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(hp_card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_all(hp_card, 6, 0);
-    lv_obj_set_style_pad_row(hp_card, 4, 0);
-    lv_obj_set_style_bg_color(hp_card, lv_color_hex(0x1a2a2a), 0);
-    lv_obj_set_style_radius(hp_card, 6, 0);
-    lv_obj_set_style_border_width(hp_card, 1, 0);
-    lv_obj_set_style_border_color(hp_card, lv_color_hex(0x3a5a5a), 0);
-    lv_obj_clear_flag(hp_card, LV_OBJ_FLAG_SCROLLABLE);
+    // Headphones preset display
+    headphones_value_label = lv_label_create(presets_row);
+    lv_label_set_text_fmt(headphones_value_label, "h: Headphones %d%%", getHeadphonesPreset());
+    lv_obj_set_style_text_font(headphones_value_label, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(headphones_value_label, LV_COLOR_TEXT_SECONDARY, 0);
 
-    lv_obj_t* hp_title = lv_label_create(hp_card);
-    lv_label_set_text(hp_title, "Headphones");
-    lv_obj_set_style_text_font(hp_title, getThemeFonts()->font_small, 0);
-    lv_obj_set_style_text_color(hp_title, LV_COLOR_TEXT_SECONDARY, 0);
-
-    headphones_value_label = lv_label_create(hp_card);
-    lv_label_set_text_fmt(headphones_value_label, "%d%%", getHeadphonesPreset());
-    lv_obj_set_style_text_font(headphones_value_label, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(headphones_value_label, LV_COLOR_ACCENT_CYAN, 0);
-
-    // Headphones button row
-    lv_obj_t* hp_btns = lv_obj_create(hp_card);
-    lv_obj_set_size(hp_btns, lv_pct(100), LV_SIZE_CONTENT);
-    lv_obj_set_layout(hp_btns, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(hp_btns, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(hp_btns, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(hp_btns, 4, 0);
-    lv_obj_set_style_bg_opa(hp_btns, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(hp_btns, 0, 0);
-    lv_obj_set_style_pad_all(hp_btns, 0, 0);
-
-    headphones_apply_btn = create_preset_button(hp_btns, "Apply");
-    lv_obj_add_event_cb(headphones_apply_btn, headphones_apply_key_handler, LV_EVENT_KEY, NULL);
-    addNavigableWidget(headphones_apply_btn);
-
-    headphones_save_btn = create_preset_button(hp_btns, "Save");
-    lv_obj_add_event_cb(headphones_save_btn, headphones_save_key_handler, LV_EVENT_KEY, NULL);
-    addNavigableWidget(headphones_save_btn);
-
-    // Speaker preset card
-    lv_obj_t* spk_card = lv_obj_create(presets_row);
-    lv_obj_set_size(spk_card, 120, LV_SIZE_CONTENT);
-    lv_obj_set_layout(spk_card, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(spk_card, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(spk_card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_all(spk_card, 6, 0);
-    lv_obj_set_style_pad_row(spk_card, 4, 0);
-    lv_obj_set_style_bg_color(spk_card, lv_color_hex(0x1a2a2a), 0);
-    lv_obj_set_style_radius(spk_card, 6, 0);
-    lv_obj_set_style_border_width(spk_card, 1, 0);
-    lv_obj_set_style_border_color(spk_card, lv_color_hex(0x3a5a5a), 0);
-    lv_obj_clear_flag(spk_card, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t* spk_title = lv_label_create(spk_card);
-    lv_label_set_text(spk_title, "Speaker");
-    lv_obj_set_style_text_font(spk_title, getThemeFonts()->font_small, 0);
-    lv_obj_set_style_text_color(spk_title, LV_COLOR_TEXT_SECONDARY, 0);
-
-    speaker_value_label = lv_label_create(spk_card);
-    lv_label_set_text_fmt(speaker_value_label, "%d%%", getSpeakerPreset());
-    lv_obj_set_style_text_font(speaker_value_label, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(speaker_value_label, LV_COLOR_ACCENT_CYAN, 0);
-
-    // Speaker button row
-    lv_obj_t* spk_btns = lv_obj_create(spk_card);
-    lv_obj_set_size(spk_btns, lv_pct(100), LV_SIZE_CONTENT);
-    lv_obj_set_layout(spk_btns, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(spk_btns, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(spk_btns, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(spk_btns, 4, 0);
-    lv_obj_set_style_bg_opa(spk_btns, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(spk_btns, 0, 0);
-    lv_obj_set_style_pad_all(spk_btns, 0, 0);
-
-    speaker_apply_btn = create_preset_button(spk_btns, "Apply");
-    lv_obj_add_event_cb(speaker_apply_btn, speaker_apply_key_handler, LV_EVENT_KEY, NULL);
-    addNavigableWidget(speaker_apply_btn);
-
-    speaker_save_btn = create_preset_button(spk_btns, "Save");
-    lv_obj_add_event_cb(speaker_save_btn, speaker_save_key_handler, LV_EVENT_KEY, NULL);
-    addNavigableWidget(speaker_save_btn);
+    // Speaker preset display
+    speaker_value_label = lv_label_create(presets_row);
+    lv_label_set_text_fmt(speaker_value_label, "s: Speaker %d%%", getSpeakerPreset());
+    lv_obj_set_style_text_font(speaker_value_label, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(speaker_value_label, LV_COLOR_TEXT_SECONDARY, 0);
 
     // Boot Volume selector row
     lv_obj_t* boot_row = lv_obj_create(content);
@@ -556,7 +365,7 @@ lv_obj_t* createVolumeSettingsScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, FOOTER_NAV_ADJUST_ESC);
+    lv_label_set_text(help, "L/R: Volume   h/s: Recall Preset   Shift+H/S: Save Preset");
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
