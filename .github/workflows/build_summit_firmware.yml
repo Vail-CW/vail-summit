@@ -1,6 +1,9 @@
 name: Build and Deploy Summit Firmware
 
 on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v0.50, v1.0, etc.
   workflow_dispatch:
     inputs:
       source_branch:
@@ -19,7 +22,7 @@ jobs:
       - name: Checkout source branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.source_branch }}
+          ref: ${{ github.event_name == 'push' && github.ref || inputs.source_branch }}
           fetch-depth: 0  # Fetch all history for all branches
 
       - name: Setup Arduino CLI
@@ -156,9 +159,9 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Update Summit firmware from ${{ inputs.source_branch }} branch [skip ci]
+            git commit -m "Update Summit firmware from ${{ github.ref_name }} [skip ci]
 
-            Built from branch: ${{ inputs.source_branch }}
+            Built from: ${{ github.ref_name }}
             Commit: ${{ github.sha }}
 
             Firmware files:
@@ -169,7 +172,9 @@ jobs:
             🤖 Generated with GitHub Actions"
 
             # Push using the GitHub token for authentication
-            git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git ${{ inputs.source_branch }}
+            # For tag pushes, push to main; for workflow_dispatch, push to the specified branch
+            TARGET_BRANCH="${{ github.event_name == 'push' && 'main' || inputs.source_branch }}"
+            git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git HEAD:$TARGET_BRANCH
           fi
 
       - name: Upload artifacts
