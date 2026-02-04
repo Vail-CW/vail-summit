@@ -53,15 +53,18 @@ jobs:
           # IMPORTANT: Must use NimBLE-Arduino 1.4.x - code is not compatible with 2.x API
           arduino-cli lib install "NimBLE-Arduino@1.4.2"
 
-          # Copy bundled libraries that have version/compatibility issues with library manager
+          # Install libraries from GitHub (not in Library Manager or have version issues)
           mkdir -p ~/Arduino/libraries
+          cd ~/Arduino/libraries
 
-          # WebSockets - use bundled version (library manager versions have ESP32 detection issues)
-          cp -r arduino-cli/user/libraries/WebSockets ~/Arduino/libraries/
+          # WebSockets - clone specific version (library manager has ESP32 detection issues)
+          git clone --branch 2.4.1 --depth 1 https://github.com/Links2004/arduinoWebSockets.git WebSockets
 
-          # ESPAsyncWebServer and AsyncTCP - use bundled versions
-          cp -r arduino-cli/user/libraries/ESPAsyncWebServer ~/Arduino/libraries/
-          cp -r arduino-cli/user/libraries/AsyncTCP ~/Arduino/libraries/
+          # AsyncTCP (dependency for ESPAsyncWebServer on ESP32)
+          git clone https://github.com/me-no-dev/AsyncTCP.git
+
+          # ESPAsyncWebServer
+          git clone https://github.com/me-no-dev/ESPAsyncWebServer.git
 
       - name: Configure LVGL
         run: |
