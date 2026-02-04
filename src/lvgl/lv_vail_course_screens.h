@@ -34,6 +34,7 @@ static void vail_course_linear_nav_handler(lv_event_t* e) {
     if (code != LV_EVENT_KEY) return;
 
     uint32_t key = lv_event_get_key(e);
+    lv_group_t* group = getLVGLInputGroup();
 
     // Block TAB and horizontal navigation in vertical lists
     if (key == '\t' || key == LV_KEY_NEXT || key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
@@ -41,12 +42,30 @@ static void vail_course_linear_nav_handler(lv_event_t* e) {
         return;
     }
 
-    // Auto-scroll to focused item on vertical navigation
-    if (key == LV_KEY_UP || key == LV_KEY_DOWN || key == LV_KEY_PREV) {
-        lv_obj_t* target = lv_event_get_target(e);
-        if (target) {
-            lv_obj_scroll_to_view(target, LV_ANIM_ON);
+    // Explicitly handle UP - move to previous item
+    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
+        if (group) {
+            lv_group_focus_prev(group);
+            lv_obj_t* focused = lv_group_get_focused(group);
+            if (focused) {
+                lv_obj_scroll_to_view(focused, LV_ANIM_ON);
+            }
         }
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // Explicitly handle DOWN - move to next item
+    if (key == LV_KEY_DOWN) {
+        if (group) {
+            lv_group_focus_next(group);
+            lv_obj_t* focused = lv_group_get_focused(group);
+            if (focused) {
+                lv_obj_scroll_to_view(focused, LV_ANIM_ON);
+            }
+        }
+        lv_event_stop_processing(e);
+        return;
     }
 }
 
@@ -767,7 +786,24 @@ static void vail_course_lesson_key_handler(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code != LV_EVENT_KEY) return;
 
+    // Track key state to prevent processing same key twice (press + release)
+    static uint32_t last_key = 0;
+    static bool key_was_pressed = false;
+
     uint32_t key = lv_event_get_key(e);
+
+    // Detect key release by checking if same key comes again
+    if (key == last_key && key_was_pressed) {
+        // This is the release event - ignore it
+        key_was_pressed = false;
+        last_key = 0;
+        return;
+    }
+
+    // This is a new key press
+    last_key = key;
+    key_was_pressed = true;
+
     VailCoursePhase phase = vailCourseProgress.currentPhase;
 
     // Block TAB

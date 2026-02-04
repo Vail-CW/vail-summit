@@ -2,13 +2,16 @@
 #define LV_MORSE_NOTES_SCREENS_H
 
 #include "lv_screen_manager.h"
+#include "../core/config.h"
 #include "../morse_notes/morse_notes_types.h"
 #include "../morse_notes/morse_notes_storage.h"
 #include "../morse_notes/morse_notes_recorder.h"
 #include "../morse_notes/morse_notes_playback.h"
+#include "../keyer/keyer.h"
 
 // Forward declarations
 void onLVGLMenuSelect(int menuItem);
+void getPaddleState(bool* dit, bool* dah);  // From task_manager.h
 
 // ===================================
 // MORSE NOTES - LVGL UI SCREENS
@@ -36,6 +39,16 @@ static lv_obj_t* mnRecordStatsLabel = nullptr;
 static lv_obj_t* mnRecordActivityBar = nullptr;
 static lv_obj_t* mnRecordControlRow = nullptr;
 static lv_timer_t* mnRecordTimer = nullptr;
+
+// Keyer state for recording
+static StraightKeyer* mnRecordKeyer = nullptr;
+static bool mnRecordDitPressed = false;
+static bool mnRecordDahPressed = false;
+
+// External CW settings
+extern int cwTone;
+extern int cwSpeed;
+extern int getCwKeyTypeAsInt();  // From vail-summit.ino
 
 // Save dialog widgets
 static lv_obj_t* mnSaveDialog = nullptr;
@@ -324,16 +337,59 @@ lv_obj_t* createMorseNotesLibraryScreen() {
 }
 
 // ===================================
+// RECORD SCREEN - KEYER CALLBACK
+// ===================================
+
+/**
+ * Keyer callback for morse notes recording
+ * Called by the keyer when tx state changes
+ */
+static void mnRecordKeyerCallback(bool txOn, int element) {
+    unsigned long currentTime = millis();
+
+    // Forward to morse notes recorder
+    mnKeyerCallback(txOn, currentTime);
+}
+
+// ===================================
 // RECORD SCREEN - TIMER CALLBACK
 // ===================================
 
 /**
- * Recording timer callback (100ms updates)
+ * Recording timer callback (20ms for responsive keying)
  */
 static void mnRecordTimerCb(lv_timer_t* timer) {
-    if (!mnIsRecording() || !mnRecordScreen || !lv_obj_is_valid(mnRecordScreen)) {
+    if (!mnRecordScreen || !lv_obj_is_valid(mnRecordScreen)) {
         return;
     }
+
+    // Always tick the keyer when recording is active
+    if (mnIsRecording() && mnRecordKeyer) {
+        // Get paddle state
+        bool newDitPressed = false;
+        bool newDahPressed = false;
+        getPaddleState(&newDitPressed, &newDahPressed);
+
+        // Feed paddle state to keyer
+        if (newDitPressed != mnRecordDitPressed) {
+            mnRecordKeyer->key(PADDLE_DIT, newDitPressed);
+            mnRecordDitPressed = newDitPressed;
+        }
+        if (newDahPressed != mnRecordDahPressed) {
+            mnRecordKeyer->key(PADDLE_DAH, newDahPressed);
+            mnRecordDahPressed = newDahPressed;
+        }
+
+        // Tick the keyer state machine
+        mnRecordKeyer->tick(millis());
+    }
+
+    // Update UI every ~100ms (every 5th call at 20ms interval)
+    static int uiUpdateCounter = 0;
+    if (++uiUpdateCounter < 5) return;
+    uiUpdateCounter = 0;
+
+    if (!mnIsRecording()) return;
 
     // Update duration
     char durBuf[32];
@@ -457,14 +513,36 @@ static void mnShowSaveDialog() {
  */
 static void mnRecBtnClick(lv_event_t* e) {
     if (mnStartRecording()) {
-        // Register keyer callback
-        morseNotesKeyCallback = mnKeyerCallback;
+        // Initialize keyer for recording
+        int ditDuration = DIT_DURATION(cwSpeed);
+        mnRecordKeyer = getKeyer(getCwKeyTypeAsInt());
+        mnRecordKeyer->reset();
+        mnRecordKeyer->setDitDuration(ditDuration);
+        mnRecordKeyer->setTxCallback(mnRecordKeyerCallback);
+        mnRecordDitPressed = false;
+        mnRecordDahPressed = false;
 
         // Hide REC button, show controls
         lv_obj_add_flag(mnRecordBtn, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(mnRecordControlRow, LV_OBJ_FLAG_HIDDEN);
 
-        Serial.println("[MorseNotes] Recording started");
+        // Focus on stop button
+        lv_group_focus_obj(mnRecordStopBtn);
+
+        Serial.println("[MorseNotes] Recording started with keyer");
+    }
+}
+
+/**
+ * Stop recording helper (shared between button click and key handler)
+ */
+static void mnDoStopRecording() {
+    if (mnStopRecording()) {
+        // Clean up keyer
+        mnRecordKeyer = nullptr;
+
+        // Show save dialog
+        mnShowSaveDialog();
     }
 }
 
@@ -472,12 +550,53 @@ static void mnRecBtnClick(lv_event_t* e) {
  * STOP button click
  */
 static void mnStopBtnClick(lv_event_t* e) {
-    if (mnStopRecording()) {
-        // Unregister keyer callback
-        morseNotesKeyCallback = nullptr;
+    mnDoStopRecording();
+}
 
-        // Show save dialog
-        mnShowSaveDialog();
+/**
+ * Discard recording and exit (for ESC)
+ */
+static void mnDoDiscardAndExit() {
+    // Stop recording if active
+    if (mnIsRecording()) {
+        mnStopRecording();
+    }
+    mnDiscardRecording();
+
+    // Clean up keyer
+    mnRecordKeyer = nullptr;
+
+    // Return to library
+    onLVGLMenuSelect(165);  // LVGL_MODE_MORSE_NOTES_LIBRARY
+}
+
+/**
+ * Record screen key handler for ENTER and ESC
+ */
+static void mnRecordKeyHandler(lv_event_t* e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code != LV_EVENT_KEY) return;
+
+    uint32_t key = lv_event_get_key(e);
+
+    // ENTER stops recording (when recording is active)
+    if (key == LV_KEY_ENTER && mnIsRecording()) {
+        mnDoStopRecording();
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // ESC discards and exits (when recording is active and no save dialog)
+    if (key == LV_KEY_ESC && mnIsRecording() && !mnSaveDialog) {
+        mnDoDiscardAndExit();
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // Block TAB
+    if (key == LV_KEY_NEXT) {
+        lv_event_stop_processing(e);
+        return;
     }
 }
 
@@ -535,6 +654,7 @@ lv_obj_t* createMorseNotesRecordScreen() {
     lv_obj_center(rec_lbl);
 
     lv_obj_add_event_cb(mnRecordBtn, mnRecBtnClick, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(mnRecordBtn, mnRecordKeyHandler, LV_EVENT_KEY, nullptr);
     addNavigableWidget(mnRecordBtn);
 
     // Control row (hidden initially)
@@ -554,6 +674,7 @@ lv_obj_t* createMorseNotesRecordScreen() {
     lv_label_set_text(stop_lbl, LV_SYMBOL_STOP " STOP");
     lv_obj_center(stop_lbl);
     lv_obj_add_event_cb(mnRecordStopBtn, mnStopBtnClick, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(mnRecordStopBtn, mnRecordKeyHandler, LV_EVENT_KEY, nullptr);
     addNavigableWidget(mnRecordStopBtn);
 
     // Duration label
@@ -572,8 +693,8 @@ lv_obj_t* createMorseNotesRecordScreen() {
     lv_label_set_text(mnRecordStatsLabel, "0 events  •  0 WPM avg");
     lv_obj_set_style_text_color(mnRecordStatsLabel, lv_color_hex(0x888888), 0);
 
-    // Create timer (100ms interval)
-    mnRecordTimer = lv_timer_create(mnRecordTimerCb, 100, nullptr);
+    // Create timer (20ms interval for responsive keying)
+    mnRecordTimer = lv_timer_create(mnRecordTimerCb, 20, nullptr);
 
     return screen;
 }
@@ -582,16 +703,25 @@ lv_obj_t* createMorseNotesRecordScreen() {
  * Cleanup record screen
  */
 void cleanupMorseNotesRecordScreen() {
-    // Stop recording if active
+    // Stop recording if active and discard
     if (mnIsRecording()) {
         mnStopRecording();
-        morseNotesKeyCallback = nullptr;
     }
+    mnDiscardRecording();
+
+    // Clean up keyer
+    mnRecordKeyer = nullptr;
 
     // Delete timer
     if (mnRecordTimer) {
         lv_timer_del(mnRecordTimer);
         mnRecordTimer = nullptr;
+    }
+
+    // Delete save dialog if open
+    if (mnSaveDialog) {
+        lv_obj_del(mnSaveDialog);
+        mnSaveDialog = nullptr;
     }
 
     mnRecordScreen = nullptr;

@@ -1310,6 +1310,13 @@ void onLVGLBackNavigation() {
     if (currentModeInt == LVGL_MODE_CW_ACADEMY_SENDING_PRACTICE) {
         resetCWASendingPracticeState();
     }
+    // Morse Notes cleanup
+    if (currentModeInt == LVGL_MODE_MORSE_NOTES_RECORD) {
+        cleanupMorseNotesRecordScreen();
+    }
+    if (currentModeInt == LVGL_MODE_MORSE_NOTES_PLAYBACK) {
+        cleanupMorseNotesPlaybackScreen();
+    }
 
     // Get parent mode
     int parentMode = getParentModeInt(currentModeInt);
