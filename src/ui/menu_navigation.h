@@ -43,7 +43,6 @@ int handleCWAQSOPracticeInput(char key, LGFX& tft);
 int handleMorseShooterInput(char key, LGFX& tft);
 int handleMemoryGameInput(char key, LGFX& tft);
 int handleWebPracticeInput(char key, LGFX& tft);
-int handleKochInput(char key, LGFX& tft);
 int handleLicenseSelectInput(char key, LGFX& tft);
 int handleLicenseQuizInput(char key, LGFX& tft);
 int handleLicenseStatsInput(char key, LGFX& tft);
@@ -76,7 +75,6 @@ void startVailRepeater(LGFX& tft);
 void connectToVail(String channel);
 void startMorseShooter(LGFX& tft);
 void startMemoryGame(LGFX& tft);
-void startKochMethod(LGFX& tft);  // Koch Method initialization
 void startRadioOutput(LGFX& tft);  // Radio Output initialization
 int handleRadioOutputInput(char key, LGFX& tft);  // Radio Output input handler
 void startCWMemoriesMode(LGFX& tft);  // CW Memories initialization
@@ -300,11 +298,7 @@ void selectMenuItem() {
       drawMenu();
 
     } else if (currentSelection == 1) {
-      // Koch Method
-      currentMode = MODE_KOCH_METHOD;
-      startKochMethod(tft);
-    } else if (currentSelection == 2) {
-      // CW Academy
+      // CW Academy (was Koch Method, now handled by LVGL)
       currentMode = MODE_CW_ACADEMY_TRACK_SELECT;
       startCWAcademy(tft);
     }
@@ -684,25 +678,6 @@ void handleKeyPress(char key) {
       currentSelection = 0;  // Stay on Callsign position
       beep(TONE_MENU_NAV, BEEP_SHORT);
       drawMenu();
-    }
-    return;
-  }
-
-  // Handle Koch Method mode
-  if (currentMode == MODE_KOCH_METHOD) {
-    int result = handleKochInput(key, tft);
-    if (result == -1) {
-      // Exit Koch Method, back to training menu
-      currentMode = MODE_TRAINING_MENU;
-      currentSelection = 0;
-      beep(TONE_MENU_NAV, BEEP_SHORT);
-      drawMenu();
-    } else if (result == 2) {
-      // Full redraw requested
-      drawKochUI(tft);
-    } else if (result == 3) {
-      // Partial redraw (input box only)
-      drawKochUI(tft);
     }
     return;
   }

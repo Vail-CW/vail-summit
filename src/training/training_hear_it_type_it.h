@@ -1330,17 +1330,18 @@ int handleHearItTypeItInput(char key, LGFX& tft) {
 // CHARACTER PRESET FUNCTIONS
 // ============================================
 
+// Koch character sequence - standard learning progression for Morse
+// Used for character preset selection
+static const char KOCH_SEQUENCE_LEGACY[] = "KMRSUAPTLOWINJEF Y,VG5/Q9ZH38B?427C1D60X";
+
 // Apply Koch Method preset (loads characters up to specified lesson)
 void applyKochPreset(int lesson) {
-  // External reference to Koch sequence from training_koch_core.h
-  extern const char KOCH_SEQUENCE[];
-
   // Clear all selections
   for (int i = 0; i < 36; i++) settingsState.charSelected[i] = false;
 
   // Select characters up to lesson index
   for (int i = 0; i < lesson && i < 44; i++) {
-    char ch = KOCH_SEQUENCE[i];
+    char ch = KOCH_SEQUENCE_LEGACY[i];
     if (ch >= 'A' && ch <= 'Z') {
       settingsState.charSelected[ch - 'A'] = true;
     } else if (ch >= '0' && ch <= '9') {

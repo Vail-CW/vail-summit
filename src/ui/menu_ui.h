@@ -129,7 +129,6 @@ void drawQSOStatisticsUI(LGFX& tft);
 void drawRadioOutputUI(LGFX& tft);
 void drawCWMemoriesUI(LGFX& tft);
 void drawWebPracticeUI(LGFX& tft);
-void drawKochUI(LGFX& tft);
 void drawBTHIDUI(LGFX& tft);
 void drawBTMIDIUI(LGFX& tft);
 void drawBTKeyboardSettingsUI(LGFX& tft);
@@ -190,14 +189,14 @@ String bluetoothMenuIcons[BLUETOOTH_MENU_ITEMS] = {
 String trainingMenuOptions[TRAINING_MENU_ITEMS] = {
   "Vail Master",
   "Hear It Type It",
-  "Koch Method",
+  "CW School",
   "CW Academy"
 };
 
 String trainingMenuIcons[TRAINING_MENU_ITEMS] = {
   "V",  // Vail Master
   "H",  // Hear It Type It
-  "K",  // Koch Method
+  "S",  // CW School
   "A"   // CW Academy
 };
 
@@ -363,8 +362,6 @@ void drawHeader() {
     title = "TRAINING";
   } else if (currentMode == MODE_PRACTICE) {
     title = "PRACTICE";
-  } else if (currentMode == MODE_KOCH_METHOD) {
-    title = "KOCH METHOD";
   } else if (currentMode == MODE_CW_ACADEMY_TRACK_SELECT) {
     title = "CW ACADEMY";
   } else if (currentMode == MODE_CW_ACADEMY_SESSION_SELECT) {

@@ -220,8 +220,6 @@ extern LGFX tft;
 // Forward declarations for mode start functions (kept for modes with initialization logic)
 extern void startPracticeMode(LGFX& tft);
 extern void startVailRepeater(LGFX& tft);
-extern void startKochMethod(LGFX& tft);
-extern void initKochPracticeSession();
 extern void startCWAcademy(LGFX& tft);
 extern void startMorseShooter(LGFX& tft);
 extern void loadShooterPrefs();  // Load shooter settings before showing settings screen
@@ -371,9 +369,6 @@ String getTrainingModeName(int mode) {
         // Training modes that count toward practice time
         case LVGL_MODE_PRACTICE:
             return "Practice";
-        case LVGL_MODE_KOCH_METHOD:
-        case LVGL_MODE_KOCH_PRACTICE:
-            return "Koch";
         case LVGL_MODE_CW_ACADEMY_COPY_PRACTICE:
         case LVGL_MODE_CW_ACADEMY_SENDING_PRACTICE:
         case LVGL_MODE_CW_ACADEMY_QSO_PRACTICE:
@@ -589,22 +584,6 @@ void initializeModeInt(int mode) {
         case LVGL_MODE_PRACTICE:
             Serial.println("[ModeInit] Starting Practice mode");
             startPracticeMode(tft);
-            break;
-        case LVGL_MODE_KOCH_METHOD:
-            Serial.println("[ModeInit] Starting Koch Method");
-            startKochMethod(tft);
-            break;
-        case LVGL_MODE_KOCH_PRACTICE:
-            Serial.println("[ModeInit] Starting Koch Practice");
-            initKochPracticeSession();
-            break;
-        case LVGL_MODE_KOCH_SETTINGS:
-            Serial.println("[ModeInit] Starting Koch Settings");
-            // Settings screen handles its own init
-            break;
-        case LVGL_MODE_KOCH_STATISTICS:
-            Serial.println("[ModeInit] Starting Koch Statistics");
-            // Statistics screen handles its own init
             break;
         case LVGL_MODE_CW_ACADEMY_TRACK_SELECT:
             Serial.println("[ModeInit] Starting CW Academy Track Select");
@@ -1073,7 +1052,6 @@ int getParentModeInt(int mode) {
         case LVGL_MODE_HEAR_IT_MENU:
         case LVGL_MODE_HEAR_IT_TYPE_IT:
         case LVGL_MODE_HEAR_IT_START:
-        case LVGL_MODE_KOCH_METHOD:
         case LVGL_MODE_CW_ACADEMY_TRACK_SELECT:
         case LVGL_MODE_VAIL_MASTER:
             return LVGL_MODE_TRAINING_MENU;
@@ -1084,15 +1062,6 @@ int getParentModeInt(int mode) {
         case LVGL_MODE_VAIL_MASTER_HISTORY:
         case LVGL_MODE_VAIL_MASTER_CHARSET:
             return LVGL_MODE_VAIL_MASTER;
-
-        // Koch Method sub-screens return to Koch main
-        case LVGL_MODE_KOCH_PRACTICE:
-        case LVGL_MODE_KOCH_SETTINGS:
-        case LVGL_MODE_KOCH_STATISTICS:
-        case LVGL_MODE_KOCH_HELP:
-        case LVGL_MODE_KOCH_CHAR_REF:
-        case LVGL_MODE_KOCH_NEW_CHAR:
-            return LVGL_MODE_KOCH_METHOD;
 
         // Hear It submenu items
         case LVGL_MODE_HEAR_IT_CONFIGURE:
@@ -1276,9 +1245,9 @@ int getParentModeInt(int mode) {
         case LVGL_MODE_MORSE_NOTES_SETTINGS:
             return LVGL_MODE_MORSE_NOTES_LIBRARY;
 
-        // CW School
+        // CW School (moved to Training menu)
         case LVGL_MODE_CWSCHOOL:
-            return LVGL_MODE_CW_MENU;
+            return LVGL_MODE_TRAINING_MENU;
         case LVGL_MODE_CWSCHOOL_LINK:
         case LVGL_MODE_CWSCHOOL_ACCOUNT:
         case LVGL_MODE_CWSCHOOL_TRAINING:

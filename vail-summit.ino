@@ -58,7 +58,6 @@ using namespace lgfx::v1::fonts;
 // Training modes
 #include "src/training/training_hear_it_type_it.h"
 #include "src/training/training_practice.h"
-#include "src/training/training_koch_method.h"
 #include "src/training/training_cwa.h"
 #include "src/training/training_license_ui.h"
 #include "src/training/training_license_input.h"
@@ -381,10 +380,6 @@ void setup() {
 
   setSplashStage(5);  // "Starting web server..."
 
-  // Load Koch Method progress
-  Serial.println("Loading Koch Method progress...");
-  loadKochProgress();
-
   // Initialize NTP time (if WiFi connected)
   Serial.println("Initializing NTP time...");
   initNTPTime();
@@ -502,7 +497,6 @@ void loop() {
   static unsigned long lastStatusUpdate = 0;
   if (currentMode != MODE_PRACTICE &&
       currentMode != MODE_HEAR_IT_TYPE_IT &&
-      currentMode != MODE_KOCH_METHOD &&
       currentMode != MODE_CW_ACADEMY_SENDING_PRACTICE &&
       currentMode != MODE_MORSE_SHOOTER &&
       currentMode != MODE_MORSE_MEMORY &&
@@ -536,11 +530,6 @@ void loop() {
   // Update CW Academy Copy Practice async playback
   if (currentMode == MODE_CW_ACADEMY_COPY_PRACTICE) {
     updateCWACopyPractice();
-  }
-
-  // Update Koch Method async playback
-  if (currentMode == MODE_KOCH_METHOD) {
-    updateKochMethod();
   }
 
   // Update CW Academy QSO Practice async playback
