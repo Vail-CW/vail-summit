@@ -12,7 +12,7 @@
 
 // Forward declarations
 extern bool webHearItModeActive;
-extern AsyncWebSocket hearItWebSocket;
+extern AsyncWebSocket* hearItWebSocket;
 
 // State tracking for web mode
 extern String webCurrentCallsign;
@@ -129,7 +129,7 @@ void onHearItWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client
  * Includes morse code pattern for browser audio playback
  */
 void sendHearItNewCallsign(String callsign, int wpm) {
-  if (webHearItModeActive && hearItWebSocket.count() > 0) {
+  if (webHearItModeActive && hearItWebSocket && hearItWebSocket->count() > 0) {
     // Convert callsign to morse code pattern
     String morsePattern = "";
     for (int i = 0; i < callsign.length(); i++) {
@@ -148,7 +148,7 @@ void sendHearItNewCallsign(String callsign, int wpm) {
 
     String output;
     serializeJson(doc, output);
-    hearItWebSocket.textAll(output);
+    hearItWebSocket->textAll(output);
 
     Serial.printf("Sent new callsign to web: %s @ %d WPM (morse: %s)\n",
                   callsign.c_str(), wpm, morsePattern.c_str());
@@ -159,13 +159,13 @@ void sendHearItNewCallsign(String callsign, int wpm) {
  * Notify browser that audio is playing
  */
 void sendHearItPlaying() {
-  if (webHearItModeActive && hearItWebSocket.count() > 0) {
+  if (webHearItModeActive && hearItWebSocket && hearItWebSocket->count() > 0) {
     JsonDocument doc;
     doc["type"] = "playing";
 
     String output;
     serializeJson(doc, output);
-    hearItWebSocket.textAll(output);
+    hearItWebSocket->textAll(output);
 
     Serial.println("Notified web: playing callsign");
   }
@@ -175,13 +175,13 @@ void sendHearItPlaying() {
  * Notify browser that it's ready for input
  */
 void sendHearItReadyForInput() {
-  if (webHearItModeActive && hearItWebSocket.count() > 0) {
+  if (webHearItModeActive && hearItWebSocket && hearItWebSocket->count() > 0) {
     JsonDocument doc;
     doc["type"] = "ready_for_input";
 
     String output;
     serializeJson(doc, output);
-    hearItWebSocket.textAll(output);
+    hearItWebSocket->textAll(output);
 
     Serial.println("Notified web: ready for input");
   }

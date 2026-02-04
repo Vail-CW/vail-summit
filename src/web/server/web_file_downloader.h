@@ -8,11 +8,238 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <SD.h>
+#include <Preferences.h>
 #include "../../core/config.h"
 #include "../../storage/sd_card.h"
+
+// ============================================
+// Early Boot Download Mode
+// ============================================
+// Due to memory constraints, SSL downloads must happen
+// before LVGL is initialized. We use a reboot approach:
+// 1. Set flag and reboot
+// 2. On boot, check flag before LVGL init
+// 3. Download files with plenty of RAM
+// 4. Clear flag and reboot to normal mode
+
+#define WEB_DOWNLOAD_PREF_NAMESPACE "webdl"
+#define WEB_DOWNLOAD_PREF_PENDING "pending"
+
+/**
+ * Check if a web download is pending (call early in setup, before LVGL)
+ */
+bool isWebDownloadPending() {
+  Preferences prefs;
+  prefs.begin(WEB_DOWNLOAD_PREF_NAMESPACE, true);  // read-only
+  bool pending = prefs.getBool(WEB_DOWNLOAD_PREF_PENDING, false);
+  prefs.end();
+  return pending;
+}
+
+/**
+ * Request a web files download on next boot
+ * Sets flag and reboots the device
+ */
+void requestWebDownloadAndReboot() {
+  Serial.println("[WebDownload] Setting download pending flag and rebooting...");
+  Preferences prefs;
+  prefs.begin(WEB_DOWNLOAD_PREF_NAMESPACE, false);  // read-write
+  prefs.putBool(WEB_DOWNLOAD_PREF_PENDING, true);
+  prefs.end();
+  delay(100);
+  ESP.restart();
+}
+
+/**
+ * Clear the web download pending flag
+ */
+void clearWebDownloadPending() {
+  Preferences prefs;
+  prefs.begin(WEB_DOWNLOAD_PREF_NAMESPACE, false);
+  prefs.putBool(WEB_DOWNLOAD_PREF_PENDING, false);
+  prefs.end();
+}
+
+/**
+ * Perform web files download early in boot (before LVGL)
+ * This runs when plenty of RAM is available
+ * @param ssid WiFi SSID to connect to
+ * @param password WiFi password
+ * @return true if download successful
+ */
+bool performEarlyBootWebDownload(const char* ssid, const char* password) {
+  Serial.println("\n========================================");
+  Serial.println("EARLY BOOT WEB DOWNLOAD MODE");
+  Serial.println("========================================\n");
+
+  Serial.printf("Free heap: %d bytes, max block: %d bytes\n",
+    ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+
+  // Connect to WiFi
+  Serial.printf("Connecting to WiFi: %s\n", ssid);
+  WiFi.begin(ssid, password);
+
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+  Serial.println();
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi connection failed!");
+    return false;
+  }
+  Serial.printf("Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+
+  // Initialize SD card
+  Serial.println("Initializing SD card...");
+  if (!SD.begin(SD_CS)) {
+    Serial.println("SD card init failed!");
+    return false;
+  }
+
+  Serial.printf("After WiFi+SD - heap: %d, max block: %d\n",
+    ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+
+  // Now do the SSL download
+  String manifestUrl = String(WEB_FILES_BASE_URL) + WEB_FILES_MANIFEST;
+  Serial.printf("Fetching: %s\n", manifestUrl.c_str());
+
+  WiFiClientSecure secureClient;
+  secureClient.setInsecure();
+  secureClient.setHandshakeTimeout(30);
+
+  Serial.println("Connecting to GitHub (SSL)...");
+  if (!secureClient.connect("raw.githubusercontent.com", 443)) {
+    Serial.println("SSL connection failed!");
+    return false;
+  }
+  Serial.println("SSL connected!");
+
+  // Send request
+  String path = manifestUrl.substring(manifestUrl.indexOf("/", 8));
+  secureClient.printf("GET %s HTTP/1.1\r\n", path.c_str());
+  secureClient.println("Host: raw.githubusercontent.com");
+  secureClient.println("User-Agent: ESP32");
+  secureClient.println("Connection: close");
+  secureClient.println();
+
+  // Read response
+  unsigned long timeout = millis() + 10000;
+  while (secureClient.connected() && !secureClient.available() && millis() < timeout) {
+    delay(10);
+  }
+
+  String statusLine = secureClient.readStringUntil('\n');
+  Serial.printf("HTTP Status: %s\n", statusLine.c_str());
+
+  // Skip headers
+  while (secureClient.connected()) {
+    String line = secureClient.readStringUntil('\n');
+    if (line == "\r" || line == "") break;
+  }
+
+  String manifestJson = secureClient.readString();
+  secureClient.stop();
+
+  Serial.printf("Received %d bytes\n", manifestJson.length());
+
+  // Parse manifest
+  StaticJsonDocument<4096> doc;
+  DeserializationError error = deserializeJson(doc, manifestJson);
+  if (error) {
+    Serial.printf("JSON parse error: %s\n", error.c_str());
+    return false;
+  }
+
+  const char* version = doc["version"] | "unknown";
+  Serial.printf("Remote version: %s\n", version);
+
+  // Download each file
+  JsonArray files = doc["files"].as<JsonArray>();
+  int fileCount = files.size();
+  int downloaded = 0;
+
+  // Create www directory if needed
+  if (!SD.exists("/www")) {
+    SD.mkdir("/www");
+  }
+
+  for (JsonObject fileObj : files) {
+    const char* fileName = fileObj["name"] | "";
+    if (strlen(fileName) == 0) continue;
+
+    String fileUrl = String(WEB_FILES_BASE_URL) + fileName;
+    String sdPath = String("/www/") + fileName;
+
+    Serial.printf("Downloading %d/%d: %s\n", downloaded + 1, fileCount, fileName);
+
+    WiFiClientSecure fileClient;
+    fileClient.setInsecure();
+
+    if (!fileClient.connect("raw.githubusercontent.com", 443)) {
+      Serial.printf("  Failed to connect for %s\n", fileName);
+      continue;
+    }
+
+    String filePath = fileUrl.substring(fileUrl.indexOf("/", 8));
+    fileClient.printf("GET %s HTTP/1.1\r\n", filePath.c_str());
+    fileClient.println("Host: raw.githubusercontent.com");
+    fileClient.println("User-Agent: ESP32");
+    fileClient.println("Connection: close");
+    fileClient.println();
+
+    // Wait for response
+    timeout = millis() + 30000;
+    while (fileClient.connected() && !fileClient.available() && millis() < timeout) {
+      delay(10);
+    }
+
+    // Skip status and headers
+    fileClient.readStringUntil('\n');  // status
+    while (fileClient.connected()) {
+      String line = fileClient.readStringUntil('\n');
+      if (line == "\r" || line == "") break;
+    }
+
+    // Save to SD
+    File outFile = SD.open(sdPath.c_str(), FILE_WRITE);
+    if (outFile) {
+      while (fileClient.connected() || fileClient.available()) {
+        if (fileClient.available()) {
+          uint8_t buf[512];
+          int len = fileClient.read(buf, sizeof(buf));
+          if (len > 0) {
+            outFile.write(buf, len);
+          }
+        }
+      }
+      outFile.close();
+      Serial.printf("  Saved: %s\n", sdPath.c_str());
+      downloaded++;
+    } else {
+      Serial.printf("  Failed to create: %s\n", sdPath.c_str());
+    }
+
+    fileClient.stop();
+  }
+
+  // Save version
+  File versionFile = SD.open("/www/version.txt", FILE_WRITE);
+  if (versionFile) {
+    versionFile.print(version);
+    versionFile.close();
+  }
+
+  Serial.printf("\nDownload complete! %d/%d files\n", downloaded, fileCount);
+  return downloaded > 0;
+}
 
 // ============================================
 // Download State
@@ -91,10 +318,13 @@ bool downloadFileToSD(const char* url, const char* sdPath) {
   // Create directories if needed
   createDirectoriesForPath(sdPath);
 
+  WiFiClientSecure secureClient;
+  secureClient.setInsecure();  // Skip certificate validation for GitHub CDN
+
   HTTPClient http;
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);  // Follow redirects (GitHub CDN may redirect)
-  http.begin(url);
-  http.setTimeout(30000);  // 30 second timeout for larger files
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.begin(secureClient, url);
+  http.setTimeout(30000);
 
   int httpCode = http.GET();
 
@@ -198,10 +428,17 @@ bool downloadWebFilesFromGitHub() {
   String manifestUrl = String(WEB_FILES_BASE_URL) + WEB_FILES_MANIFEST;
   Serial.printf("Fetching manifest: %s\n", manifestUrl.c_str());
 
+  WiFiClientSecure secureClient;
+  secureClient.setInsecure();  // Skip certificate validation for GitHub CDN
+
   HTTPClient http;
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);  // Follow redirects (GitHub CDN may redirect)
-  http.begin(manifestUrl);
-  http.setTimeout(10000);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  if (!http.begin(secureClient, manifestUrl)) {
+    webDownloadProgress.state = DOWNLOAD_ERROR;
+    webDownloadProgress.errorMessage = "Failed to connect to GitHub";
+    return false;
+  }
+  http.setTimeout(15000);
 
   int httpCode = http.GET();
 
@@ -358,23 +595,96 @@ String fetchRemoteWebFilesVersion(bool forceRefresh = false) {
   String manifestUrl = String(WEB_FILES_BASE_URL) + WEB_FILES_MANIFEST;
   Serial.printf("Checking remote version: %s\n", manifestUrl.c_str());
 
-  HTTPClient http;
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);  // Follow redirects (GitHub CDN may redirect)
-  http.begin(manifestUrl);
-  http.setTimeout(10000);  // 10 second timeout
+  // Log memory stats before stopping web server
+  Serial.printf("[WebDownload] Free heap: %d bytes, max block: %d bytes\n",
+    ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
-  int httpCode = http.GET();
+  // Stop web server to free up RAM for SSL
+  extern AsyncWebServer webServer;
+  Serial.println("[WebDownload] Stopping web server to free RAM...");
+  webServer.end();
+  delay(100);  // Let memory consolidate
 
-  if (httpCode != 200) {
-    Serial.printf("Failed to fetch manifest (HTTP %d)\n", httpCode);
-    http.end();
+  // Log memory after stopping web server
+  Serial.printf("[WebDownload] After stopping server - heap: %d, max block: %d\n",
+    ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+
+  // Allocate client on heap
+  WiFiClientSecure* secureClient = new WiFiClientSecure();
+  if (!secureClient) {
+    Serial.println("[WebDownload] Failed to allocate WiFiClientSecure!");
+    Serial.println("[WebDownload] Restarting web server...");
+    webServer.begin();
     remoteVersionFetched = true;
     cachedRemoteVersion = "";
     return "";
   }
 
-  String manifestJson = http.getString();
-  http.end();
+  secureClient->setInsecure();
+  secureClient->setHandshakeTimeout(30);
+
+  Serial.println("[WebDownload] Connecting to raw.githubusercontent.com:443...");
+  if (!secureClient->connect("raw.githubusercontent.com", 443)) {
+    char errBuf[256];
+    int err = secureClient->lastError(errBuf, sizeof(errBuf));
+    Serial.printf("[WebDownload] SSL FAILED! Error %d: %s\n", err, errBuf);
+    Serial.printf("[WebDownload] Free heap after fail: %d\n", ESP.getFreeHeap());
+    delete secureClient;
+    // Restart web server
+    Serial.println("[WebDownload] Restarting web server...");
+    webServer.begin();
+    remoteVersionFetched = true;
+    cachedRemoteVersion = "";
+    return "";
+  }
+  Serial.println("[WebDownload] SSL connection OK!");
+
+  // Build HTTP GET request manually
+  String path = manifestUrl.substring(manifestUrl.indexOf("/", 8));
+  secureClient->printf("GET %s HTTP/1.1\r\n", path.c_str());
+  secureClient->println("Host: raw.githubusercontent.com");
+  secureClient->println("User-Agent: ESP32");
+  secureClient->println("Connection: close");
+  secureClient->println();
+
+  // Wait for response
+  unsigned long timeout = millis() + 10000;
+  while (secureClient->connected() && !secureClient->available() && millis() < timeout) {
+    delay(10);
+  }
+
+  // Read HTTP status line
+  String statusLine = secureClient->readStringUntil('\n');
+  Serial.printf("[WebDownload] Status: %s\n", statusLine.c_str());
+
+  int httpCode = 0;
+  if (statusLine.startsWith("HTTP/1.")) {
+    httpCode = statusLine.substring(9, 12).toInt();
+  }
+
+  // Skip headers
+  while (secureClient->connected()) {
+    String line = secureClient->readStringUntil('\n');
+    if (line == "\r" || line == "") break;
+  }
+
+  // Read body
+  String manifestJson = secureClient->readString();
+  secureClient->stop();
+  delete secureClient;
+
+  // Restart web server now that SSL is done
+  Serial.println("[WebDownload] Restarting web server...");
+  webServer.begin();
+
+  Serial.printf("[WebDownload] Got %d bytes, HTTP %d\n", manifestJson.length(), httpCode);
+
+  if (httpCode != 200) {
+    Serial.printf("Failed to fetch manifest (HTTP %d)\n", httpCode);
+    remoteVersionFetched = true;
+    cachedRemoteVersion = "";
+    return "";
+  }
 
   // Parse just the version field
   StaticJsonDocument<512> doc;

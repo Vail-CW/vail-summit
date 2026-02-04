@@ -141,19 +141,20 @@ void showWebFilesDownloadScreen() {
     lv_obj_align(icon, LV_ALIGN_TOP_LEFT, 10, 10);
 
     // Message text - different for update vs fresh install
+    // Note: Device will reboot to perform download (RAM constraints)
     lv_obj_t* msg = lv_label_create(card);
     if (isUpdate) {
         lv_label_set_text(msg,
             "A new version of the web interface\n"
             "is available.\n\n"
-            "Download the updated web files\n"
-            "from the internet?");
+            "Device will reboot to download.\n"
+            "Update now?");
     } else {
         lv_label_set_text(msg,
             "SD card detected but web interface\n"
             "files are missing.\n\n"
-            "Download web interface files\n"
-            "from the internet?");
+            "Device will reboot to download.\n"
+            "Download now?");
     }
     lv_obj_add_style(msg, getStyleLabelBody(), 0);
     lv_obj_set_style_text_line_space(msg, 4, 0);
@@ -495,16 +496,25 @@ bool handleWebDownloadInput(char key) {
             // Handle Y/N for download prompt
             if (key == 'y' || key == 'Y' || key == KEY_ENTER) {
                 beep(TONE_SELECT, BEEP_MEDIUM);
-                showWebFilesDownloadProgress();
 
-                // Start the download
-                webFilesDownloading = true;
-                bool success = downloadWebFilesFromGitHub();
-                webFilesDownloading = false;
+                // Due to memory constraints, downloads must happen at boot
+                // before LVGL is initialized. Set flag and reboot.
+                Serial.println("[WebDownload] User requested download - rebooting for early boot download");
 
-                // Show result
-                showWebFilesDownloadComplete(success,
-                    success ? "" : webDownloadProgress.errorMessage.c_str());
+                // Show brief reboot message
+                lv_obj_clean(web_download_screen);
+                lv_obj_t* msg = lv_label_create(web_download_screen);
+                lv_label_set_text(msg, "Rebooting to download...\n\nPlease wait.");
+                lv_obj_add_style(msg, getStyleLabelSubtitle(), 0);
+                lv_obj_set_style_text_align(msg, LV_TEXT_ALIGN_CENTER, 0);
+                lv_obj_center(msg);
+                lv_timer_handler();  // Force display update
+
+                delay(500);
+
+                // Request download and reboot
+                requestWebDownloadAndReboot();
+                // Note: Device will reboot here, code below won't execute
                 return true;
             }
             else if (key == 'n' || key == 'N' || key == KEY_ESC) {

@@ -26,6 +26,7 @@ using namespace lgfx::v1::fonts;
 
 // Configuration and battery monitoring
 #include "src/core/config.h"
+#include "src/core/memory_monitor.h"
 #include <Adafruit_LC709203F.h>
 #include <Adafruit_MAX1704X.h>
 
@@ -127,6 +128,9 @@ using namespace lgfx::v1::fonts;
 // SD Card Storage
 #include "src/storage/sd_card.h"
 
+// Web File Downloader (needed early for boot-time download check)
+#include "src/web/server/web_file_downloader.h"
+
 // Web First Boot (must come after sd_card.h)
 #include "src/web/server/web_first_boot.h"
 
@@ -189,7 +193,7 @@ void setCurrentModeFromInt(int mode) { currentMode = (MenuMode)mode; }
 
 void setup() {
   Serial.begin(SERIAL_BAUD);
-  delay(500); // Brief wait for serial monitor (reduced from 3000ms for faster boot)
+  delay(500); // Brief wait for serial monitor
   Serial.println("\n\n=== VAIL SUMMIT STARTING ===");
   Serial.printf("Firmware: %s (Build: %s)\n", FIRMWARE_VERSION, FIRMWARE_DATE);
   Serial.println("Starting setup...");
@@ -239,6 +243,65 @@ void setup() {
     Serial.println("  4. ESP32 Arduino core version issue");
   }
   Serial.println("--- End PSRAM Diagnostic ---\n");
+
+  // ============================================
+  // Early Boot Web Download Check
+  // ============================================
+  // Check if a web files download was requested (via reboot)
+  // This MUST happen before LVGL initialization when RAM is plentiful
+  Serial.println("Checking for pending web download...");
+  bool downloadPending = isWebDownloadPending();
+  Serial.printf("Download pending flag: %s\n", downloadPending ? "TRUE" : "FALSE");
+  if (downloadPending) {
+    Serial.println("\n========================================");
+    Serial.println("WEB DOWNLOAD PENDING - EARLY BOOT MODE");
+    Serial.println("========================================");
+    Serial.printf("Free heap: %d bytes, max block: %d bytes\n",
+      ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+
+    // Load saved WiFi credentials from Preferences
+    // WiFi credentials are stored as ssid1/pass1, ssid2/pass2, ssid3/pass3
+    Preferences wifiPrefs;
+    wifiPrefs.begin("wifi", true);  // read-only
+    String savedSSID = wifiPrefs.getString("ssid1", "");
+    String savedPassword = wifiPrefs.getString("pass1", "");
+    wifiPrefs.end();
+
+    Serial.printf("Loaded WiFi credentials - SSID: '%s' (length: %d)\n",
+      savedSSID.c_str(), savedSSID.length());
+
+    if (savedSSID.length() > 0) {
+      Serial.printf("Using saved WiFi: %s\n", savedSSID.c_str());
+
+      // Perform the download
+      bool success = performEarlyBootWebDownload(savedSSID.c_str(), savedPassword.c_str());
+
+      // Clear the pending flag
+      clearWebDownloadPending();
+
+      if (success) {
+        Serial.println("\n========================================");
+        Serial.println("DOWNLOAD COMPLETE - REBOOTING TO NORMAL");
+        Serial.println("========================================\n");
+      } else {
+        Serial.println("\n========================================");
+        Serial.println("DOWNLOAD FAILED - REBOOTING TO NORMAL");
+        Serial.println("========================================\n");
+      }
+
+      // Clean up before reboot
+      Serial.println("Disconnecting WiFi before reboot...");
+      WiFi.disconnect(true);  // Disconnect and clear saved state
+      WiFi.mode(WIFI_OFF);
+      delay(100);
+
+      delay(500);
+      ESP.restart();
+    } else {
+      Serial.println("No saved WiFi credentials - clearing flag and continuing");
+      clearWebDownloadPending();
+    }
+  }
 
   // Initialize backlight control with PWM (GPIO 39)
   Serial.println("Initializing backlight PWM control on GPIO 39...");
@@ -415,6 +478,11 @@ void setup() {
 
   Serial.println("Setup complete!");
 
+  // Log memory status after full initialization
+  Serial.println("\n=== MEMORY STATUS AFTER BOOT ===");
+  logMemoryStatus("Boot");
+  Serial.println("================================\n");
+
   // Startup beep (test I2S audio)
   Serial.println("\nTesting I2S audio output...");
   Serial.println("You should hear a 1000 Hz beep now");
@@ -471,15 +539,14 @@ void loop() {
     restartWebServer();
   }
 
-  // Perform deferred web files version check (HTTP request - must be in main loop, not event handler)
-  performWebFilesCheck();
-
-  // Check for pending web files update notification (triggered after version check completes)
-  // Note: This only shows a notification - actual download must be done through WiFi Settings menu
-  if (isWebFilesPromptPending() && !isWebDownloadScreenActive() && currentMode == MODE_MAIN_MENU) {
-    showWebFilesUpdateNotification();
-    clearWebFilesPromptPending();
-  }
+  // Note: Automatic web files version check disabled due to SSL RAM constraints
+  // Users can manually download via Settings > WiFi > Web Files
+  // The version check requires SSL which needs ~40KB internal RAM not available when LVGL runs
+  // performWebFilesCheck();  // Disabled - SSL fails with low RAM
+  // if (isWebFilesPromptPending() && !isWebDownloadScreenActive() && currentMode == MODE_MAIN_MENU) {
+  //   showWebFilesUpdateNotification();
+  //   clearWebFilesPromptPending();
+  // }
 
   // Handle web download screen input and progress updates
   if (isWebDownloadScreenActive()) {
@@ -491,6 +558,9 @@ void loop() {
       handleWebDownloadInput(key);
     }
   }
+
+  // Periodic memory health check (runs every 30 seconds internally)
+  checkMemoryHealth();
 
   // Update status data periodically (NEVER during audio-critical modes)
   // Note: LVGL screens will read this data when they refresh
@@ -602,22 +672,22 @@ void loop() {
   // Update Web Practice mode if active
   if (currentMode == MODE_WEB_PRACTICE) {
     updateWebPracticeMode();
-    extern AsyncWebSocket practiceWebSocket;
-    practiceWebSocket.cleanupClients();
+    extern AsyncWebSocket* practiceWebSocket;
+    if (practiceWebSocket) practiceWebSocket->cleanupClients();
   }
 
   // Update Web Memory Chain mode if active
   if (currentMode == MODE_WEB_MEMORY_CHAIN) {
     updateWebMemoryChain();
-    extern AsyncWebSocket memoryChainWebSocket;
-    memoryChainWebSocket.cleanupClients();
+    extern AsyncWebSocket* memoryChainWebSocket;
+    if (memoryChainWebSocket) memoryChainWebSocket->cleanupClients();
   }
 
   // Update Web Hear It Type It mode if active
   if (currentMode == MODE_WEB_HEAR_IT) {
     updateWebHearItMode();
-    extern AsyncWebSocket hearItWebSocket;
-    hearItWebSocket.cleanupClients();
+    extern AsyncWebSocket* hearItWebSocket;
+    if (hearItWebSocket) hearItWebSocket->cleanupClients();
   }
 
   // Update BT HID mode if active

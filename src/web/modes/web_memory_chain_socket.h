@@ -10,8 +10,8 @@
 #include <ArduinoJson.h>
 #include "../../audio/morse_decoder_adaptive.h"
 
-// WebSocket instance for Memory Chain
-AsyncWebSocket memoryChainWebSocket("/ws/memory-chain");
+// WebSocket pointer for Memory Chain (allocated on-demand to save memory)
+AsyncWebSocket* memoryChainWebSocket = nullptr;
 
 // WebSocket state
 bool webMemoryChainModeActive = false;
@@ -90,7 +90,7 @@ void onMemoryChainWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *c
  * States: ready, playing, listening, feedback, game_over
  */
 void sendMemoryChainState(String state, String description) {
-  if (webMemoryChainModeActive && memoryChainWebSocket.count() > 0) {
+  if (webMemoryChainModeActive && memoryChainWebSocket && memoryChainWebSocket->count() > 0) {
     JsonDocument doc;
     doc["type"] = "state";
     doc["state"] = state;
@@ -98,7 +98,7 @@ void sendMemoryChainState(String state, String description) {
 
     String output;
     serializeJson(doc, output);
-    memoryChainWebSocket.textAll(output);
+    memoryChainWebSocket->textAll(output);
 
     Serial.printf("Memory Chain state: %s - %s\n", state.c_str(), description.c_str());
   }
@@ -110,7 +110,7 @@ void sendMemoryChainState(String state, String description) {
  * show: Whether to display characters or hide them
  */
 void sendMemoryChainSequence(String characters, bool show) {
-  if (webMemoryChainModeActive && memoryChainWebSocket.count() > 0) {
+  if (webMemoryChainModeActive && memoryChainWebSocket && memoryChainWebSocket->count() > 0) {
     JsonDocument doc;
     doc["type"] = "sequence";
     doc["characters"] = characters;
@@ -118,7 +118,7 @@ void sendMemoryChainSequence(String characters, bool show) {
 
     String output;
     serializeJson(doc, output);
-    memoryChainWebSocket.textAll(output);
+    memoryChainWebSocket->textAll(output);
 
     Serial.printf("Memory Chain sequence: %s (show: %d)\n", characters.c_str(), show);
   }
@@ -128,7 +128,7 @@ void sendMemoryChainSequence(String characters, bool show) {
  * Send score update to browser
  */
 void sendMemoryChainScore(int current, int high) {
-  if (webMemoryChainModeActive && memoryChainWebSocket.count() > 0) {
+  if (webMemoryChainModeActive && memoryChainWebSocket && memoryChainWebSocket->count() > 0) {
     JsonDocument doc;
     doc["type"] = "score";
     doc["current"] = current;
@@ -136,7 +136,7 @@ void sendMemoryChainScore(int current, int high) {
 
     String output;
     serializeJson(doc, output);
-    memoryChainWebSocket.textAll(output);
+    memoryChainWebSocket->textAll(output);
   }
 }
 
@@ -144,14 +144,14 @@ void sendMemoryChainScore(int current, int high) {
  * Send feedback (correct/wrong) to browser
  */
 void sendMemoryChainFeedback(bool correct) {
-  if (webMemoryChainModeActive && memoryChainWebSocket.count() > 0) {
+  if (webMemoryChainModeActive && memoryChainWebSocket && memoryChainWebSocket->count() > 0) {
     JsonDocument doc;
     doc["type"] = "feedback";
     doc["correct"] = correct;
 
     String output;
     serializeJson(doc, output);
-    memoryChainWebSocket.textAll(output);
+    memoryChainWebSocket->textAll(output);
 
     Serial.printf("Memory Chain feedback: %s\n", correct ? "correct" : "wrong");
   }
@@ -161,7 +161,7 @@ void sendMemoryChainFeedback(bool correct) {
  * Send game over message to browser
  */
 void sendMemoryChainGameOver(int finalScore, String reason) {
-  if (webMemoryChainModeActive && memoryChainWebSocket.count() > 0) {
+  if (webMemoryChainModeActive && memoryChainWebSocket && memoryChainWebSocket->count() > 0) {
     JsonDocument doc;
     doc["type"] = "game_over";
     doc["finalScore"] = finalScore;
@@ -169,7 +169,7 @@ void sendMemoryChainGameOver(int finalScore, String reason) {
 
     String output;
     serializeJson(doc, output);
-    memoryChainWebSocket.textAll(output);
+    memoryChainWebSocket->textAll(output);
 
     Serial.printf("Memory Chain game over: score %d, reason: %s\n", finalScore, reason.c_str());
   }

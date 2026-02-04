@@ -37,11 +37,10 @@
 // Global web server instance
 AsyncWebServer webServer(80);
 
-// WebSocket for practice mode
-AsyncWebSocket practiceWebSocket("/ws/practice");
-
-// WebSocket for hear it type it mode
-AsyncWebSocket hearItWebSocket("/ws/hear-it");
+// WebSocket pointers - allocated on-demand when web modes are used
+// This saves 20-60KB of heap when web practice modes are not in use
+AsyncWebSocket* practiceWebSocket = nullptr;
+AsyncWebSocket* hearItWebSocket = nullptr;
 
 // mDNS hostname
 String mdnsHostname = "vail-summit";
@@ -65,6 +64,14 @@ void startWebPracticeMode(LGFX& tft);
 void startWebMemoryChainMode(LGFX& tft, int difficulty, int mode, int wpm, bool sound, bool hints);
 void startWebHearItMode(LGFX& tft);
 
+// WebSocket lifecycle management - allocate on-demand, cleanup when mode exits
+void initPracticeWebSocket();
+void cleanupPracticeWebSocket();
+void initHearItWebSocket();
+void cleanupHearItWebSocket();
+void initMemoryChainWebSocket();
+void cleanupMemoryChainWebSocket();
+
 /*
  * Check web authentication
  * Returns true if request is authenticated or auth is disabled
@@ -87,6 +94,78 @@ bool checkWebAuth(AsyncWebServerRequest *request) {
 
   Serial.println("[WebAuth] Authentication successful");
   return true;
+}
+
+/*
+ * WebSocket Lifecycle Management
+ * WebSockets are allocated on-demand to save memory when web modes are not used
+ */
+
+void initPracticeWebSocket() {
+    if (practiceWebSocket != nullptr) return;  // Already initialized
+
+    Serial.println("[WebSocket] Allocating practice WebSocket...");
+    practiceWebSocket = new AsyncWebSocket("/ws/practice");
+    practiceWebSocket->onEvent(onPracticeWebSocketEvent);
+    webServer.addHandler(practiceWebSocket);
+    Serial.printf("[WebSocket] Practice WebSocket ready (heap: %d)\n", ESP.getFreeHeap());
+}
+
+void cleanupPracticeWebSocket() {
+    if (practiceWebSocket == nullptr) return;
+
+    Serial.println("[WebSocket] Cleaning up practice WebSocket...");
+    practiceWebSocket->closeAll();
+    webServer.removeHandler(practiceWebSocket);
+    delete practiceWebSocket;
+    practiceWebSocket = nullptr;
+    Serial.printf("[WebSocket] Practice WebSocket freed (heap: %d)\n", ESP.getFreeHeap());
+}
+
+void initHearItWebSocket() {
+    if (hearItWebSocket != nullptr) return;
+
+    Serial.println("[WebSocket] Allocating hear-it WebSocket...");
+    hearItWebSocket = new AsyncWebSocket("/ws/hear-it");
+    hearItWebSocket->onEvent(onHearItWebSocketEvent);
+    webServer.addHandler(hearItWebSocket);
+    Serial.printf("[WebSocket] Hear-it WebSocket ready (heap: %d)\n", ESP.getFreeHeap());
+}
+
+void cleanupHearItWebSocket() {
+    if (hearItWebSocket == nullptr) return;
+
+    Serial.println("[WebSocket] Cleaning up hear-it WebSocket...");
+    hearItWebSocket->closeAll();
+    webServer.removeHandler(hearItWebSocket);
+    delete hearItWebSocket;
+    hearItWebSocket = nullptr;
+    Serial.printf("[WebSocket] Hear-it WebSocket freed (heap: %d)\n", ESP.getFreeHeap());
+}
+
+// Memory chain WebSocket is in web_memory_chain_socket.h
+extern AsyncWebSocket* memoryChainWebSocket;
+extern void onMemoryChainWebSocketEvent(AsyncWebSocket*, AsyncWebSocketClient*, AwsEventType, void*, uint8_t*, size_t);
+
+void initMemoryChainWebSocket() {
+    if (memoryChainWebSocket != nullptr) return;
+
+    Serial.println("[WebSocket] Allocating memory-chain WebSocket...");
+    memoryChainWebSocket = new AsyncWebSocket("/ws/memory-chain");
+    memoryChainWebSocket->onEvent(onMemoryChainWebSocketEvent);
+    webServer.addHandler(memoryChainWebSocket);
+    Serial.printf("[WebSocket] Memory-chain WebSocket ready (heap: %d)\n", ESP.getFreeHeap());
+}
+
+void cleanupMemoryChainWebSocket() {
+    if (memoryChainWebSocket == nullptr) return;
+
+    Serial.println("[WebSocket] Cleaning up memory-chain WebSocket...");
+    memoryChainWebSocket->closeAll();
+    webServer.removeHandler(memoryChainWebSocket);
+    delete memoryChainWebSocket;
+    memoryChainWebSocket = nullptr;
+    Serial.printf("[WebSocket] Memory-chain WebSocket freed (heap: %d)\n", ESP.getFreeHeap());
 }
 
 /*
@@ -234,6 +313,9 @@ void setupWebServer() {
     extern MenuMode currentMode;
     extern LGFX tft;
 
+    // Initialize WebSocket on-demand (saves memory when not used)
+    initPracticeWebSocket();
+
     // Switch device to web practice mode
     currentMode = MODE_WEB_PRACTICE;
 
@@ -265,6 +347,9 @@ void setupWebServer() {
 
       extern MenuMode currentMode;
       extern LGFX tft;
+
+      // Initialize WebSocket on-demand (saves memory when not used)
+      initMemoryChainWebSocket();
 
       int difficulty = doc["difficulty"].as<int>();
       int mode = doc["mode"].as<int>();
@@ -300,6 +385,9 @@ void setupWebServer() {
 
       extern MenuMode currentMode;
       extern LGFX tft;
+
+      // Initialize WebSocket on-demand (saves memory when not used)
+      initHearItWebSocket();
 
       // Get settings from request
       int mode = doc["mode"].as<int>();
@@ -338,17 +426,9 @@ void setupWebServer() {
   registerMorseNotesAPI(&webServer);
   registerScreenshotAPI(&webServer);
 
-  // Setup WebSocket for practice mode
-  practiceWebSocket.onEvent(onPracticeWebSocketEvent);
-  webServer.addHandler(&practiceWebSocket);
-
-  // Setup WebSocket for memory chain mode
-  memoryChainWebSocket.onEvent(onMemoryChainWebSocketEvent);
-  webServer.addHandler(&memoryChainWebSocket);
-
-  // Setup WebSocket for hear it type it mode
-  hearItWebSocket.onEvent(onHearItWebSocketEvent);
-  webServer.addHandler(&hearItWebSocket);
+  // NOTE: WebSockets are now allocated on-demand when web modes are started
+  // This saves 20-60KB of heap memory when web practice modes are not used
+  // See: initPracticeWebSocket(), initHearItWebSocket(), initMemoryChainWebSocket()
 
   // Start server
   webServer.begin();
@@ -379,6 +459,11 @@ void stopWebServer() {
   if (!webServerRunning) {
     return;
   }
+
+  // Clean up any allocated WebSockets
+  cleanupPracticeWebSocket();
+  cleanupHearItWebSocket();
+  cleanupMemoryChainWebSocket();
 
   webServer.end();
   MDNS.end();

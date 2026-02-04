@@ -218,9 +218,12 @@ void updateInternetStatus() {
         consecutiveCheckFails = 0;
         Serial.println("[InetCheck] Internet connectivity confirmed");
 
-        // Trigger web files check on first successful internet verification
+        // Note: Automatic web files version check disabled due to SSL RAM constraints
+        // Users can manually check/download via Settings > WiFi > Web Files
+        // The version check requires SSL which needs ~40KB internal RAM that isn't
+        // available when LVGL is running.
         if (previousStatus != INET_CONNECTED) {
-            triggerWebFilesCheckIfReady();
+            // triggerWebFilesCheckIfReady();  // Disabled - SSL fails with low RAM
             updateWiFiStatusIcon();  // Update UI immediately
         }
     } else {

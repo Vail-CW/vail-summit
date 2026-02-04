@@ -12,7 +12,7 @@
 
 // Forward declaration
 extern bool webPracticeModeActive;
-extern AsyncWebSocket practiceWebSocket;
+extern AsyncWebSocket* practiceWebSocket;
 
 /*
  * WebSocket Event Handler for Practice Mode
@@ -89,7 +89,7 @@ void onPracticeWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *clie
  * Send decoded morse character to browser
  */
 void sendPracticeDecoded(String morse, String text) {
-  if (webPracticeModeActive && practiceWebSocket.count() > 0) {
+  if (webPracticeModeActive && practiceWebSocket && practiceWebSocket->count() > 0) {
     JsonDocument doc;
     doc["type"] = "decoded";
     doc["morse"] = morse;
@@ -97,7 +97,7 @@ void sendPracticeDecoded(String morse, String text) {
 
     String output;
     serializeJson(doc, output);
-    practiceWebSocket.textAll(output);
+    practiceWebSocket->textAll(output);
   }
 }
 
@@ -105,14 +105,14 @@ void sendPracticeDecoded(String morse, String text) {
  * Send WPM update to browser
  */
 void sendPracticeWPM(float wpm) {
-  if (webPracticeModeActive && practiceWebSocket.count() > 0) {
+  if (webPracticeModeActive && practiceWebSocket && practiceWebSocket->count() > 0) {
     JsonDocument doc;
     doc["type"] = "wpm";
     doc["value"] = wpm;
 
     String output;
     serializeJson(doc, output);
-    practiceWebSocket.textAll(output);
+    practiceWebSocket->textAll(output);
   }
 }
 

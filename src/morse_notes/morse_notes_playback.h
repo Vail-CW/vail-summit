@@ -70,6 +70,35 @@ bool mnLoadForPlayback(unsigned long id) {
 }
 
 /**
+ * Initialize playback from recording buffer (for preview before save)
+ * Uses the recording session's timing buffer directly
+ */
+bool mnInitPreviewPlayback(float* timingBuffer, int eventCount, int toneFreq) {
+    // Stop any current playback
+    if (mnPlaybackSession.state == MN_PLAY_PLAYING) {
+        mnStopPlayback();
+    }
+
+    if (eventCount == 0 || timingBuffer == nullptr) {
+        Serial.println("[MorseNotes] ERROR: No recording data for preview");
+        return false;
+    }
+
+    // Initialize playback session with recording buffer
+    mnPlaybackSession.state = MN_PLAY_READY;
+    mnPlaybackSession.timingBuffer = timingBuffer;
+    mnPlaybackSession.eventCount = eventCount;
+    mnPlaybackSession.currentIndex = 0;
+    mnPlaybackSession.startTime = 0;
+    mnPlaybackSession.speed = 1.0f;
+    mnPlaybackSession.toneFrequency = toneFreq;
+    mnPlaybackSession.metadata = nullptr;  // No metadata for preview
+
+    Serial.printf("[MorseNotes] Preview initialized (%d events)\n", eventCount);
+    return true;
+}
+
+/**
  * Start playback
  */
 bool mnStartPlayback() {

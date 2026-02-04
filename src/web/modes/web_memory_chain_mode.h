@@ -96,7 +96,7 @@ void sendWebMemorySequenceAudio() {
   }
 
   // Send to browser via WebSocket
-  if (webMemoryChainModeActive && memoryChainWebSocket.count() > 0) {
+  if (webMemoryChainModeActive && memoryChainWebSocket && memoryChainWebSocket->count() > 0) {
     JsonDocument doc;
     doc["type"] = "play_morse";
     doc["patterns"] = morsePatterns;
@@ -105,7 +105,7 @@ void sendWebMemorySequenceAudio() {
 
     String output;
     serializeJson(doc, output);
-    memoryChainWebSocket.textAll(output);
+    memoryChainWebSocket->textAll(output);
 
     Serial.printf("Sent morse patterns to browser: %s\n", morsePatterns.c_str());
   }

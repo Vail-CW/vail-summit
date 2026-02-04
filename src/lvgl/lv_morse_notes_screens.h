@@ -53,6 +53,11 @@ extern int getCwKeyTypeAsInt();  // From vail-summit.ino
 // Save dialog widgets
 static lv_obj_t* mnSaveDialog = nullptr;
 static lv_obj_t* mnSaveTitleInput = nullptr;
+static lv_obj_t* mnSavePreviewBtn = nullptr;
+static lv_obj_t* mnSaveSaveBtn = nullptr;
+static lv_obj_t* mnSaveDiscardBtn = nullptr;
+static lv_timer_t* mnSavePreviewTimer = nullptr;
+static bool mnSavePreviewPlaying = false;
 
 // Playback screen widgets
 static lv_obj_t* mnPlaybackBtns[3] = {nullptr, nullptr, nullptr};
@@ -412,13 +417,87 @@ static void mnRecordTimerCb(lv_timer_t* timer) {
 }
 
 // ===================================
-// RECORD SCREEN - HANDLERS
+// RECORD SCREEN - SAVE DIALOG HANDLERS
 // ===================================
+
+// Forward declaration
+static void mnStopPreview();
+
+/**
+ * Save dialog preview timer callback
+ */
+static void mnSavePreviewTimerCb(lv_timer_t* timer) {
+    if (!mnSavePreviewPlaying) {
+        return;
+    }
+
+    // Update playback
+    mnUpdatePlayback();
+
+    // Check if complete
+    if (mnIsPlaybackComplete()) {
+        mnStopPreview();
+    }
+}
+
+/**
+ * Stop preview playback
+ */
+static void mnStopPreview() {
+    mnSavePreviewPlaying = false;
+    mnStopPlayback();
+
+    // Update button label
+    if (mnSavePreviewBtn) {
+        lv_obj_t* lbl = lv_obj_get_child(mnSavePreviewBtn, 0);
+        if (lbl) lv_label_set_text(lbl, LV_SYMBOL_PLAY " Preview");
+    }
+
+    // Delete timer
+    if (mnSavePreviewTimer) {
+        lv_timer_del(mnSavePreviewTimer);
+        mnSavePreviewTimer = nullptr;
+    }
+}
+
+/**
+ * Save dialog - preview button click
+ */
+static void mnPreviewBtnClick(lv_event_t* e) {
+    if (mnSavePreviewPlaying) {
+        // Stop preview
+        mnStopPreview();
+    } else {
+        // Start preview
+        float* buffer = mnGetRecordingTimingBuffer();
+        int eventCount = mnGetRecordingEventCount();
+
+        if (mnInitPreviewPlayback(buffer, eventCount, cwTone)) {
+            if (mnStartPlayback()) {
+                mnSavePreviewPlaying = true;
+
+                // Update button label
+                lv_obj_t* lbl = lv_obj_get_child(mnSavePreviewBtn, 0);
+                if (lbl) lv_label_set_text(lbl, LV_SYMBOL_STOP " Stop");
+
+                // Create timer for playback updates
+                if (!mnSavePreviewTimer) {
+                    mnSavePreviewTimer = lv_timer_create(mnSavePreviewTimerCb, 50, nullptr);
+                }
+            }
+        }
+    }
+}
 
 /**
  * Save dialog - save button click
  */
 static void mnSaveBtnClick(lv_event_t* e) {
+    // Stop preview if playing
+    if (mnSavePreviewPlaying) {
+        mnStopPreview();
+    }
+
     const char* title = lv_textarea_get_text(mnSaveTitleInput);
 
     if (mnSaveRecording(title)) {
@@ -439,6 +518,11 @@ static void mnSaveBtnClick(lv_event_t* e) {
  * Save dialog - discard button click
  */
 static void mnDiscardBtnClick(lv_event_t* e) {
+    // Stop preview if playing
+    if (mnSavePreviewPlaying) {
+        mnStopPreview();
+    }
+
     mnDiscardRecording();
 
     // Delete save dialog
@@ -452,30 +536,103 @@ static void mnDiscardBtnClick(lv_event_t* e) {
 }
 
 /**
+ * Save dialog text input key handler - DOWN moves to buttons
+ */
+static void mnSaveInputKeyHandler(lv_event_t* e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code != LV_EVENT_KEY) return;
+
+    uint32_t key = lv_event_get_key(e);
+
+    // DOWN arrow moves to preview button
+    if (key == LV_KEY_DOWN) {
+        lv_group_focus_obj(mnSavePreviewBtn);
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // Block TAB
+    if (key == LV_KEY_NEXT) {
+        lv_event_stop_processing(e);
+        return;
+    }
+}
+
+/**
+ * Save dialog button navigation handler
+ */
+static void mnSaveDialogBtnNavHandler(lv_event_t* e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code != LV_EVENT_KEY) return;
+
+    uint32_t key = lv_event_get_key(e);
+    lv_obj_t* target = lv_event_get_target(e);
+
+    // Block TAB
+    if (key == LV_KEY_NEXT) {
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // UP arrow moves to text input
+    if (key == LV_KEY_UP) {
+        lv_group_focus_obj(mnSaveTitleInput);
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // LEFT/RIGHT navigation between buttons
+    if (key == LV_KEY_LEFT) {
+        if (target == mnSaveSaveBtn) {
+            lv_group_focus_obj(mnSavePreviewBtn);
+        } else if (target == mnSaveDiscardBtn) {
+            lv_group_focus_obj(mnSaveSaveBtn);
+        }
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    if (key == LV_KEY_RIGHT) {
+        if (target == mnSavePreviewBtn) {
+            lv_group_focus_obj(mnSaveSaveBtn);
+        } else if (target == mnSaveSaveBtn) {
+            lv_group_focus_obj(mnSaveDiscardBtn);
+        }
+        lv_event_stop_processing(e);
+        return;
+    }
+}
+
+/**
  * Show save dialog
  */
 static void mnShowSaveDialog() {
     if (mnSaveDialog) return;  // Already showing
 
-    // Create modal dialog
+    mnSavePreviewPlaying = false;
+
+    // Create modal dialog (taller to accommodate 3 buttons)
     mnSaveDialog = lv_obj_create(mnRecordScreen);
-    lv_obj_set_size(mnSaveDialog, 400, 200);
+    lv_obj_set_size(mnSaveDialog, 420, 180);
     lv_obj_center(mnSaveDialog);
     lv_obj_set_style_bg_color(mnSaveDialog, lv_color_hex(0x2a2a2a), 0);
     lv_obj_set_style_border_width(mnSaveDialog, 2, 0);
     lv_obj_set_style_border_color(mnSaveDialog, lv_color_hex(0x00aaff), 0);
+    lv_obj_clear_flag(mnSaveDialog, LV_OBJ_FLAG_SCROLLABLE);
 
     // Prompt
     lv_obj_t* prompt = lv_label_create(mnSaveDialog);
     lv_label_set_text(prompt, "Enter recording title:");
-    lv_obj_align(prompt, LV_ALIGN_TOP_MID, 0, 20);
+    lv_obj_align(prompt, LV_ALIGN_TOP_MID, 0, 15);
 
     // Title input
     mnSaveTitleInput = lv_textarea_create(mnSaveDialog);
     lv_textarea_set_one_line(mnSaveTitleInput, true);
     lv_textarea_set_max_length(mnSaveTitleInput, 60);
-    lv_obj_set_size(mnSaveTitleInput, 350, 40);
-    lv_obj_align(mnSaveTitleInput, LV_ALIGN_TOP_MID, 0, 55);
+    lv_obj_set_size(mnSaveTitleInput, 380, 40);
+    lv_obj_align(mnSaveTitleInput, LV_ALIGN_TOP_MID, 0, 45);
+    lv_obj_add_event_cb(mnSaveTitleInput, mnSaveInputKeyHandler, LV_EVENT_KEY, nullptr);
+    addNavigableWidget(mnSaveTitleInput);
 
     // Generate default title
     char defaultTitle[64];
@@ -483,26 +640,49 @@ static void mnShowSaveDialog() {
     mnGenerateDefaultTitle((unsigned long)now, defaultTitle, sizeof(defaultTitle));
     lv_textarea_set_text(mnSaveTitleInput, defaultTitle);
 
-    // Buttons
-    lv_obj_t* save_btn = lv_btn_create(mnSaveDialog);
-    lv_obj_set_size(save_btn, 120, 40);
-    lv_obj_align(save_btn, LV_ALIGN_BOTTOM_LEFT, 50, -20);
-    lv_obj_set_style_bg_color(save_btn, lv_color_hex(0x00aa00), 0);
-    lv_obj_t* save_lbl = lv_label_create(save_btn);
-    lv_label_set_text(save_lbl, "SAVE");
-    lv_obj_center(save_lbl);
-    lv_obj_add_event_cb(save_btn, mnSaveBtnClick, LV_EVENT_CLICKED, nullptr);
-    addNavigableWidget(save_btn);
+    // Button row container
+    lv_obj_t* btn_row = lv_obj_create(mnSaveDialog);
+    lv_obj_set_size(btn_row, 400, 50);
+    lv_obj_align(btn_row, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_set_style_bg_opa(btn_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(btn_row, 0, 0);
+    lv_obj_set_style_pad_all(btn_row, 0, 0);
+    lv_obj_set_flex_flow(btn_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(btn_row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_clear_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t* discard_btn = lv_btn_create(mnSaveDialog);
-    lv_obj_set_size(discard_btn, 120, 40);
-    lv_obj_align(discard_btn, LV_ALIGN_BOTTOM_RIGHT, -50, -20);
-    lv_obj_set_style_bg_color(discard_btn, lv_color_hex(0xaa0000), 0);
-    lv_obj_t* discard_lbl = lv_label_create(discard_btn);
-    lv_label_set_text(discard_lbl, "DISCARD");
+    // Preview button (blue/purple)
+    mnSavePreviewBtn = lv_btn_create(btn_row);
+    lv_obj_set_size(mnSavePreviewBtn, 110, 40);
+    lv_obj_set_style_bg_color(mnSavePreviewBtn, lv_color_hex(0x6644aa), 0);
+    lv_obj_t* preview_lbl = lv_label_create(mnSavePreviewBtn);
+    lv_label_set_text(preview_lbl, LV_SYMBOL_PLAY " Preview");
+    lv_obj_center(preview_lbl);
+    lv_obj_add_event_cb(mnSavePreviewBtn, mnPreviewBtnClick, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(mnSavePreviewBtn, mnSaveDialogBtnNavHandler, LV_EVENT_KEY, nullptr);
+    addNavigableWidget(mnSavePreviewBtn);
+
+    // Save button (green)
+    mnSaveSaveBtn = lv_btn_create(btn_row);
+    lv_obj_set_size(mnSaveSaveBtn, 110, 40);
+    lv_obj_set_style_bg_color(mnSaveSaveBtn, lv_color_hex(0x00aa00), 0);
+    lv_obj_t* save_lbl = lv_label_create(mnSaveSaveBtn);
+    lv_label_set_text(save_lbl, LV_SYMBOL_SAVE " Save");
+    lv_obj_center(save_lbl);
+    lv_obj_add_event_cb(mnSaveSaveBtn, mnSaveBtnClick, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(mnSaveSaveBtn, mnSaveDialogBtnNavHandler, LV_EVENT_KEY, nullptr);
+    addNavigableWidget(mnSaveSaveBtn);
+
+    // Discard button (red)
+    mnSaveDiscardBtn = lv_btn_create(btn_row);
+    lv_obj_set_size(mnSaveDiscardBtn, 110, 40);
+    lv_obj_set_style_bg_color(mnSaveDiscardBtn, lv_color_hex(0xaa0000), 0);
+    lv_obj_t* discard_lbl = lv_label_create(mnSaveDiscardBtn);
+    lv_label_set_text(discard_lbl, LV_SYMBOL_TRASH " Discard");
     lv_obj_center(discard_lbl);
-    lv_obj_add_event_cb(discard_btn, mnDiscardBtnClick, LV_EVENT_CLICKED, nullptr);
-    addNavigableWidget(discard_btn);
+    lv_obj_add_event_cb(mnSaveDiscardBtn, mnDiscardBtnClick, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(mnSaveDiscardBtn, mnSaveDialogBtnNavHandler, LV_EVENT_KEY, nullptr);
+    addNavigableWidget(mnSaveDiscardBtn);
 
     // Focus on input
     lv_group_focus_obj(mnSaveTitleInput);
@@ -703,6 +883,11 @@ lv_obj_t* createMorseNotesRecordScreen() {
  * Cleanup record screen
  */
 void cleanupMorseNotesRecordScreen() {
+    // Stop preview if playing
+    if (mnSavePreviewPlaying) {
+        mnStopPreview();
+    }
+
     // Stop recording if active and discard
     if (mnIsRecording()) {
         mnStopRecording();
@@ -712,10 +897,16 @@ void cleanupMorseNotesRecordScreen() {
     // Clean up keyer
     mnRecordKeyer = nullptr;
 
-    // Delete timer
+    // Delete record timer
     if (mnRecordTimer) {
         lv_timer_del(mnRecordTimer);
         mnRecordTimer = nullptr;
+    }
+
+    // Delete preview timer
+    if (mnSavePreviewTimer) {
+        lv_timer_del(mnSavePreviewTimer);
+        mnSavePreviewTimer = nullptr;
     }
 
     // Delete save dialog if open

@@ -877,7 +877,7 @@ bool handleGlobalHotkey(char key) {
 void onLVGLMenuSelect(int target_mode) {
     Serial.printf("[ModeIntegration] Menu selected mode: %d\n", target_mode);
 
-    // Web Files update mode - uses its own screen management
+    // Web Files update mode - uses reboot-based download (SSL requires early boot RAM)
     if (target_mode == LVGL_MODE_WEB_FILES_UPDATE) {
         // Play selection beep
         beep(TONE_SELECT, BEEP_MEDIUM);
@@ -901,51 +901,22 @@ void onLVGLMenuSelect(int target_mode) {
             return;
         }
 
-        // Check if web files exist and if update is needed
+        // Note: Version checking requires SSL which fails due to RAM constraints
+        // when LVGL is running. We skip version check and just offer to download.
+        // The download itself happens at early boot via reboot.
+
+        // Check if web files exist to determine prompt text
         if (webFilesExist()) {
-            // Files exist - check for updates
-            // Show loading indicator while checking
-            lv_obj_t* loading = createLoadingOverlay("Checking for updates...");
-
             String localVersion = getWebFilesVersion();
-            String remoteVersion = fetchRemoteWebFilesVersion(true);  // Force refresh
-
-            // Remove loading overlay
-            lv_obj_del(loading);
-
-            if (remoteVersion.isEmpty()) {
-                // Couldn't fetch remote version
-                beep(400, 200);
-                Serial.println("[ModeIntegration] Could not check for web files updates");
-                createAlertDialog("Update Check Failed",
-                    "Could not connect to GitHub\nto check for updates.\n\nPlease try again later.");
-                return;
-            }
-
-            // Compare versions
-            localVersion.trim();
-            remoteVersion.trim();
-
-            if (localVersion == remoteVersion) {
-                // Already up to date
-                beep(TONE_SELECT, BEEP_MEDIUM);
-                Serial.printf("[ModeIntegration] Web files already up to date (v%s)\n", localVersion.c_str());
-                static char msgBuf[128];
-                snprintf(msgBuf, sizeof(msgBuf), "Web files are up to date.\n\nInstalled version: %s", localVersion.c_str());
-                createAlertDialog("Already Up To Date", msgBuf);
-                return;
-            }
-
-            // Update available - set flag and show download screen
-            Serial.printf("[ModeIntegration] Web files update available: %s -> %s\n",
-                         localVersion.c_str(), remoteVersion.c_str());
+            Serial.printf("[ModeIntegration] Web files exist (v%s), offering update\n", localVersion.c_str());
             webFilesUpdateAvailable = true;
         } else {
-            // No files exist - fresh install
+            Serial.println("[ModeIntegration] No web files found, offering download");
             webFilesUpdateAvailable = false;
         }
 
         // Show the download screen (for update or fresh install)
+        // User will press Y to trigger reboot-based download
         showWebFilesDownloadScreen();
         return;
     }

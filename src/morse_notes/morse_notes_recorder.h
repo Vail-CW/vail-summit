@@ -193,6 +193,13 @@ bool mnIsKeyDown() {
     return mnRecordingSession.keyState;
 }
 
+/**
+ * Get recording timing buffer (for preview playback)
+ */
+float* mnGetRecordingTimingBuffer() {
+    return mnRecordingSession.timingBuffer;
+}
+
 // ===================================
 // KEYER CALLBACK
 // ===================================
