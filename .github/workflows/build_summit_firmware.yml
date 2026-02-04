@@ -89,9 +89,10 @@ jobs:
           cp vail-summit.ino vail-summit/
           cp -r src vail-summit/
 
-          # Build extra flags - always include WebSockets network type fix
+          # Build extra flags - include ESP32 define and WebSockets network type fix
+          # ESP32 must be explicitly defined when using build.extra_flags (it overwrites defaults)
           # WEBSOCKETS_NETWORK_TYPE=4 forces ESP32 mode (avoids Ethernet.h dependency)
-          EXTRA_FLAGS="-DWEBSOCKETS_NETWORK_TYPE=4"
+          EXTRA_FLAGS="-DESP32 -DWEBSOCKETS_NETWORK_TYPE=4"
           if [ -n "$FIREBASE_MAILBOX_API_KEY" ]; then
             EXTRA_FLAGS="$EXTRA_FLAGS -DFIREBASE_MAILBOX_API_KEY=\"$FIREBASE_MAILBOX_API_KEY\""
           fi
