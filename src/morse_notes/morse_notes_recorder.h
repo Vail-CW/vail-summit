@@ -11,8 +11,30 @@
 
 // Global recording session
 static MorseNotesRecordingSession mnRecordingSession;
-static float mnRecordingTimingBuffer[MN_MAX_RECORDING_EVENTS];
 static MorseDecoderAdaptive mnRecordingDecoder(20, 20, 30);  // For WPM calculation
+
+// Timing buffer allocated in PSRAM on first use (saves 40KB heap)
+static float* mnRecordingTimingBuffer = nullptr;
+
+// Allocate recording buffer in PSRAM
+bool mnEnsureRecordingBuffer() {
+    if (mnRecordingTimingBuffer != nullptr) return true;
+
+    if (psramFound()) {
+        mnRecordingTimingBuffer = (float*)ps_malloc(MN_MAX_RECORDING_EVENTS * sizeof(float));
+        Serial.printf("[MorseNotes] Recording buffer allocated in PSRAM (%d bytes)\n",
+                      MN_MAX_RECORDING_EVENTS * sizeof(float));
+    } else {
+        mnRecordingTimingBuffer = (float*)malloc(MN_MAX_RECORDING_EVENTS * sizeof(float));
+        Serial.println("[MorseNotes] WARNING: PSRAM not found, using heap for recording buffer");
+    }
+
+    if (mnRecordingTimingBuffer == nullptr) {
+        Serial.println("[MorseNotes] ERROR: Failed to allocate recording buffer!");
+        return false;
+    }
+    return true;
+}
 
 // External tone control (from task_manager.h)
 extern void requestStartTone(int frequency);
@@ -33,6 +55,12 @@ bool mnStartRecording() {
     // Check if already recording
     if (mnRecordingSession.state == MN_REC_RECORDING) {
         Serial.println("[MorseNotes] WARNING: Already recording");
+        return false;
+    }
+
+    // Ensure buffer is allocated (in PSRAM)
+    if (!mnEnsureRecordingBuffer()) {
+        Serial.println("[MorseNotes] ERROR: Failed to allocate recording buffer");
         return false;
     }
 

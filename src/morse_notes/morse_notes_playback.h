@@ -10,7 +10,29 @@
 
 // Global playback session
 static MorseNotesPlaybackSession mnPlaybackSession;
-static float mnPlaybackTimingBuffer[MN_MAX_RECORDING_EVENTS];
+
+// Timing buffer allocated in PSRAM on first use (saves 40KB heap)
+static float* mnPlaybackTimingBuffer = nullptr;
+
+// Allocate playback buffer in PSRAM
+bool mnEnsurePlaybackBuffer() {
+    if (mnPlaybackTimingBuffer != nullptr) return true;
+
+    if (psramFound()) {
+        mnPlaybackTimingBuffer = (float*)ps_malloc(MN_MAX_RECORDING_EVENTS * sizeof(float));
+        Serial.printf("[MorseNotes] Playback buffer allocated in PSRAM (%d bytes)\n",
+                      MN_MAX_RECORDING_EVENTS * sizeof(float));
+    } else {
+        mnPlaybackTimingBuffer = (float*)malloc(MN_MAX_RECORDING_EVENTS * sizeof(float));
+        Serial.println("[MorseNotes] WARNING: PSRAM not found, using heap for playback buffer");
+    }
+
+    if (mnPlaybackTimingBuffer == nullptr) {
+        Serial.println("[MorseNotes] ERROR: Failed to allocate playback buffer!");
+        return false;
+    }
+    return true;
+}
 
 // External tone control (from task_manager.h)
 extern void requestStartTone(int frequency);
@@ -30,6 +52,12 @@ bool mnLoadForPlayback(unsigned long id) {
     // Stop any current playback
     if (mnPlaybackSession.state == MN_PLAY_PLAYING) {
         mnStopPlayback();
+    }
+
+    // Ensure buffer is allocated (in PSRAM)
+    if (!mnEnsurePlaybackBuffer()) {
+        mnPlaybackSession.state = MN_PLAY_ERROR;
+        return false;
     }
 
     // Load recording from SD card
