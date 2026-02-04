@@ -60,9 +60,9 @@ jobs:
           # WebSockets - clone specific version (library manager has ESP32 detection issues)
           git clone --branch 2.4.1 --depth 1 https://github.com/Links2004/arduinoWebSockets.git WebSockets
 
-          # AsyncTCP and ESPAsyncWebServer - use ESP32Async org (maintained, works with ESP32 Core 2.0.x)
-          git clone --branch v3.3.2 --depth 1 https://github.com/ESP32Async/AsyncTCP.git
-          git clone --branch v3.6.0 --depth 1 https://github.com/ESP32Async/ESPAsyncWebServer.git
+          # AsyncTCP and ESPAsyncWebServer - use ESP32Async org latest versions
+          git clone --branch v3.4.10 --depth 1 https://github.com/ESP32Async/AsyncTCP.git
+          git clone --branch v3.9.6 --depth 1 https://github.com/ESP32Async/ESPAsyncWebServer.git
 
       - name: Configure LVGL
         run: |
