@@ -47,23 +47,21 @@ jobs:
           arduino-cli lib install "Adafruit LC709203F"
 
           # Network libraries
-          # IMPORTANT: Must use WebSockets 2.4.x - newer versions require Ethernet.h
-          arduino-cli lib install "WebSockets@2.4.1"
           arduino-cli lib install "ArduinoJson"
 
           # Bluetooth library (for BLE HID/MIDI)
           # IMPORTANT: Must use NimBLE-Arduino 1.4.x - code is not compatible with 2.x API
           arduino-cli lib install "NimBLE-Arduino@1.4.2"
 
-          # Install ESPAsyncWebServer and AsyncTCP from GitHub (not in Library Manager)
+          # Copy bundled libraries that have version/compatibility issues with library manager
           mkdir -p ~/Arduino/libraries
-          cd ~/Arduino/libraries
 
-          # Install AsyncTCP (dependency for ESPAsyncWebServer on ESP32)
-          git clone https://github.com/me-no-dev/AsyncTCP.git
+          # WebSockets - use bundled version (library manager versions have ESP32 detection issues)
+          cp -r arduino-cli/user/libraries/WebSockets ~/Arduino/libraries/
 
-          # Install ESPAsyncWebServer
-          git clone https://github.com/me-no-dev/ESPAsyncWebServer.git
+          # ESPAsyncWebServer and AsyncTCP - use bundled versions
+          cp -r arduino-cli/user/libraries/ESPAsyncWebServer ~/Arduino/libraries/
+          cp -r arduino-cli/user/libraries/AsyncTCP ~/Arduino/libraries/
 
       - name: Configure LVGL
         run: |
