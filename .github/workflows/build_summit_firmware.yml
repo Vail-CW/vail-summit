@@ -91,8 +91,9 @@ jobs:
           cp vail-summit.ino vail-summit/
           cp -r src vail-summit/
 
-          # Build extra flags with API keys (if secrets are configured)
-          EXTRA_FLAGS=""
+          # Build extra flags - always include WebSockets network type fix
+          # WEBSOCKETS_NETWORK_TYPE=4 forces ESP32 mode (avoids Ethernet.h dependency)
+          EXTRA_FLAGS="-DWEBSOCKETS_NETWORK_TYPE=4"
           if [ -n "$FIREBASE_MAILBOX_API_KEY" ]; then
             EXTRA_FLAGS="$EXTRA_FLAGS -DFIREBASE_MAILBOX_API_KEY=\"$FIREBASE_MAILBOX_API_KEY\""
           fi
@@ -108,21 +109,12 @@ jobs:
           # - FlashSize=4M: 4MB flash
           # - USBMode=hwcdc: Use hardware CDC (shows as "USB JTAG/Serial" not "TinyUSB CDC")
           #   This enables 1200-baud auto-reset for web flasher compatibility
-          if [ -n "$EXTRA_FLAGS" ]; then
-            arduino-cli compile \
-              --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M,USBMode=hwcdc" \
-              --build-property "build.extra_flags=$EXTRA_FLAGS" \
-              --output-dir build \
-              --export-binaries \
-              vail-summit/vail-summit.ino
-          else
-            echo "Warning: No API key secrets configured - building with placeholder keys"
-            arduino-cli compile \
-              --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M,USBMode=hwcdc" \
-              --output-dir build \
-              --export-binaries \
-              vail-summit/vail-summit.ino
-          fi
+          arduino-cli compile \
+            --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M,USBMode=hwcdc" \
+            --build-property "build.extra_flags=$EXTRA_FLAGS" \
+            --output-dir build \
+            --export-binaries \
+            vail-summit/vail-summit.ino
 
           # List generated files
           echo "Generated files:"
