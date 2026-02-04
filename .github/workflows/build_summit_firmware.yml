@@ -47,7 +47,8 @@ jobs:
           arduino-cli lib install "Adafruit LC709203F"
 
           # Network libraries
-          arduino-cli lib install "WebSockets"
+          # IMPORTANT: Must use WebSockets 2.4.x - newer versions require Ethernet.h
+          arduino-cli lib install "WebSockets@2.4.1"
           arduino-cli lib install "ArduinoJson"
 
           # Bluetooth library (for BLE HID/MIDI)
