@@ -11,6 +11,7 @@
 #include "lv_widgets_summit.h"
 #include "lv_screen_manager.h"
 #include "../core/config.h"
+#include "../core/modes.h"
 #include "../network/cwschool_link.h"
 #include "../network/internet_check.h"
 
@@ -84,7 +85,7 @@ static void cwschool_link_timer_cb(lv_timer_t* timer) {
                 }
                 // Navigate to account screen after 2 seconds
                 lv_timer_create([](lv_timer_t* t) {
-                    onLVGLMenuSelect(152);  // MODE_CWSCHOOL_ACCOUNT
+                    onLVGLMenuSelect(MODE_CWSCHOOL_ACCOUNT);
                     lv_timer_del(t);
                 }, 2000, NULL);
                 break;
@@ -328,7 +329,7 @@ lv_obj_t* createCWSchoolLinkScreen() {
 
 static void cwschool_unlink_confirm(lv_event_t* e) {
     clearCWSchoolCredentials();
-    onLVGLMenuSelect(150);  // MODE_CWSCHOOL (will show link screen)
+    onLVGLMenuSelect(MODE_CWSCHOOL);
 }
 
 /*
@@ -482,7 +483,7 @@ lv_obj_t* createCWSchoolAccountScreen() {
         lv_obj_center(link_lbl);
 
         lv_obj_add_event_cb(link_btn, [](lv_event_t* e) {
-            onLVGLMenuSelect(151);  // MODE_CWSCHOOL_LINK
+            onLVGLMenuSelect(MODE_CWSCHOOL_LINK);
         }, LV_EVENT_CLICKED, NULL);
         lv_obj_add_event_cb(link_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
         addNavigableWidget(link_btn);
@@ -562,9 +563,9 @@ lv_obj_t* createCWSchoolMenuScreen() {
 
     lv_obj_add_event_cb(account_btn, [](lv_event_t* e) {
         if (isCWSchoolLinked()) {
-            onLVGLMenuSelect(152);  // MODE_CWSCHOOL_ACCOUNT
+            onLVGLMenuSelect(MODE_CWSCHOOL_ACCOUNT);
         } else {
-            onLVGLMenuSelect(151);  // MODE_CWSCHOOL_LINK
+            onLVGLMenuSelect(MODE_CWSCHOOL_LINK);
         }
     }, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(account_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
@@ -584,7 +585,7 @@ lv_obj_t* createCWSchoolMenuScreen() {
 
     // Training works offline too - always enabled
     lv_obj_add_event_cb(training_btn, [](lv_event_t* e) {
-        onLVGLMenuSelect(160);  // MODE_VAIL_COURSE_MODULE_SELECT
+        onLVGLMenuSelect(MODE_VAIL_COURSE_MODULE_SELECT);
     }, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(training_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(training_btn);
@@ -603,7 +604,7 @@ lv_obj_t* createCWSchoolMenuScreen() {
 
     // Progress view works offline too
     lv_obj_add_event_cb(progress_btn, [](lv_event_t* e) {
-        onLVGLMenuSelect(163);  // MODE_VAIL_COURSE_PROGRESS
+        onLVGLMenuSelect(MODE_VAIL_COURSE_PROGRESS);
     }, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(progress_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(progress_btn);
@@ -647,23 +648,23 @@ bool handleCWSchoolMode(int mode) {
     lv_obj_t* screen = NULL;
 
     switch (mode) {
-        case 150:  // MODE_CWSCHOOL
+        case MODE_CWSCHOOL:
             // Show main menu
             screen = createCWSchoolMenuScreen();
             break;
 
-        case 151:  // MODE_CWSCHOOL_LINK
+        case MODE_CWSCHOOL_LINK:
             cleanupCWSchoolLinkScreen();
             screen = createCWSchoolLinkScreen();
             break;
 
-        case 152:  // MODE_CWSCHOOL_ACCOUNT
+        case MODE_CWSCHOOL_ACCOUNT:
             screen = createCWSchoolAccountScreen();
             break;
 
         // Future modes for training, progress, etc.
-        // case 153:  // MODE_CWSCHOOL_TRAINING
-        // case 154:  // MODE_CWSCHOOL_PROGRESS
+        // case MODE_CWSCHOOL_TRAINING:
+        // case MODE_CWSCHOOL_PROGRESS:
 
         default:
             return false;  // Not a CW School mode

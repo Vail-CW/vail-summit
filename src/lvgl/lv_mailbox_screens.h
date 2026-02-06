@@ -11,6 +11,7 @@
 #include "lv_widgets_summit.h"
 #include "lv_screen_manager.h"
 #include "../core/config.h"
+#include "../core/modes.h"
 #include "../network/morse_mailbox.h"
 #include "../network/internet_check.h"
 
@@ -263,7 +264,7 @@ static void mailbox_inbox_key_handler(lv_event_t* e) {
 
     if (key == 'r' || key == 'R') {
         invalidateMailboxInboxCache();
-        onLVGLMenuSelect(142);  // Reload inbox
+        onLVGLMenuSelect(MODE_MORSE_MAILBOX_INBOX);
         lv_event_stop_processing(e);
     }
 }
@@ -326,7 +327,7 @@ static void mailbox_playback_nav_handler(lv_event_t* e) {
     if (key == LV_KEY_ESC) {
         Serial.println("[Mailbox] Playback ESC - returning to inbox");
         cleanupMailboxPlayback();
-        onLVGLMenuSelect(142);  // MODE_MORSE_MAILBOX_INBOX
+        onLVGLMenuSelect(MODE_MORSE_MAILBOX_INBOX);
         lv_event_stop_processing(e);
         return;
     }
@@ -405,7 +406,7 @@ static void mailbox_link_timer_cb(lv_timer_t* timer) {
             case MAILBOX_LINK_SUCCESS: {
                 Serial.println("[Mailbox] SUCCESS state - stopping timer and navigating");
                 char successBuf[64];
-                snprintf(successBuf, sizeof(successBuf), "Linked as %s!", getMailboxUserCallsign().c_str());
+                snprintf(successBuf, sizeof(successBuf), "Linked as %s!", getMailboxUserCallsign());
                 lv_label_set_text(mailbox_status_label, successBuf);
                 lv_obj_set_style_text_color(mailbox_status_label, LV_COLOR_SUCCESS, 0);
                 // Stop timer
@@ -416,7 +417,7 @@ static void mailbox_link_timer_cb(lv_timer_t* timer) {
                 }
                 // Navigate to inbox after 2 seconds
                 lv_timer_create([](lv_timer_t* t) {
-                    onLVGLMenuSelect(142);  // MODE_MORSE_MAILBOX_INBOX
+                    onLVGLMenuSelect(MODE_MORSE_MAILBOX_INBOX);
                     lv_timer_del(t);
                 }, 2000, NULL);
                 break;
@@ -653,7 +654,7 @@ static void mailbox_inbox_item_click(lv_event_t* e) {
         currentPlaybackMessageId = *msgId;
         Serial.printf("[Mailbox] Switching to playback for message: %s\n",
                       currentPlaybackMessageId.c_str());
-        onLVGLMenuSelect(143);  // MODE_MORSE_MAILBOX_PLAYBACK
+        onLVGLMenuSelect(MODE_MORSE_MAILBOX_PLAYBACK);
     } else {
         Serial.println("[Mailbox] ERROR: msgId is null or empty!");
     }
@@ -709,7 +710,7 @@ lv_obj_t* createMailboxInboxScreen() {
     lv_obj_center(compose_lbl);
 
     lv_obj_add_event_cb(compose_btn, [](lv_event_t* e) {
-        onLVGLMenuSelect(144);  // MODE_MORSE_MAILBOX_COMPOSE
+        onLVGLMenuSelect(MODE_MORSE_MAILBOX_COMPOSE);
     }, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(compose_btn, mailbox_header_nav_handler, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(compose_btn, mailbox_inbox_key_handler, LV_EVENT_KEY, NULL);
@@ -725,12 +726,12 @@ lv_obj_t* createMailboxInboxScreen() {
     lv_obj_set_style_radius(account_btn, 5, 0);
 
     lv_obj_t* account_lbl = lv_label_create(account_btn);
-    lv_label_set_text(account_lbl, getMailboxUserCallsign().c_str());
+    lv_label_set_text(account_lbl, getMailboxUserCallsign());
     lv_obj_set_style_text_font(account_lbl, getThemeFonts()->font_body, 0);
     lv_obj_center(account_lbl);
 
     lv_obj_add_event_cb(account_btn, [](lv_event_t* e) {
-        onLVGLMenuSelect(145);  // MODE_MORSE_MAILBOX_ACCOUNT
+        onLVGLMenuSelect(MODE_MORSE_MAILBOX_ACCOUNT);
     }, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(account_btn, mailbox_header_nav_handler, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(account_btn, mailbox_inbox_key_handler, LV_EVENT_KEY, NULL);
@@ -1032,7 +1033,7 @@ static void mailbox_reply_btn_click(lv_event_t* e) {
     JsonDocument& doc = getCurrentMailboxMessage();
     mailbox_reply_recipient = doc["sender"]["callsign"].as<String>();
     Serial.printf("[Mailbox] Setting reply recipient: %s\n", mailbox_reply_recipient.c_str());
-    onLVGLMenuSelect(144);  // MODE_MORSE_MAILBOX_COMPOSE
+    onLVGLMenuSelect(MODE_MORSE_MAILBOX_COMPOSE);
 }
 
 /*
@@ -1068,7 +1069,7 @@ lv_obj_t* createMailboxPlaybackScreen() {
         lv_obj_add_event_cb(focus, [](lv_event_t* e) {
             if (lv_event_get_code(e) == LV_EVENT_KEY && lv_event_get_key(e) == LV_KEY_ESC) {
                 cleanupMailboxPlayback();
-                onLVGLMenuSelect(142);  // Back to inbox
+                onLVGLMenuSelect(MODE_MORSE_MAILBOX_INBOX);
             }
         }, LV_EVENT_KEY, NULL);
         addNavigableWidget(focus);
@@ -1220,7 +1221,7 @@ lv_obj_t* createMailboxPlaybackScreen() {
 
 static void mailbox_unlink_confirm(lv_event_t* e) {
     clearMailboxCredentials();
-    onLVGLMenuSelect(140);  // MODE_MORSE_MAILBOX (will show link screen)
+    onLVGLMenuSelect(MODE_MORSE_MAILBOX);
 }
 
 /*
@@ -1270,7 +1271,7 @@ lv_obj_t* createMailboxAccountScreen() {
     lv_obj_align(cs_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
     lv_obj_t* cs_val = lv_label_create(cs_row);
-    lv_label_set_text(cs_val, getMailboxUserCallsign().c_str());
+    lv_label_set_text(cs_val, getMailboxUserCallsign());
     lv_obj_set_style_text_font(cs_val, getThemeFonts()->font_input, 0);
     lv_obj_set_style_text_color(cs_val, LV_COLOR_ACCENT_CYAN, 0);
     lv_obj_align(cs_val, LV_ALIGN_RIGHT_MID, 0, 0);
@@ -1290,7 +1291,7 @@ lv_obj_t* createMailboxAccountScreen() {
     lv_obj_align(mm_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
     lv_obj_t* mm_val = lv_label_create(mm_row);
-    lv_label_set_text(mm_val, getMailboxUserMmid().c_str());
+    lv_label_set_text(mm_val, getMailboxUserMmid());
     lv_obj_set_style_text_font(mm_val, getThemeFonts()->font_input, 0);
     lv_obj_set_style_text_color(mm_val, LV_COLOR_ACCENT_CYAN, 0);
     lv_obj_align(mm_val, LV_ALIGN_RIGHT_MID, 0, 0);
@@ -1485,7 +1486,7 @@ static void mailbox_compose_update_timer_cb(lv_timer_t* timer) {
         sentCounter++;
         if (sentCounter > 20) {  // ~2 seconds at 100ms interval
             sentCounter = 0;
-            onLVGLMenuSelect(142);  // Back to inbox
+            onLVGLMenuSelect(MODE_MORSE_MAILBOX_INBOX);
         }
     }
 }
@@ -1799,7 +1800,7 @@ bool handleMailboxMode(int mode) {
     lv_obj_t* screen = NULL;
 
     switch (mode) {
-        case 140:  // MODE_MORSE_MAILBOX
+        case MODE_MORSE_MAILBOX:
             // Route to link or inbox based on account state
             if (isMailboxLinked()) {
                 screen = createMailboxInboxScreen();
@@ -1808,26 +1809,26 @@ bool handleMailboxMode(int mode) {
             }
             break;
 
-        case 141:  // MODE_MORSE_MAILBOX_LINK
+        case MODE_MORSE_MAILBOX_LINK:
             cleanupMailboxLinkScreen();
             screen = createMailboxLinkScreen();
             break;
 
-        case 142:  // MODE_MORSE_MAILBOX_INBOX
+        case MODE_MORSE_MAILBOX_INBOX:
             screen = createMailboxInboxScreen();
             break;
 
-        case 143:  // MODE_MORSE_MAILBOX_PLAYBACK
+        case MODE_MORSE_MAILBOX_PLAYBACK:
             cleanupMailboxPlayback();
             screen = createMailboxPlaybackScreen();
             break;
 
-        case 144:  // MODE_MORSE_MAILBOX_COMPOSE
+        case MODE_MORSE_MAILBOX_COMPOSE:
             cleanupMailboxCompose();
             screen = createMailboxComposeScreen();
             break;
 
-        case 145:  // MODE_MORSE_MAILBOX_ACCOUNT
+        case MODE_MORSE_MAILBOX_ACCOUNT:
             screen = createMailboxAccountScreen();
             break;
 

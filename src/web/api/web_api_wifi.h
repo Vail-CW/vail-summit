@@ -103,7 +103,7 @@ void setupWiFiConnectEndpoint(AsyncWebServer &server) {
       if (!checkWebAuth(request)) return;
 
       extern bool isAPMode;
-      extern void connectToWiFi(String ssid, String password);  // From settings_wifi.h
+      extern void connectToWiFi(const char* ssid, const char* password);  // From settings_wifi.h
 
       // Safety check: only allow connection if in AP mode or not connected
       if (!isAPMode && WiFi.status() == WL_CONNECTED) {
@@ -149,7 +149,7 @@ void setupWiFiConnectEndpoint(AsyncWebServer &server) {
       Serial.println(ssid);
 
       // Connect to WiFi (this will save credentials)
-      connectToWiFi(ssid, password);
+      connectToWiFi(ssid.c_str(), password.c_str());
 
       // Check connection result
       if (WiFi.status() == WL_CONNECTED) {

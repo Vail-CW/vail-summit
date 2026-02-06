@@ -12,6 +12,7 @@
 #include "lv_widgets_summit.h"
 #include "lv_screen_manager.h"
 #include "../core/config.h"
+#include "../core/modes.h"
 
 // Forward declarations from main file
 extern int currentSelection;
@@ -28,110 +29,110 @@ struct LVMenuItem {
 };
 
 // ============================================
-// Menu Data (mirrors menu_ui.h data)
-// Mode values MUST match MenuMode enum in menu_ui.h
+// Menu Data
+// Mode values from MenuMode enum in src/core/modes.h
 // ============================================
 
 // Main menu items - using LVGL symbols for modern look
 static const LVMenuItem mainMenuItems[] = {
-    {LV_SYMBOL_AUDIO, "CW", 44},           // MODE_CW_MENU
-    {LV_SYMBOL_PLAY, "Games", 15},         // MODE_GAMES_MENU
-    {LV_SYMBOL_DIRECTORY, "Ham Tools", 45}, // MODE_HAM_TOOLS_MENU
-    {LV_SYMBOL_SETTINGS, "Settings", 21}   // MODE_SETTINGS_MENU
+    {LV_SYMBOL_AUDIO, "CW", MODE_CW_MENU},
+    {LV_SYMBOL_PLAY, "Games", MODE_GAMES_MENU},
+    {LV_SYMBOL_DIRECTORY, "Ham Tools", MODE_HAM_TOOLS_MENU},
+    {LV_SYMBOL_SETTINGS, "Settings", MODE_SETTINGS_MENU}
 };
 #define MAIN_MENU_COUNT 4
 
 // CW submenu items
 static const LVMenuItem cwMenuItems[] = {
-    {LV_SYMBOL_EDIT, "Training", 1},           // MODE_TRAINING_MENU
-    {LV_SYMBOL_REFRESH, "Practice", 6},        // MODE_PRACTICE
-    {LV_SYMBOL_UPLOAD, "Vail Repeater", 31},   // MODE_VAIL_REPEATER
-    {LV_SYMBOL_ENVELOPE, "Morse Mailbox", 140}, // MODE_MORSE_MAILBOX
-    {LV_SYMBOL_AUDIO, "Morse Notes", 165},     // LVGL_MODE_MORSE_NOTES_LIBRARY
-    {LV_SYMBOL_BLUETOOTH, "Bluetooth", 32},    // MODE_BLUETOOTH_MENU
-    {LV_SYMBOL_POWER, "Radio Output", 19},     // MODE_RADIO_OUTPUT
-    {LV_SYMBOL_SAVE, "CW Memories", 20}        // MODE_CW_MEMORIES
+    {LV_SYMBOL_EDIT, "Training", MODE_TRAINING_MENU},
+    {LV_SYMBOL_REFRESH, "Practice", MODE_PRACTICE},
+    {LV_SYMBOL_UPLOAD, "Vail Repeater", MODE_VAIL_REPEATER},
+    {LV_SYMBOL_ENVELOPE, "Morse Mailbox", MODE_MORSE_MAILBOX},
+    {LV_SYMBOL_AUDIO, "Morse Notes", MODE_MORSE_NOTES_LIBRARY},
+    {LV_SYMBOL_BLUETOOTH, "Bluetooth", MODE_BLUETOOTH_MENU},
+    {LV_SYMBOL_POWER, "Radio Output", MODE_RADIO_OUTPUT},
+    {LV_SYMBOL_SAVE, "CW Memories", MODE_CW_MEMORIES}
 };
 #define CW_MENU_COUNT 8
 
 // Training submenu items
 static const LVMenuItem trainingMenuItems[] = {
-    {LV_SYMBOL_EDIT, "Vail Master", 70},       // MODE_VAIL_MASTER (LVGL_MODE_VAIL_MASTER)
-    {LV_SYMBOL_AUDIO, "Hear It Type It", 2},   // MODE_HEAR_IT_MENU
-    {LV_SYMBOL_SHUFFLE, "CW School", 150},     // MODE_CWSCHOOL
-    {LV_SYMBOL_FILE, "CW Academy", 8},         // MODE_CW_ACADEMY_TRACK_SELECT
-    {LV_SYMBOL_SHUFFLE, "LICW Training", 120}  // LVGL_MODE_LICW_CAROUSEL_SELECT
+    {LV_SYMBOL_EDIT, "Vail Master", MODE_VAIL_MASTER},
+    {LV_SYMBOL_AUDIO, "Hear It Type It", MODE_HEAR_IT_MENU},
+    {LV_SYMBOL_SHUFFLE, "CW School", MODE_CWSCHOOL},
+    {LV_SYMBOL_FILE, "CW Academy", MODE_CW_ACADEMY_TRACK_SELECT},
+    {LV_SYMBOL_SHUFFLE, "LICW Training", MODE_LICW_CAROUSEL_SELECT}
 };
 #define TRAINING_MENU_COUNT 5
 
 // Games submenu items
 static const LVMenuItem gamesMenuItems[] = {
-    {LV_SYMBOL_PLAY, "Morse Shooter", 16},     // MODE_MORSE_SHOOTER
-    {LV_SYMBOL_LOOP, "Memory Chain", 17},      // MODE_MORSE_MEMORY
-    {LV_SYMBOL_AUDIO, "Spark Watch", 78},      // MODE_SPARK_WATCH
-    {LV_SYMBOL_FILE, "Story Time", 89},        // LVGL_MODE_STORY_TIME
-    {LV_SYMBOL_CHARGE, "CW Speeder", 134}      // LVGL_MODE_CW_SPEEDER_SELECT
+    {LV_SYMBOL_PLAY, "Morse Shooter", MODE_MORSE_SHOOTER},
+    {LV_SYMBOL_LOOP, "Memory Chain", MODE_MORSE_MEMORY},
+    {LV_SYMBOL_AUDIO, "Spark Watch", MODE_SPARK_WATCH},
+    {LV_SYMBOL_FILE, "Story Time", MODE_STORY_TIME},
+    {LV_SYMBOL_CHARGE, "CW Speeder", MODE_CW_SPEEDER_SELECT}
 };
 #define GAMES_MENU_COUNT 5
 
 // Settings submenu items
 static const LVMenuItem settingsMenuItems[] = {
-    {LV_SYMBOL_HOME, "Device Settings", 22},   // MODE_DEVICE_SETTINGS_MENU
-    {LV_SYMBOL_AUDIO, "CW Settings", 26}       // MODE_CW_SETTINGS
+    {LV_SYMBOL_HOME, "Device Settings", MODE_DEVICE_SETTINGS_MENU},
+    {LV_SYMBOL_AUDIO, "CW Settings", MODE_CW_SETTINGS}
 };
 #define SETTINGS_MENU_COUNT 2
 
 // Device settings submenu items
 static const LVMenuItem deviceSettingsMenuItems[] = {
-    {LV_SYMBOL_WIFI, "WiFi", 23},              // MODE_WIFI_SUBMENU
-    {LV_SYMBOL_SETTINGS, "General", 24},       // MODE_GENERAL_SUBMENU
-    {LV_SYMBOL_BLUETOOTH, "Bluetooth", 54},    // MODE_DEVICE_BT_SUBMENU
-    {LV_SYMBOL_HOME, "System Info", 61}        // MODE_SYSTEM_INFO
+    {LV_SYMBOL_WIFI, "WiFi", MODE_WIFI_SUBMENU},
+    {LV_SYMBOL_SETTINGS, "General", MODE_GENERAL_SUBMENU},
+    {LV_SYMBOL_BLUETOOTH, "Bluetooth", MODE_DEVICE_BT_SUBMENU},
+    {LV_SYMBOL_HOME, "System Info", MODE_SYSTEM_INFO}
 };
 #define DEVICE_SETTINGS_COUNT 4
 
 // WiFi submenu items
 static const LVMenuItem wifiSubmenuItems[] = {
-    {LV_SYMBOL_WIFI, "WiFi Setup", 25},        // MODE_WIFI_SETTINGS
-    {LV_SYMBOL_EYE_CLOSE, "Web Password", 30}, // MODE_WEB_PASSWORD_SETTINGS
-    {LV_SYMBOL_DOWNLOAD, "Web Files", 97}      // LVGL_MODE_WEB_FILES_UPDATE
+    {LV_SYMBOL_WIFI, "WiFi Setup", MODE_WIFI_SETTINGS},
+    {LV_SYMBOL_EYE_CLOSE, "Web Password", MODE_WEB_PASSWORD_SETTINGS},
+    {LV_SYMBOL_DOWNLOAD, "Web Files", MODE_WEB_FILES_UPDATE}
 };
 #define WIFI_SUBMENU_COUNT 3
 
 // General submenu items
 static const LVMenuItem generalSubmenuItems[] = {
-    {LV_SYMBOL_CALL, "Callsign", 29},          // MODE_CALLSIGN_SETTINGS
-    {LV_SYMBOL_VOLUME_MAX, "Volume", 27},      // MODE_VOLUME_SETTINGS
-    {LV_SYMBOL_IMAGE, "Brightness", 28},       // MODE_BRIGHTNESS_SETTINGS
-    {LV_SYMBOL_EYE_OPEN, "UI Theme", 59}       // MODE_THEME_SETTINGS
+    {LV_SYMBOL_CALL, "Callsign", MODE_CALLSIGN_SETTINGS},
+    {LV_SYMBOL_VOLUME_MAX, "Volume", MODE_VOLUME_SETTINGS},
+    {LV_SYMBOL_IMAGE, "Brightness", MODE_BRIGHTNESS_SETTINGS},
+    {LV_SYMBOL_EYE_OPEN, "UI Theme", MODE_THEME_SETTINGS}
 };
 #define GENERAL_SUBMENU_COUNT 4
 
 // Ham Tools submenu items
 static const LVMenuItem hamToolsMenuItems[] = {
-    {LV_SYMBOL_SAVE, "QSO Logger", 36},        // MODE_QSO_LOGGER_MENU
-    {LV_SYMBOL_GPS, "POTA", 62},               // MODE_POTA_MENU
-    {LV_SYMBOL_LIST, "Band Plans", 46},        // MODE_BAND_PLANS
-    {LV_SYMBOL_REFRESH, "Band Conditions", 47}, // MODE_PROPAGATION (Band Conditions)
-    {LV_SYMBOL_CHARGE, "Antennas", 48},        // MODE_ANTENNAS
-    {LV_SYMBOL_FILE, "License Study", 50},     // MODE_LICENSE_SELECT
-    {LV_SYMBOL_ENVELOPE, "Summit Chat", 53}    // MODE_SUMMIT_CHAT
+    {LV_SYMBOL_SAVE, "QSO Logger", MODE_QSO_LOGGER_MENU},
+    {LV_SYMBOL_GPS, "POTA", MODE_POTA_MENU},
+    {LV_SYMBOL_LIST, "Band Plans", MODE_BAND_PLANS},
+    {LV_SYMBOL_REFRESH, "Band Conditions", MODE_PROPAGATION},
+    {LV_SYMBOL_CHARGE, "Antennas", MODE_ANTENNAS},
+    {LV_SYMBOL_FILE, "License Study", MODE_LICENSE_SELECT},
+    {LV_SYMBOL_ENVELOPE, "Summit Chat", MODE_SUMMIT_CHAT}
 };
 #define HAM_TOOLS_COUNT 7
 
 // Bluetooth submenu items
 static const LVMenuItem bluetoothMenuItems[] = {
-    {LV_SYMBOL_KEYBOARD, "HID (Keyboard)", 33},  // MODE_BT_HID
-    {LV_SYMBOL_AUDIO, "MIDI", 34}                // MODE_BT_MIDI
+    {LV_SYMBOL_KEYBOARD, "HID (Keyboard)", MODE_BT_HID},
+    {LV_SYMBOL_AUDIO, "MIDI", MODE_BT_MIDI}
 };
 #define BLUETOOTH_MENU_COUNT 2
 
 // QSO Logger submenu items
 static const LVMenuItem qsoLoggerMenuItems[] = {
-    {LV_SYMBOL_PLUS, "New Log Entry", 37},     // MODE_QSO_LOG_ENTRY
-    {LV_SYMBOL_LIST, "View Logs", 38},         // MODE_QSO_VIEW_LOGS
-    {LV_SYMBOL_IMAGE, "Statistics", 39},       // MODE_QSO_STATISTICS
-    {LV_SYMBOL_SETTINGS, "Logger Settings", 40} // MODE_QSO_LOGGER_SETTINGS
+    {LV_SYMBOL_PLUS, "New Log Entry", MODE_QSO_LOG_ENTRY},
+    {LV_SYMBOL_LIST, "View Logs", MODE_QSO_VIEW_LOGS},
+    {LV_SYMBOL_IMAGE, "Statistics", MODE_QSO_STATISTICS},
+    {LV_SYMBOL_SETTINGS, "Logger Settings", MODE_QSO_LOGGER_SETTINGS}
 };
 #define QSO_LOGGER_COUNT 4
 
@@ -163,112 +164,16 @@ static void menu_item_click_handler(lv_event_t* e) {
 }
 
 // ============================================
-// 2D Grid Navigation Handler
+// 2D Grid Navigation
 // ============================================
-
-// Number of columns in menu grid layout
-static const int MENU_COLUMNS = 2;
 
 // Store menu button references for grid navigation
 #define MAX_MENU_BUTTONS 16
 static lv_obj_t* menu_buttons[MAX_MENU_BUTTONS] = {NULL};
 static int menu_button_count = 0;
 
-/*
- * Custom event handler for FULL 2D grid navigation
- * Intercepts ALL arrow keys to navigate as a proper 2D grid:
- * - UP (LV_KEY_UP or LV_KEY_PREV): Move to same column in previous row
- * - DOWN (LV_KEY_DOWN): Move to same column in next row
- * - LEFT: Move to left column in same row
- * - RIGHT: Move to right column in same row
- * At any edge: does nothing (no wrap)
- * TAB (LV_KEY_NEXT) is blocked from navigating
- */
-static void menu_grid_nav_handler(lv_event_t* e) {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code != LV_EVENT_KEY) return;
-
-    uint32_t key = lv_event_get_key(e);
-
-    // Block TAB key (LV_KEY_NEXT = '\t' = 9) from navigating
-    // TAB should not navigate in menus - only arrow keys
-    if (key == '\t' || key == LV_KEY_NEXT) {
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    // Handle all four arrow keys (support UP/DOWN and PREV for up arrow)
-    if (key != LV_KEY_LEFT && key != LV_KEY_RIGHT &&
-        key != LV_KEY_PREV &&
-        key != LV_KEY_UP && key != LV_KEY_DOWN) return;
-
-    // Always stop propagation to prevent LVGL's default linear navigation
-    lv_event_stop_processing(e);
-
-    if (menu_button_count <= 1) return;
-
-    // Get current focused object
-    lv_obj_t* focused = lv_event_get_target(e);
-    if (!focused) return;
-
-    // Find index of focused object in our button array
-    int focused_idx = -1;
-    for (int i = 0; i < menu_button_count; i++) {
-        if (menu_buttons[i] == focused) {
-            focused_idx = i;
-            break;
-        }
-    }
-    if (focused_idx < 0) return;
-
-    // Calculate grid position
-    int row = focused_idx / MENU_COLUMNS;
-    int col = focused_idx % MENU_COLUMNS;
-    int total_rows = (menu_button_count + MENU_COLUMNS - 1) / MENU_COLUMNS;
-
-    int target_idx = -1;
-
-    if (key == LV_KEY_RIGHT) {
-        // Move right: only if not at rightmost column AND target exists
-        if (col < MENU_COLUMNS - 1) {
-            int potential = focused_idx + 1;
-            if (potential < menu_button_count) {
-                target_idx = potential;
-            }
-        }
-    } else if (key == LV_KEY_LEFT) {
-        // Move left: only if not at leftmost column
-        if (col > 0) {
-            target_idx = focused_idx - 1;
-        }
-    } else if (key == LV_KEY_DOWN) {  // DOWN arrow
-        // Move down: go to same column in next row
-        if (row < total_rows - 1) {
-            int potential = focused_idx + MENU_COLUMNS;
-            if (potential < menu_button_count) {
-                target_idx = potential;
-            } else {
-                // Target column doesn't exist in last row (odd items case)
-                // Jump to last item if we're on the second-to-last row
-                target_idx = menu_button_count - 1;
-            }
-        }
-    } else if (key == LV_KEY_PREV || key == LV_KEY_UP) {  // UP arrow
-        // Move up: go to same column in previous row
-        if (row > 0) {
-            target_idx = focused_idx - MENU_COLUMNS;
-        }
-    }
-
-    // Focus target if valid and scroll into view
-    if (target_idx >= 0 && target_idx < menu_button_count) {
-        lv_obj_t* target = menu_buttons[target_idx];
-        if (target) {
-            lv_group_focus_obj(target);
-            lv_obj_scroll_to_view(target, LV_ANIM_ON);
-        }
-    }
-}
+// Navigation context for menu grid (2 columns)
+static NavGridContext menu_nav_ctx = { menu_buttons, &menu_button_count, 2 };
 
 // ============================================
 // Create Menu Screen
@@ -453,7 +358,7 @@ lv_obj_t* createMenuScreen(const char* title, const LVMenuItem* items, int item_
         lv_obj_add_event_cb(btn, menu_item_click_handler, LV_EVENT_CLICKED, (void*)(intptr_t)items[i].target_mode);
 
         // Add 2D grid navigation handler for all arrow keys
-        lv_obj_add_event_cb(btn, menu_grid_nav_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(btn, grid_nav_handler, LV_EVENT_KEY, &menu_nav_ctx);
 
         // Store button reference for 2D navigation
         menu_buttons[i] = btn;
@@ -624,70 +529,6 @@ lv_obj_t* createComingSoonScreen(const char* feature_name) {
  */
 void setMenuSelectCallback(MenuSelectCallback callback) {
     menu_select_callback = callback;
-}
-
-/*
- * Show a menu screen based on mode
- */
-void showMenuForMode(int mode) {
-    lv_obj_t* screen = NULL;
-
-    switch (mode) {
-        case 0:  // MODE_MAIN_MENU
-            screen = createMainMenuScreen();
-            break;
-        case 64: // MODE_CW_MENU
-            screen = createCWMenuScreen();
-            break;
-        case 1:  // MODE_TRAINING_MENU
-            screen = createTrainingMenuScreen();
-            break;
-        case 34: // MODE_GAMES_MENU
-            screen = createGamesMenuScreen();
-            break;
-        case 40: // MODE_SETTINGS_MENU
-            screen = createSettingsMenuScreen();
-            break;
-        case 41: // MODE_DEVICE_SETTINGS_MENU
-            screen = createDeviceSettingsMenuScreen();
-            break;
-        case 42: // MODE_WIFI_SUBMENU
-            screen = createWiFiSubmenuScreen();
-            break;
-        case 43: // MODE_GENERAL_SUBMENU
-            screen = createGeneralSubmenuScreen();
-            break;
-        case 65: // MODE_HAM_TOOLS_MENU
-            screen = createHamToolsMenuScreen();
-            break;
-        case 51: // MODE_BLUETOOTH_MENU
-            screen = createBluetoothMenuScreen();
-            break;
-        case 55: // MODE_QSO_LOGGER_MENU
-            screen = createQSOLoggerMenuScreen();
-            break;
-        // Placeholder screens
-        case 67: // MODE_BAND_PLANS
-            screen = createComingSoonScreen("BAND PLANS");
-            break;
-        case 68: // MODE_PROPAGATION
-            screen = createComingSoonScreen("PROPAGATION");
-            break;
-        case 69: // MODE_ANTENNAS
-            screen = createComingSoonScreen("ANTENNAS");
-            break;
-        case 74: // MODE_SUMMIT_CHAT
-            screen = createComingSoonScreen("SUMMIT CHAT");
-            break;
-        default:
-            Serial.printf("[MenuScreens] Unknown mode: %d\n", mode);
-            return;
-    }
-
-    if (screen != NULL) {
-        loadScreen(screen, SCREEN_ANIM_FADE);
-        current_menu_screen = screen;
-    }
 }
 
 /*

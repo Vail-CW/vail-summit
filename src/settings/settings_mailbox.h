@@ -9,15 +9,23 @@
 #include <Preferences.h>
 #include <Arduino.h>
 
+// Buffer sizes for fixed-length fields
+#define MAILBOX_DEVICE_ID_LEN 64   // Device ID
+#define MAILBOX_CALLSIGN_LEN 16    // User callsign
+#define MAILBOX_MMID_LEN 16        // Morse Mailbox ID (MM-XXXXX)
+
 // Mailbox settings state
+// Note: idToken and refreshToken are kept as String because JWT tokens
+// can be 500-2000+ bytes and have variable length. Fixed buffers would
+// risk truncation. The short bounded fields use char buffers.
 struct MailboxSettings {
     bool linked = false;
-    String deviceId;
-    String idToken;
-    String refreshToken;
+    char deviceId[MAILBOX_DEVICE_ID_LEN];
+    String idToken;         // JWT token - variable length, kept as String
+    String refreshToken;    // Refresh token - variable length, kept as String
     unsigned long tokenExpiry = 0;  // millis() when token expires
-    String userCallsign;
-    String userMmid;  // Morse Mailbox ID (MM-XXXXX)
+    char userCallsign[MAILBOX_CALLSIGN_LEN];
+    char userMmid[MAILBOX_MMID_LEN];  // Morse Mailbox ID (MM-XXXXX)
 };
 
 static MailboxSettings mailboxSettings;
@@ -28,27 +36,38 @@ void loadMailboxSettings();
 void saveMailboxSettings();
 void clearMailboxCredentials();
 bool isMailboxLinked();
-String getMailboxDeviceId();
-String getMailboxUserCallsign();
-String getMailboxUserMmid();
+const char* getMailboxDeviceId();
+const char* getMailboxUserCallsign();
+const char* getMailboxUserMmid();
 
 // Load mailbox settings from flash
 void loadMailboxSettings() {
     mailboxPrefs.begin("mailbox", true);  // Read-only
 
     mailboxSettings.linked = mailboxPrefs.getBool("linked", false);
-    mailboxSettings.deviceId = mailboxPrefs.getString("device_id", "");
+
+    String val;
+    val = mailboxPrefs.getString("device_id", "");
+    strncpy(mailboxSettings.deviceId, val.c_str(), sizeof(mailboxSettings.deviceId) - 1);
+    mailboxSettings.deviceId[sizeof(mailboxSettings.deviceId) - 1] = '\0';
+
     mailboxSettings.idToken = mailboxPrefs.getString("id_token", "");
     mailboxSettings.refreshToken = mailboxPrefs.getString("refresh_tkn", "");
     mailboxSettings.tokenExpiry = mailboxPrefs.getULong("token_exp", 0);
-    mailboxSettings.userCallsign = mailboxPrefs.getString("callsign", "");
-    mailboxSettings.userMmid = mailboxPrefs.getString("mmid", "");
+
+    val = mailboxPrefs.getString("callsign", "");
+    strncpy(mailboxSettings.userCallsign, val.c_str(), sizeof(mailboxSettings.userCallsign) - 1);
+    mailboxSettings.userCallsign[sizeof(mailboxSettings.userCallsign) - 1] = '\0';
+
+    val = mailboxPrefs.getString("mmid", "");
+    strncpy(mailboxSettings.userMmid, val.c_str(), sizeof(mailboxSettings.userMmid) - 1);
+    mailboxSettings.userMmid[sizeof(mailboxSettings.userMmid) - 1] = '\0';
 
     mailboxPrefs.end();
 
     Serial.printf("[Mailbox] Settings loaded - linked: %s, callsign: %s\n",
                   mailboxSettings.linked ? "yes" : "no",
-                  mailboxSettings.userCallsign.c_str());
+                  mailboxSettings.userCallsign);
 }
 
 // Save mailbox settings to flash
@@ -85,11 +104,14 @@ void saveMailboxTokens(const String& idToken, const String& refreshToken, unsign
 }
 
 // Save device link info (called after successful device linking)
-void saveMailboxDeviceLink(const String& deviceId, const String& callsign, const String& mmid) {
+void saveMailboxDeviceLink(const char* deviceId, const char* callsign, const char* mmid) {
     mailboxSettings.linked = true;
-    mailboxSettings.deviceId = deviceId;
-    mailboxSettings.userCallsign = callsign;
-    mailboxSettings.userMmid = mmid;
+    strncpy(mailboxSettings.deviceId, deviceId, sizeof(mailboxSettings.deviceId) - 1);
+    mailboxSettings.deviceId[sizeof(mailboxSettings.deviceId) - 1] = '\0';
+    strncpy(mailboxSettings.userCallsign, callsign, sizeof(mailboxSettings.userCallsign) - 1);
+    mailboxSettings.userCallsign[sizeof(mailboxSettings.userCallsign) - 1] = '\0';
+    strncpy(mailboxSettings.userMmid, mmid, sizeof(mailboxSettings.userMmid) - 1);
+    mailboxSettings.userMmid[sizeof(mailboxSettings.userMmid) - 1] = '\0';
 
     mailboxPrefs.begin("mailbox", false);
     mailboxPrefs.putBool("linked", true);
@@ -98,18 +120,18 @@ void saveMailboxDeviceLink(const String& deviceId, const String& callsign, const
     mailboxPrefs.putString("mmid", mmid);
     mailboxPrefs.end();
 
-    Serial.printf("[Mailbox] Device linked as %s (%s)\n", callsign.c_str(), mmid.c_str());
+    Serial.printf("[Mailbox] Device linked as %s (%s)\n", callsign, mmid);
 }
 
 // Clear all mailbox credentials (for unlinking)
 void clearMailboxCredentials() {
     mailboxSettings.linked = false;
-    mailboxSettings.deviceId = "";
+    mailboxSettings.deviceId[0] = '\0';
     mailboxSettings.idToken = "";
     mailboxSettings.refreshToken = "";
     mailboxSettings.tokenExpiry = 0;
-    mailboxSettings.userCallsign = "";
-    mailboxSettings.userMmid = "";
+    mailboxSettings.userCallsign[0] = '\0';
+    mailboxSettings.userMmid[0] = '\0';
 
     mailboxPrefs.begin("mailbox", false);
     mailboxPrefs.clear();
@@ -120,7 +142,7 @@ void clearMailboxCredentials() {
 
 // Check if device is linked to a Morse Mailbox account
 bool isMailboxLinked() {
-    return mailboxSettings.linked && mailboxSettings.deviceId.length() > 0;
+    return mailboxSettings.linked && strlen(mailboxSettings.deviceId) > 0;
 }
 
 // Check if token needs refresh (expired or expiring soon)
@@ -140,17 +162,17 @@ String getMailboxRefreshToken() {
 }
 
 // Get device ID
-String getMailboxDeviceId() {
+const char* getMailboxDeviceId() {
     return mailboxSettings.deviceId;
 }
 
 // Get user's callsign
-String getMailboxUserCallsign() {
+const char* getMailboxUserCallsign() {
     return mailboxSettings.userCallsign;
 }
 
 // Get user's Morse Mailbox ID
-String getMailboxUserMmid() {
+const char* getMailboxUserMmid() {
     return mailboxSettings.userMmid;
 }
 

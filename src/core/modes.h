@@ -1,0 +1,203 @@
+/*
+ * VAIL SUMMIT - Unified Mode Constants
+ * Single source of truth for all mode/screen identifiers.
+ *
+ * Previously maintained in three places:
+ *   1. MenuMode enum in src/ui/menu_ui.h
+ *   2. LVGL_MODE_* #defines in src/lvgl/lv_mode_integration.h
+ *   3. Hardcoded integers in menu item arrays
+ *
+ * All mode references across the codebase should use these enum values.
+ */
+
+#ifndef MODES_H
+#define MODES_H
+
+enum MenuMode {
+    // Core menus (0-5)
+    MODE_MAIN_MENU = 0,
+    MODE_TRAINING_MENU = 1,
+    MODE_HEAR_IT_MENU = 2,
+    MODE_HEAR_IT_TYPE_IT = 3,
+    MODE_HEAR_IT_CONFIGURE = 4,
+    MODE_HEAR_IT_START = 5,
+
+    // Practice and CW Academy (6-14)
+    MODE_PRACTICE = 6,
+    // 7 reserved (was MODE_KOCH_METHOD)
+    MODE_CW_ACADEMY_TRACK_SELECT = 8,
+    MODE_CW_ACADEMY_SESSION_SELECT = 9,
+    MODE_CW_ACADEMY_PRACTICE_TYPE_SELECT = 10,
+    MODE_CW_ACADEMY_MESSAGE_TYPE_SELECT = 11,
+    MODE_CW_ACADEMY_COPY_PRACTICE = 12,
+    MODE_CW_ACADEMY_SENDING_PRACTICE = 13,
+    MODE_CW_ACADEMY_QSO_PRACTICE = 14,
+
+    // Games (15-17)
+    MODE_GAMES_MENU = 15,
+    MODE_MORSE_SHOOTER = 16,
+    MODE_MORSE_MEMORY = 17,
+
+    // Radio (18-20)
+    // 18 reserved (was MODE_RADIO_MENU)
+    MODE_RADIO_OUTPUT = 19,
+    MODE_CW_MEMORIES = 20,
+
+    // Settings (21-30)
+    MODE_SETTINGS_MENU = 21,
+    MODE_DEVICE_SETTINGS_MENU = 22,
+    MODE_WIFI_SUBMENU = 23,
+    MODE_GENERAL_SUBMENU = 24,
+    MODE_WIFI_SETTINGS = 25,
+    MODE_CW_SETTINGS = 26,
+    MODE_VOLUME_SETTINGS = 27,
+    MODE_BRIGHTNESS_SETTINGS = 28,
+    MODE_CALLSIGN_SETTINGS = 29,
+    MODE_WEB_PASSWORD_SETTINGS = 30,
+
+    // Network and Bluetooth (31-34)
+    MODE_VAIL_REPEATER = 31,
+    MODE_BLUETOOTH_MENU = 32,
+    MODE_BT_HID = 33,
+    MODE_BT_MIDI = 34,
+
+    // Tools and QSO Logger (35-40)
+    // 35 reserved (was MODE_TOOLS_MENU)
+    MODE_QSO_LOGGER_MENU = 36,
+    MODE_QSO_LOG_ENTRY = 37,
+    MODE_QSO_VIEW_LOGS = 38,
+    MODE_QSO_STATISTICS = 39,
+    MODE_QSO_LOGGER_SETTINGS = 40,
+
+    // Web modes (41-43)
+    MODE_WEB_PRACTICE = 41,
+    MODE_WEB_MEMORY_CHAIN = 42,
+    MODE_WEB_HEAR_IT = 43,
+
+    // CW and Ham Tools menus (44-45)
+    MODE_CW_MENU = 44,
+    MODE_HAM_TOOLS_MENU = 45,
+
+    // Ham Tools features (46-53)
+    MODE_BAND_PLANS = 46,
+    MODE_PROPAGATION = 47,
+    MODE_ANTENNAS = 48,
+    // 49 reserved (was MODE_LICENSE_STUDY)
+    MODE_LICENSE_SELECT = 50,
+    MODE_LICENSE_QUIZ = 51,
+    MODE_LICENSE_STATS = 52,
+    MODE_SUMMIT_CHAT = 53,
+
+    // Device Bluetooth submenu (54-55)
+    MODE_DEVICE_BT_SUBMENU = 54,
+    MODE_BT_KEYBOARD_SETTINGS = 55,
+
+    // License study extended modes (56-58)
+    MODE_LICENSE_DOWNLOAD = 56,
+    MODE_LICENSE_WIFI_ERROR = 57,
+    MODE_LICENSE_SD_ERROR = 58,
+
+    // Additional settings (59-61)
+    MODE_THEME_SETTINGS = 59,
+    MODE_LICENSE_ALL_STATS = 60,
+    MODE_SYSTEM_INFO = 61,
+
+    // POTA modes (62-66)
+    MODE_POTA_MENU = 62,
+    MODE_POTA_ACTIVE_SPOTS = 63,
+    MODE_POTA_SPOT_DETAIL = 64,
+    MODE_POTA_FILTERS = 65,
+    MODE_POTA_ACTIVATE = 66,
+
+    // 67-69 reserved (was Koch Method sub-modes)
+
+    // Vail Master modes (70-74)
+    MODE_VAIL_MASTER = 70,
+    MODE_VAIL_MASTER_PRACTICE = 71,
+    MODE_VAIL_MASTER_SETTINGS = 72,
+    MODE_VAIL_MASTER_HISTORY = 73,
+    MODE_VAIL_MASTER_CHARSET = 74,
+
+    // 75-77 reserved (was Koch Method additional sub-modes)
+
+    // Spark Watch game modes (78-88)
+    MODE_SPARK_WATCH = 78,
+    MODE_SPARK_WATCH_DIFFICULTY = 79,
+    MODE_SPARK_WATCH_CAMPAIGN = 80,
+    MODE_SPARK_WATCH_MISSION = 81,
+    MODE_SPARK_WATCH_CHALLENGE = 82,
+    MODE_SPARK_WATCH_BRIEFING = 83,
+    MODE_SPARK_WATCH_GAMEPLAY = 84,
+    MODE_SPARK_WATCH_RESULTS = 85,
+    MODE_SPARK_WATCH_DEBRIEFING = 86,
+    MODE_SPARK_WATCH_SETTINGS = 87,
+    MODE_SPARK_WATCH_STATS = 88,
+
+    // Story Time game modes (89-96)
+    MODE_STORY_TIME = 89,
+    MODE_STORY_TIME_DIFFICULTY = 90,
+    MODE_STORY_TIME_LIST = 91,
+    MODE_STORY_TIME_LISTEN = 92,
+    MODE_STORY_TIME_QUIZ = 93,
+    MODE_STORY_TIME_RESULTS = 94,
+    MODE_STORY_TIME_PROGRESS = 95,
+    MODE_STORY_TIME_SETTINGS = 96,
+
+    // Web Files update mode (97)
+    MODE_WEB_FILES_UPDATE = 97,
+
+    // LICW Training modes (120-133)
+    MODE_LICW_CAROUSEL_SELECT = 120,
+    MODE_LICW_LESSON_SELECT = 121,
+    MODE_LICW_PRACTICE_TYPE = 122,
+    MODE_LICW_COPY_PRACTICE = 123,
+    MODE_LICW_SEND_PRACTICE = 124,
+    MODE_LICW_TTR_PRACTICE = 125,
+    MODE_LICW_IFR_PRACTICE = 126,
+    MODE_LICW_CSF_INTRO = 127,
+    MODE_LICW_WORD_DISCOVERY = 128,
+    MODE_LICW_QSO_PRACTICE = 129,
+    MODE_LICW_SETTINGS = 130,
+    MODE_LICW_PROGRESS = 131,
+    MODE_LICW_CFP_PRACTICE = 132,
+    MODE_LICW_ADVERSE_COPY = 133,
+
+    // CW Speeder game modes (134-135)
+    MODE_CW_SPEEDER_SELECT = 134,
+    MODE_CW_SPEEDER = 135,
+
+    // POTA Recorder modes (136-137)
+    MODE_POTA_RECORDER = 136,
+    MODE_POTA_RECORDER_SETUP = 137,
+
+    // Morse Mailbox modes (140-145)
+    MODE_MORSE_MAILBOX = 140,
+    MODE_MORSE_MAILBOX_LINK = 141,
+    MODE_MORSE_MAILBOX_INBOX = 142,
+    MODE_MORSE_MAILBOX_PLAYBACK = 143,
+    MODE_MORSE_MAILBOX_COMPOSE = 144,
+    MODE_MORSE_MAILBOX_ACCOUNT = 145,
+
+    // CW School modes (150-154)
+    MODE_CWSCHOOL = 150,
+    MODE_CWSCHOOL_LINK = 151,
+    MODE_CWSCHOOL_ACCOUNT = 152,
+    MODE_CWSCHOOL_TRAINING = 153,
+    MODE_CWSCHOOL_PROGRESS = 154,
+
+    // Vail Course training modes (160-163)
+    MODE_VAIL_COURSE_MODULE_SELECT = 160,
+    MODE_VAIL_COURSE_LESSON_SELECT = 161,
+    MODE_VAIL_COURSE_LESSON = 162,
+    MODE_VAIL_COURSE_PROGRESS = 163,
+
+    // Morse Notes modes (165-168)
+    MODE_MORSE_NOTES_LIBRARY = 165,
+    MODE_MORSE_NOTES_RECORD = 166,
+    MODE_MORSE_NOTES_PLAYBACK = 167,
+    MODE_MORSE_NOTES_SETTINGS = 168
+};
+
+extern MenuMode currentMode;
+
+#endif // MODES_H

@@ -11,6 +11,7 @@
 #include "lv_widgets_summit.h"
 #include "lv_screen_manager.h"
 #include "../core/config.h"
+#include "../core/modes.h"
 #include "../settings/settings_cw.h"  // For KeyType enum and cwKeyType/cwSpeed/cwTone
 #include "lv_spark_watch_screens.h"   // Spark Watch game screens
 
@@ -1338,30 +1339,30 @@ lv_obj_t* createGameOverOverlay(lv_obj_t* parent, int final_score, bool is_high_
 
 lv_obj_t* createGameScreenForMode(int mode) {
     switch (mode) {
-        case 16: // MODE_MORSE_SHOOTER
+        case MODE_MORSE_SHOOTER:
             // Show settings screen first, game starts when user presses START
             return createMorseShooterSettingsScreen();
-        case 17: // MODE_MORSE_MEMORY
+        case MODE_MORSE_MEMORY:
             return createMemoryChainScreen();
 
-        // Spark Watch game modes (78-88)
-        case 78: // LVGL_MODE_SPARK_WATCH
-        case 79: // LVGL_MODE_SPARK_WATCH_DIFFICULTY
-        case 80: // LVGL_MODE_SPARK_WATCH_CAMPAIGN
-        case 81: // LVGL_MODE_SPARK_WATCH_MISSION
-        case 82: // LVGL_MODE_SPARK_WATCH_CHALLENGE
-        case 83: // LVGL_MODE_SPARK_WATCH_BRIEFING
-        case 84: // LVGL_MODE_SPARK_WATCH_GAMEPLAY
-        case 85: // LVGL_MODE_SPARK_WATCH_RESULTS
-        case 86: // LVGL_MODE_SPARK_WATCH_DEBRIEFING
-        case 87: // LVGL_MODE_SPARK_WATCH_SETTINGS
-        case 88: // LVGL_MODE_SPARK_WATCH_STATS
+        // Spark Watch game modes
+        case MODE_SPARK_WATCH:
+        case MODE_SPARK_WATCH_DIFFICULTY:
+        case MODE_SPARK_WATCH_CAMPAIGN:
+        case MODE_SPARK_WATCH_MISSION:
+        case MODE_SPARK_WATCH_CHALLENGE:
+        case MODE_SPARK_WATCH_BRIEFING:
+        case MODE_SPARK_WATCH_GAMEPLAY:
+        case MODE_SPARK_WATCH_RESULTS:
+        case MODE_SPARK_WATCH_DEBRIEFING:
+        case MODE_SPARK_WATCH_SETTINGS:
+        case MODE_SPARK_WATCH_STATS:
             return createSparkWatchScreenForMode(mode);
 
-        // CW Speeder game modes (134-135)
-        case 134: // LVGL_MODE_CW_SPEEDER_SELECT
+        // CW Speeder game modes
+        case MODE_CW_SPEEDER_SELECT:
             return createCWSpeedSelectScreen();
-        case 135: // LVGL_MODE_CW_SPEEDER
+        case MODE_CW_SPEEDER:
             return createCWSpeedGameScreen();
 
         default:

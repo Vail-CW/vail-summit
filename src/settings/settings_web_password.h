@@ -10,6 +10,9 @@
 #include <Preferences.h>
 #include "../core/config.h"
 
+// Buffer sizes
+#define WEB_PASSWORD_MAX_LEN 17  // 16 chars + null terminator
+
 // Password settings state
 enum PasswordState {
   PASSWORD_STATE_NORMAL,
@@ -17,14 +20,14 @@ enum PasswordState {
 };
 
 // Password settings globals
-String webPasswordInput = "";
+char webPasswordInput[WEB_PASSWORD_MAX_LEN] = "";
 unsigned long passwordLastBlink = 0;
 bool passwordCursorVisible = true;
 Preferences webPasswordPrefs;
 PasswordState passwordState = PASSWORD_STATE_NORMAL;
 
 // Global password state (used by web_server.h)
-String webPassword = "";
+char webPassword[WEB_PASSWORD_MAX_LEN] = "";
 bool webAuthEnabled = false;
 
 // LVGL mode flag - when true, skip legacy draw functions (LVGL handles display)
@@ -34,14 +37,14 @@ bool webPasswordUseLVGL = true;  // Default to LVGL mode
 void startWebPasswordSettings(LGFX &display);
 void drawWebPasswordUI(LGFX &display);
 int handleWebPasswordInput(char key, LGFX &display);
-void saveWebPassword(String password);
-bool loadWebPassword(String &password);
+void saveWebPassword(const char* password);
+bool loadWebPassword(char* password, size_t len);
 void clearWebPassword();
 
 // Start web password settings mode
 void startWebPasswordSettings(LGFX &display) {
   // Start with empty input (no need to show current password)
-  webPasswordInput = "";
+  webPasswordInput[0] = '\0';
   passwordState = PASSWORD_STATE_NORMAL;
 
   passwordCursorVisible = true;
@@ -63,31 +66,31 @@ void drawWebPasswordUI(LGFX &display) {
 
   int16_t x1, y1;
   uint16_t w, h;
-  String title = "Web Password";
-  getTextBounds_compat(display, title.c_str(), 0, 0, &x1, &y1, &w, &h);
+  const char* title = "Web Password";
+  getTextBounds_compat(display, title, 0, 0, &x1, &y1, &w, &h);
   display.setCursor((SCREEN_WIDTH - w) / 2, 65);
   display.print(title);
   display.setFont(nullptr); // Reset font
 
   // Current status
   display.setTextSize(1);
-  if (webAuthEnabled && webPassword.length() > 0) {
+  if (webAuthEnabled && strlen(webPassword) > 0) {
     display.setTextColor(ST77XX_GREEN);
-    String status = "Status: ENABLED";
-    display.setCursor((SCREEN_WIDTH - status.length() * 6) / 2, 85);
+    const char* status = "Status: ENABLED";
+    display.setCursor((SCREEN_WIDTH - strlen(status) * 6) / 2, 85);
     display.print(status);
   } else {
     display.setTextColor(COLOR_WARNING);
-    String status = "Status: DISABLED";
-    display.setCursor((SCREEN_WIDTH - status.length() * 6) / 2, 85);
+    const char* status = "Status: DISABLED";
+    display.setCursor((SCREEN_WIDTH - strlen(status) * 6) / 2, 85);
     display.print(status);
   }
 
   // Instructions
   display.setTextSize(1);
   display.setTextColor(0x7BEF); // Light gray
-  String prompt = "Enter new password (8-16 chars)";
-  display.setCursor((SCREEN_WIDTH - prompt.length() * 6) / 2, 105);
+  const char* prompt = "Enter new password (8-16 chars)";
+  display.setCursor((SCREEN_WIDTH - strlen(prompt) * 6) / 2, 105);
   display.print(prompt);
 
   // Input box
@@ -104,12 +107,14 @@ void drawWebPasswordUI(LGFX &display) {
   display.setTextColor(ST77XX_WHITE);
   display.setTextSize(1);
 
-  String maskedPassword = "";
-  for (unsigned int i = 0; i < webPasswordInput.length(); i++) {
-    maskedPassword += "*";
+  size_t inputLen = strlen(webPasswordInput);
+  char maskedPassword[WEB_PASSWORD_MAX_LEN];
+  for (size_t i = 0; i < inputLen && i < sizeof(maskedPassword) - 1; i++) {
+    maskedPassword[i] = '*';
   }
+  maskedPassword[inputLen < sizeof(maskedPassword) - 1 ? inputLen : sizeof(maskedPassword) - 1] = '\0';
 
-  getTextBounds_compat(display, maskedPassword.c_str(), 0, 0, &x1, &y1, &w, &h);
+  getTextBounds_compat(display, maskedPassword, 0, 0, &x1, &y1, &w, &h);
   int textX = boxX + 15;
   int textY = boxY + (boxH / 2) + (h / 2) + 5;
   display.setCursor(textX, textY);
@@ -128,35 +133,35 @@ void drawWebPasswordUI(LGFX &display) {
   // Username hint
   display.setTextSize(1);
   display.setTextColor(0x7BEF); // Light gray
-  String usernameHint = "Username: admin";
-  display.setCursor((SCREEN_WIDTH - usernameHint.length() * 6) / 2, 195);
+  const char* usernameHint = "Username: admin";
+  display.setCursor((SCREEN_WIDTH - strlen(usernameHint) * 6) / 2, 195);
   display.print(usernameHint);
 
   // Footer with controls
   display.setTextSize(1);
   display.setTextColor(COLOR_WARNING);
-  String footerText = "ENTER Save";
+  const char* footerText = "ENTER Save";
   display.setCursor(40, SCREEN_HEIGHT - 15);
   display.print(footerText);
 
   display.setTextColor(ST77XX_RED);
-  String clearText = "DEL Disable";
+  const char* clearText = "DEL Disable";
   display.setCursor(130, SCREEN_HEIGHT - 15);
   display.print(clearText);
 
   display.setTextColor(0x7BEF);
-  String escText = "ESC Cancel";
+  const char* escText = "ESC Cancel";
   display.setCursor(230, SCREEN_HEIGHT - 15);
   display.print(escText);
 
   // Password strength indicator
-  if (webPasswordInput.length() > 0) {
+  if (inputLen > 0) {
     int strength = 0;
-    if (webPasswordInput.length() >= 8) strength++;
-    if (webPasswordInput.length() >= 12) strength++;
+    if (inputLen >= 8) strength++;
+    if (inputLen >= 12) strength++;
 
     bool hasUpper = false, hasLower = false, hasDigit = false;
-    for (unsigned int i = 0; i < webPasswordInput.length(); i++) {
+    for (size_t i = 0; i < inputLen; i++) {
       if (isupper(webPasswordInput[i])) hasUpper = true;
       if (islower(webPasswordInput[i])) hasLower = true;
       if (isdigit(webPasswordInput[i])) hasDigit = true;
@@ -165,7 +170,7 @@ void drawWebPasswordUI(LGFX &display) {
     if (hasDigit) strength++;
 
     uint16_t strengthColor;
-    String strengthText;
+    const char* strengthText;
     if (strength <= 1) {
       strengthColor = ST77XX_RED;
       strengthText = "Weak";
@@ -182,7 +187,7 @@ void drawWebPasswordUI(LGFX &display) {
 
     display.setTextSize(1);
     display.setTextColor(strengthColor);
-    display.setCursor((SCREEN_WIDTH - strengthText.length() * 6) / 2, 180);
+    display.setCursor((SCREEN_WIDTH - strlen(strengthText) * 6) / 2, 180);
     display.print(strengthText);
   }
 }
@@ -194,7 +199,7 @@ int handleWebPasswordInput(char key, LGFX &display) {
     if (key == KEY_ENTER || key == KEY_ENTER_ALT) {
       // Confirm disable
       clearWebPassword();
-      webPassword = "";
+      webPassword[0] = '\0';
       webAuthEnabled = false;
       beep(TONE_SELECT, BEEP_MEDIUM);
 
@@ -228,10 +233,12 @@ int handleWebPasswordInput(char key, LGFX &display) {
     drawWebPasswordUI(display);
   }
 
+  size_t inputLen = strlen(webPasswordInput);
+
   if (key == KEY_BACKSPACE || key == 0x7F) {
     // Backspace or DEL key - remove last character
-    if (webPasswordInput.length() > 0) {
-      webPasswordInput.remove(webPasswordInput.length() - 1);
+    if (inputLen > 0) {
+      webPasswordInput[inputLen - 1] = '\0';
       passwordCursorVisible = true;
       passwordLastBlink = millis();
       drawWebPasswordUI(display);
@@ -240,7 +247,7 @@ int handleWebPasswordInput(char key, LGFX &display) {
   }
   else if (key == KEY_ENTER || key == KEY_ENTER_ALT) {
     // Save password or show disable confirmation if empty
-    if (webPasswordInput.length() == 0) {
+    if (inputLen == 0) {
       // Empty password - show disable confirmation
       passwordState = PASSWORD_STATE_CONFIRM_DISABLE;
       beep(TONE_MENU_NAV, BEEP_SHORT);
@@ -260,10 +267,11 @@ int handleWebPasswordInput(char key, LGFX &display) {
 
       return 0;
     }
-    else if (webPasswordInput.length() >= 8 && webPasswordInput.length() <= 16) {
+    else if (inputLen >= 8 && inputLen <= 16) {
       // Valid password length - save it
       saveWebPassword(webPasswordInput);
-      webPassword = webPasswordInput;
+      strncpy(webPassword, webPasswordInput, sizeof(webPassword) - 1);
+      webPassword[sizeof(webPassword) - 1] = '\0';
       webAuthEnabled = true;
       beep(TONE_SELECT, BEEP_MEDIUM);
 
@@ -296,8 +304,8 @@ int handleWebPasswordInput(char key, LGFX &display) {
       display.fillRect(0, 185, SCREEN_WIDTH, 20, COLOR_BACKGROUND);
       display.setTextSize(1);
       display.setTextColor(ST77XX_RED);
-      String errorMsg = "Must be 8-16 characters";
-      display.setCursor((SCREEN_WIDTH - errorMsg.length() * 6) / 2, 195);
+      const char* errorMsg = "Must be 8-16 characters";
+      display.setCursor((SCREEN_WIDTH - strlen(errorMsg) * 6) / 2, 195);
       display.print(errorMsg);
       delay(1500);
       drawWebPasswordUI(display);
@@ -309,10 +317,11 @@ int handleWebPasswordInput(char key, LGFX &display) {
     beep(TONE_MENU_NAV, BEEP_SHORT);
     return -1;  // Exit settings
   }
-  else if (key >= 32 && key <= 126 && webPasswordInput.length() < 16) {
+  else if (key >= 32 && key <= 126 && inputLen < 16) {
     // Add printable character (max 16 chars for password)
     // Accept alphanumeric and special characters
-    webPasswordInput += key;
+    webPasswordInput[inputLen] = key;
+    webPasswordInput[inputLen + 1] = '\0';
     passwordCursorVisible = true;
     passwordLastBlink = millis();
     beep(TONE_MENU_NAV, BEEP_SHORT);
@@ -324,8 +333,8 @@ int handleWebPasswordInput(char key, LGFX &display) {
 }
 
 // Save web password to flash memory
-void saveWebPassword(String password) {
-  Serial.printf("[WebPW] Saving password: '%s' (len=%d)\n", password.c_str(), password.length());
+void saveWebPassword(const char* password) {
+  Serial.printf("[WebPW] Saving password: '%s' (len=%d)\n", password, strlen(password));
   webPasswordPrefs.begin("webpw", false);
   webPasswordPrefs.putString("pw", password);
   webPasswordPrefs.putBool("enabled", true);
@@ -345,25 +354,29 @@ void clearWebPassword() {
 }
 
 // Load web password from flash memory
-bool loadWebPassword(String &password) {
+bool loadWebPassword(char* password, size_t len) {
   webPasswordPrefs.begin("webpw", true);
   bool enabled = webPasswordPrefs.getBool("enabled", false);
-  password = webPasswordPrefs.getString("pw", "");
+  String val = webPasswordPrefs.getString("pw", "");
   webPasswordPrefs.end();
 
-  return (enabled && password.length() > 0);
+  strncpy(password, val.c_str(), len - 1);
+  password[len - 1] = '\0';
+
+  return (enabled && strlen(password) > 0);
 }
 
 // Load web password on startup (call from setup())
 void loadSavedWebPassword() {
-  String savedPassword;
-  if (loadWebPassword(savedPassword)) {
-    webPassword = savedPassword;
+  char savedPassword[WEB_PASSWORD_MAX_LEN];
+  if (loadWebPassword(savedPassword, sizeof(savedPassword))) {
+    strncpy(webPassword, savedPassword, sizeof(webPassword) - 1);
+    webPassword[sizeof(webPassword) - 1] = '\0';
     webAuthEnabled = true;
-    Serial.printf("[WebPW] Loaded password: '%s' (len=%d)\n", savedPassword.c_str(), savedPassword.length());
+    Serial.printf("[WebPW] Loaded password: '%s' (len=%d)\n", savedPassword, strlen(savedPassword));
     Serial.println("[WebPW] Web password protection enabled");
   } else {
-    webPassword = "";
+    webPassword[0] = '\0';
     webAuthEnabled = false;
     Serial.println("[WebPW] Web password protection disabled (no saved password)");
   }

@@ -78,15 +78,15 @@ void cleanupMemoryChainWebSocket();
  */
 bool checkWebAuth(AsyncWebServerRequest *request) {
   // If auth is disabled, allow all requests
-  if (!webAuthEnabled || webPassword.length() == 0) {
+  if (!webAuthEnabled || strlen(webPassword) == 0) {
     Serial.println("[WebAuth] Auth disabled or no password set");
     return true;
   }
 
-  Serial.printf("[WebAuth] Checking auth with password: '%s' (len=%d)\n", webPassword.c_str(), webPassword.length());
+  Serial.printf("[WebAuth] Checking auth with password: '%s' (len=%d)\n", webPassword, strlen(webPassword));
 
   // Check for HTTP Basic Auth header
-  if (!request->authenticate("admin", webPassword.c_str())) {
+  if (!request->authenticate("admin", webPassword)) {
     Serial.println("[WebAuth] Authentication failed!");
     request->requestAuthentication();
     return false;
@@ -264,10 +264,10 @@ void setupWebServer() {
 
     // Serve static files from SD card /www/ directory
     // Add authentication if password is enabled
-    if (webAuthEnabled && webPassword.length() > 0) {
+    if (webAuthEnabled && strlen(webPassword) > 0) {
       webServer.serveStatic("/", SD, "/www/")
         .setDefaultFile("index.html")
-        .setAuthentication("admin", webPassword.c_str());
+        .setAuthentication("admin", webPassword);
     } else {
       webServer.serveStatic("/", SD, "/www/").setDefaultFile("index.html");
     }

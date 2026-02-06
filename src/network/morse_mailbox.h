@@ -437,7 +437,7 @@ int checkDeviceCode() {
                 mailboxLinkState = MAILBOX_LINK_EXCHANGING_TOKEN;
 
                 if (exchangeCustomToken(pendingCustomToken)) {
-                    saveMailboxDeviceLink(deviceId, callsign, mmid);
+                    saveMailboxDeviceLink(deviceId.c_str(), callsign.c_str(), mmid.c_str());
                     mailboxLinkState = MAILBOX_LINK_SUCCESS;
                     linkCode = "";  // Clear code
                     Serial.println("[Mailbox] Link SUCCESS!");

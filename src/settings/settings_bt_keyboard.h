@@ -38,6 +38,19 @@ void drawBTKBConnectingScreen(LGFX &display);
 void drawBTKBForgetConfirm(LGFX &display);
 void updateBTKeyboardSettingsUI(LGFX &display);
 
+// Helper: truncate a string into a char buffer with ellipsis
+static void truncateStr(char* dest, size_t destSize, const char* src, int maxChars) {
+  size_t srcLen = strlen(src);
+  if ((int)srcLen > maxChars && maxChars > 3) {
+    strncpy(dest, src, maxChars - 3);
+    dest[maxChars - 3] = '\0';
+    strncat(dest, "...", destSize - strlen(dest) - 1);
+  } else {
+    strncpy(dest, src, destSize - 1);
+    dest[destSize - 1] = '\0';
+  }
+}
+
 // Start Bluetooth keyboard settings mode
 void startBTKeyboardSettings(LGFX &display) {
   Serial.println("Starting BT Keyboard Settings");
@@ -150,11 +163,9 @@ void drawBTKBStatusScreen(LGFX &display) {
   display.setCursor(cardX + 15, yPos);
 
   if (bleKBHost.pairedDevice.valid) {
-    String name = bleKBHost.pairedDevice.name;
-    if (name.length() > 20) {
-      name = name.substring(0, 17) + "...";
-    }
-    display.print(name);
+    char nameBuf[24];
+    truncateStr(nameBuf, sizeof(nameBuf), bleKBHost.pairedDevice.name, 20);
+    display.print(nameBuf);
   } else {
     display.setTextColor(0x7BEF);
     display.print("None");
@@ -201,8 +212,8 @@ void drawBTKBStatusScreen(LGFX &display) {
   display.setTextColor(ST77XX_YELLOW);
   int16_t x1, y1;
   uint16_t w, h;
-  String footerText = "ESC Back";
-  getTextBounds_compat(display, footerText.c_str(), 0, 0, &x1, &y1, &w, &h);
+  const char* footerText = "ESC Back";
+  getTextBounds_compat(display, footerText, 0, 0, &x1, &y1, &w, &h);
   display.setCursor((SCREEN_WIDTH - w) / 2, SCREEN_HEIGHT - 12);
   display.print(footerText);
 }
@@ -245,15 +256,16 @@ void drawBTKBScanningScreen(LGFX &display) {
   // Found count
   display.setTextSize(1);
   display.setTextColor(0x7BEF);
-  String foundText = "Found: " + String(bleKBHost.foundCount) + " devices";
-  getTextBounds_compat(display, foundText.c_str(), 0, 0, &x1, &y1, &w, &h);
+  char foundText[32];
+  snprintf(foundText, sizeof(foundText), "Found: %d devices", bleKBHost.foundCount);
+  getTextBounds_compat(display, foundText, 0, 0, &x1, &y1, &w, &h);
   display.setCursor((SCREEN_WIDTH - w) / 2, cardY + 85);
   display.print(foundText);
 
   // Footer
   display.setTextColor(ST77XX_YELLOW);
-  String footerText = "Press ESC to cancel";
-  getTextBounds_compat(display, footerText.c_str(), 0, 0, &x1, &y1, &w, &h);
+  const char* footerText = "Press ESC to cancel";
+  getTextBounds_compat(display, footerText, 0, 0, &x1, &y1, &w, &h);
   display.setCursor((SCREEN_WIDTH - w) / 2, SCREEN_HEIGHT - 12);
   display.print(footerText);
 }
@@ -283,8 +295,8 @@ void drawBTKBDeviceList(LGFX &display) {
     display.print("Put keyboard in pairing mode");
 
     display.setTextColor(ST77XX_YELLOW);
-    String footerText = "S = Scan again   ESC = Back";
-    getTextBounds_compat(display, footerText.c_str(), 0, 0, &x1, &y1, &w, &h);
+    const char* footerText = "S = Scan again   ESC = Back";
+    getTextBounds_compat(display, footerText, 0, 0, &x1, &y1, &w, &h);
     display.setCursor((SCREEN_WIDTH - w) / 2, SCREEN_HEIGHT - 12);
     display.print(footerText);
     return;
@@ -328,11 +340,9 @@ void drawBTKBDeviceList(LGFX &display) {
     display.setTextColor(isSelected ? ST77XX_WHITE : ST77XX_CYAN);
     display.setCursor(25, itemY + 8);
 
-    String name = bleKBHost.foundDevices[deviceIndex].name;
-    if (name.length() > 22) {
-      name = name.substring(0, 19) + "...";
-    }
-    display.print(name);
+    char nameBuf[24];
+    truncateStr(nameBuf, sizeof(nameBuf), bleKBHost.foundDevices[deviceIndex].name.c_str(), 22);
+    display.print(nameBuf);
 
     // RSSI indicator
     display.setTextSize(1);
@@ -372,8 +382,8 @@ void drawBTKBDeviceList(LGFX &display) {
   display.setTextColor(ST77XX_YELLOW);
   int16_t x1, y1;
   uint16_t w, h;
-  String footerText = "\x18\x19 Select   ENTER Connect   ESC Back";
-  getTextBounds_compat(display, footerText.c_str(), 0, 0, &x1, &y1, &w, &h);
+  const char* footerText = "\x18\x19 Select   ENTER Connect   ESC Back";
+  getTextBounds_compat(display, footerText, 0, 0, &x1, &y1, &w, &h);
   display.setCursor((SCREEN_WIDTH - w) / 2, SCREEN_HEIGHT - 12);
   display.print(footerText);
 }
@@ -406,17 +416,17 @@ void drawBTKBConnectingScreen(LGFX &display) {
   display.setTextSize(2);
   display.setTextColor(ST77XX_WHITE);
 
-  String name = "Unknown";
+  char nameBuf[24];
   if (btkbSelectedDevice >= 0 && btkbSelectedDevice < bleKBHost.foundCount) {
-    name = bleKBHost.foundDevices[btkbSelectedDevice].name;
-    if (name.length() > 18) {
-      name = name.substring(0, 15) + "...";
-    }
+    truncateStr(nameBuf, sizeof(nameBuf), bleKBHost.foundDevices[btkbSelectedDevice].name.c_str(), 18);
+  } else {
+    strncpy(nameBuf, "Unknown", sizeof(nameBuf) - 1);
+    nameBuf[sizeof(nameBuf) - 1] = '\0';
   }
-  getTextBounds_compat(display, name.c_str(), 0, 0, &x1, &y1, &w, &h);
+  getTextBounds_compat(display, nameBuf, 0, 0, &x1, &y1, &w, &h);
   centerX = (SCREEN_WIDTH - w) / 2;
   display.setCursor(centerX, cardY + 70);
-  display.print(name);
+  display.print(nameBuf);
 
   // Animated dots
   int dots = ((millis() / 500) % 4);
@@ -456,20 +466,18 @@ void drawBTKBForgetConfirm(LGFX &display) {
   display.setTextSize(2);
   display.setTextColor(ST77XX_WHITE);
 
-  String name = bleKBHost.pairedDevice.name;
-  if (name.length() > 18) {
-    name = name.substring(0, 15) + "...";
-  }
-  getTextBounds_compat(display, name.c_str(), 0, 0, &x1, &y1, &w, &h);
+  char nameBuf[24];
+  truncateStr(nameBuf, sizeof(nameBuf), bleKBHost.pairedDevice.name, 18);
+  getTextBounds_compat(display, nameBuf, 0, 0, &x1, &y1, &w, &h);
   centerX = (SCREEN_WIDTH - w) / 2;
   display.setCursor(centerX, cardY + 70);
-  display.print(name);
+  display.print(nameBuf);
 
   // Buttons
   display.setTextSize(1);
   display.setTextColor(ST77XX_YELLOW);
-  String footerText = "Y = Yes, Forget   N/ESC = Cancel";
-  getTextBounds_compat(display, footerText.c_str(), 0, 0, &x1, &y1, &w, &h);
+  const char* footerText = "Y = Yes, Forget   N/ESC = Cancel";
+  getTextBounds_compat(display, footerText, 0, 0, &x1, &y1, &w, &h);
   display.setCursor((SCREEN_WIDTH - w) / 2, SCREEN_HEIGHT - 12);
   display.print(footerText);
 }

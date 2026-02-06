@@ -10,16 +10,6 @@
 #include "lv_init.h"
 #include "lv_theme_manager.h"
 
-// ============================================
-// Screen Stack for Back Navigation
-// ============================================
-
-#define MAX_SCREEN_STACK 10
-
-// Screen stack for back navigation
-static lv_obj_t* screen_stack[MAX_SCREEN_STACK];
-static int screen_stack_index = -1;
-
 // Current active screen
 static lv_obj_t* current_screen = NULL;
 
@@ -121,6 +111,7 @@ void removeNavigableWidget(lv_obj_t* widget) {
 void clearNavigationGroup() {
     lv_group_t* group = getLVGLInputGroup();
     if (group != NULL) {
+        lv_group_set_editing(group, false);  // Reset editing mode to prevent arrow key bugs
         lv_group_remove_all_objs(group);
     }
 }
@@ -132,6 +123,123 @@ void focusWidget(lv_obj_t* widget) {
     lv_group_t* group = getLVGLInputGroup();
     if (group != NULL) {
         lv_group_focus_obj(widget);
+    }
+}
+
+// ============================================
+// Grid Navigation Handler (unified)
+// ============================================
+
+/*
+ * Navigation context for grid/list navigation.
+ * Passed as user_data to grid_nav_handler via lv_obj_add_event_cb().
+ */
+struct NavGridContext {
+    lv_obj_t** buttons;     // Pointer to button array
+    int* button_count;      // Pointer to button count
+    int columns;            // Number of columns (1 = linear list)
+};
+
+/*
+ * Unified 2D grid navigation handler
+ * Supports any column count via NavGridContext passed as user_data.
+ * - Blocks TAB (LV_KEY_NEXT) from navigating
+ * - UP/DOWN: Move to same column in previous/next row
+ * - LEFT/RIGHT: Move within the row (blocked if columns == 1)
+ * - At any edge: does nothing (no wrap)
+ * - Scrolls focused item into view
+ *
+ * Usage:
+ *   static NavGridContext ctx = { button_array, &button_count, 2 };
+ *   lv_obj_add_event_cb(btn, grid_nav_handler, LV_EVENT_KEY, &ctx);
+ *   addNavigableWidget(btn);
+ */
+static void grid_nav_handler(lv_event_t* e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code != LV_EVENT_KEY) return;
+
+    uint32_t key = lv_event_get_key(e);
+
+    // Block TAB key (LV_KEY_NEXT = '\t' = 9) from navigating
+    if (key == '\t' || key == LV_KEY_NEXT) {
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    // Only handle arrow keys
+    if (key != LV_KEY_LEFT && key != LV_KEY_RIGHT &&
+        key != LV_KEY_PREV &&
+        key != LV_KEY_UP && key != LV_KEY_DOWN) return;
+
+    // Always stop propagation to prevent LVGL's default linear navigation
+    lv_event_stop_processing(e);
+
+    NavGridContext* ctx = (NavGridContext*)lv_event_get_user_data(e);
+    if (!ctx || !ctx->buttons || !ctx->button_count) return;
+
+    int count = *(ctx->button_count);
+    int cols = ctx->columns;
+    if (count <= 1) return;
+
+    // Block LEFT/RIGHT for single-column lists
+    if (cols <= 1 && (key == LV_KEY_LEFT || key == LV_KEY_RIGHT)) {
+        return;
+    }
+
+    // Get current focused object
+    lv_obj_t* focused = lv_event_get_target(e);
+    if (!focused) return;
+
+    // Find index of focused object in the button array
+    int focused_idx = -1;
+    for (int i = 0; i < count; i++) {
+        if (ctx->buttons[i] == focused) {
+            focused_idx = i;
+            break;
+        }
+    }
+    if (focused_idx < 0) return;
+
+    // Calculate grid position
+    int row = focused_idx / cols;
+    int col = focused_idx % cols;
+    int total_rows = (count + cols - 1) / cols;
+
+    int target_idx = -1;
+
+    if (key == LV_KEY_RIGHT) {
+        if (col < cols - 1) {
+            int potential = focused_idx + 1;
+            if (potential < count) {
+                target_idx = potential;
+            }
+        }
+    } else if (key == LV_KEY_LEFT) {
+        if (col > 0) {
+            target_idx = focused_idx - 1;
+        }
+    } else if (key == LV_KEY_DOWN) {
+        if (row < total_rows - 1) {
+            int potential = focused_idx + cols;
+            if (potential < count) {
+                target_idx = potential;
+            } else {
+                target_idx = count - 1;
+            }
+        }
+    } else if (key == LV_KEY_PREV || key == LV_KEY_UP) {
+        if (row > 0) {
+            target_idx = focused_idx - cols;
+        }
+    }
+
+    // Focus target if valid and scroll into view
+    if (target_idx >= 0 && target_idx < count) {
+        lv_obj_t* target = ctx->buttons[target_idx];
+        if (target) {
+            lv_group_focus_obj(target);
+            lv_obj_scroll_to_view(target, LV_ANIM_ON);
+        }
     }
 }
 
@@ -212,86 +320,7 @@ lv_obj_t* createScreen() {
 }
 
 /*
- * Push current screen to stack and load new screen
- * NOTE: Do NOT clear the navigation group here - widgets are added during
- * screen creation and would be lost.
- */
-void pushScreen(lv_obj_t* new_screen, ScreenAnimType anim = SCREEN_ANIM_FADE) {
-    // Push current screen to stack (if any)
-    if (current_screen != NULL && screen_stack_index < MAX_SCREEN_STACK - 1) {
-        screen_stack_index++;
-        screen_stack[screen_stack_index] = current_screen;
-    }
-
-    // Load new screen with animation
-    lv_scr_load_anim_t lv_anim = LV_SCR_LOAD_ANIM_FADE_ON;
-    switch (anim) {
-        case SCREEN_ANIM_NONE:
-            lv_anim = LV_SCR_LOAD_ANIM_NONE;
-            break;
-        case SCREEN_ANIM_FADE:
-            lv_anim = LV_SCR_LOAD_ANIM_FADE_ON;
-            break;
-        case SCREEN_ANIM_SLIDE_LEFT:
-            lv_anim = LV_SCR_LOAD_ANIM_MOVE_LEFT;
-            break;
-        case SCREEN_ANIM_SLIDE_RIGHT:
-            lv_anim = LV_SCR_LOAD_ANIM_MOVE_RIGHT;
-            break;
-        case SCREEN_ANIM_SLIDE_UP:
-            lv_anim = LV_SCR_LOAD_ANIM_MOVE_TOP;
-            break;
-        case SCREEN_ANIM_SLIDE_DOWN:
-            lv_anim = LV_SCR_LOAD_ANIM_MOVE_BOTTOM;
-            break;
-    }
-
-    lv_scr_load_anim(new_screen, lv_anim, DEFAULT_TRANSITION_MS, 0, false);
-    current_screen = new_screen;
-
-    Serial.printf("[ScreenManager] Pushed screen, stack depth: %d\n", screen_stack_index + 1);
-}
-
-/*
- * Pop from stack and return to previous screen
- */
-bool popScreen(ScreenAnimType anim = SCREEN_ANIM_FADE) {
-    if (screen_stack_index < 0) {
-        Serial.println("[ScreenManager] Cannot pop - stack empty");
-        return false;
-    }
-
-    // Get previous screen from stack
-    lv_obj_t* prev_screen = screen_stack[screen_stack_index];
-    screen_stack_index--;
-
-    // Clear navigation group
-    clearNavigationGroup();
-
-    // Load previous screen with reverse animation
-    lv_scr_load_anim_t lv_anim = LV_SCR_LOAD_ANIM_FADE_ON;
-    switch (anim) {
-        case SCREEN_ANIM_SLIDE_LEFT:
-            lv_anim = LV_SCR_LOAD_ANIM_MOVE_RIGHT;  // Reverse
-            break;
-        case SCREEN_ANIM_SLIDE_RIGHT:
-            lv_anim = LV_SCR_LOAD_ANIM_MOVE_LEFT;   // Reverse
-            break;
-        default:
-            lv_anim = LV_SCR_LOAD_ANIM_FADE_ON;
-            break;
-    }
-
-    // Delete current screen after animation, load previous
-    lv_scr_load_anim(prev_screen, lv_anim, DEFAULT_TRANSITION_MS, 0, true);
-    current_screen = prev_screen;
-
-    Serial.printf("[ScreenManager] Popped screen, stack depth: %d\n", screen_stack_index + 1);
-    return true;
-}
-
-/*
- * Load a screen directly (replacing current, not using stack)
+ * Load a screen directly (replacing current)
  * NOTE: Do NOT clear the navigation group here - widgets are added during
  * screen creation and would be lost. The group is managed by screen creators.
  */
@@ -333,27 +362,6 @@ void loadScreen(lv_obj_t* new_screen, ScreenAnimType anim = SCREEN_ANIM_FADE) {
  */
 lv_obj_t* getCurrentScreen() {
     return current_screen;
-}
-
-/*
- * Clear the screen stack
- */
-void clearScreenStack() {
-    // Delete all screens in stack
-    for (int i = screen_stack_index; i >= 0; i--) {
-        if (screen_stack[i] != NULL) {
-            lv_obj_del(screen_stack[i]);
-            screen_stack[i] = NULL;
-        }
-    }
-    screen_stack_index = -1;
-}
-
-/*
- * Get screen stack depth
- */
-int getScreenStackDepth() {
-    return screen_stack_index + 1;
 }
 
 // ============================================

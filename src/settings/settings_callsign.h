@@ -10,8 +10,11 @@
 #include "../core/config.h"
 #include "../network/vail_repeater.h"
 
+// Buffer sizes
+#define CALLSIGN_MAX_LEN 13  // 12 chars + null terminator
+
 // Callsign settings globals
-String callsignInput = "";
+char callsignInput[CALLSIGN_MAX_LEN] = "";
 unsigned long lastBlink = 0;
 bool cursorVisible = true;
 Preferences callsignPrefs;
@@ -23,15 +26,15 @@ bool callsignUseLVGL = true;  // Default to LVGL mode
 void startCallsignSettings(LGFX &display);
 void drawCallsignUI(LGFX &display);
 int handleCallsignInput(char key, LGFX &display);
-void saveCallsign(String callsign);
-bool loadCallsign(String &callsign);
+void saveCallsign(const char* callsign);
+bool loadCallsign(char* callsign, size_t len);
 
 // Start callsign settings mode
 void startCallsignSettings(LGFX &display) {
   // Load current callsign
-  loadCallsign(callsignInput);
-  if (callsignInput.length() == 0) {
-    callsignInput = vailCallsign;  // Use current Vail callsign as default
+  if (!loadCallsign(callsignInput, sizeof(callsignInput)) || callsignInput[0] == '\0') {
+    strncpy(callsignInput, vailCallsign.c_str(), sizeof(callsignInput) - 1);
+    callsignInput[sizeof(callsignInput) - 1] = '\0';
   }
 
   cursorVisible = true;
@@ -53,8 +56,8 @@ void drawCallsignUI(LGFX &display) {
 
   int16_t x1, y1;
   uint16_t w, h;
-  String title = "Enter Callsign";
-  getTextBounds_compat(display, title.c_str(), 0, 0, &x1, &y1, &w, &h);
+  const char* title = "Enter Callsign";
+  getTextBounds_compat(display, title, 0, 0, &x1, &y1, &w, &h);
   display.setCursor((SCREEN_WIDTH - w) / 2, 75);
   display.print(title);
   display.setFont(nullptr); // Reset font
@@ -62,8 +65,8 @@ void drawCallsignUI(LGFX &display) {
   // Instructions
   display.setTextSize(1);
   display.setTextColor(0x7BEF); // Light gray
-  String prompt = "For use with Vail repeater";
-  display.setCursor((SCREEN_WIDTH - prompt.length() * 6) / 2, 95);
+  const char* prompt = "For use with Vail repeater";
+  display.setCursor((SCREEN_WIDTH - strlen(prompt) * 6) / 2, 95);
   display.print(prompt);
 
   // Input box
@@ -80,7 +83,7 @@ void drawCallsignUI(LGFX &display) {
   display.setTextColor(ST77XX_WHITE);
   display.setTextSize(1);
 
-  getTextBounds_compat(display, callsignInput.c_str(), 0, 0, &x1, &y1, &w, &h);
+  getTextBounds_compat(display, callsignInput, 0, 0, &x1, &y1, &w, &h);
   int textX = boxX + 15;
   int textY = boxY + (boxH / 2) + (h / 2) + 5;
   display.setCursor(textX, textY);
@@ -99,7 +102,7 @@ void drawCallsignUI(LGFX &display) {
   // Footer with controls
   display.setTextSize(1);
   display.setTextColor(COLOR_WARNING);
-  String footerText = "Type callsign  ENTER Save  ESC Cancel";
+  const char* footerText = "Type callsign  ENTER Save  ESC Cancel";
   getTextBounds_compat(display, footerText, 0, 0, &x1, &y1, &w, &h);
   int centerX = (SCREEN_WIDTH - w) / 2;
   display.setCursor(centerX, SCREEN_HEIGHT - 12);
@@ -115,9 +118,11 @@ int handleCallsignInput(char key, LGFX &display) {
     drawCallsignUI(display);
   }
 
+  size_t inputLen = strlen(callsignInput);
+
   if (key == KEY_BACKSPACE) {
-    if (callsignInput.length() > 0) {
-      callsignInput.remove(callsignInput.length() - 1);
+    if (inputLen > 0) {
+      callsignInput[inputLen - 1] = '\0';
       cursorVisible = true;
       lastBlink = millis();
       drawCallsignUI(display);
@@ -126,8 +131,11 @@ int handleCallsignInput(char key, LGFX &display) {
   }
   else if (key == KEY_ENTER || key == KEY_ENTER_ALT) {
     // Save callsign
-    if (callsignInput.length() > 0) {
-      callsignInput.toUpperCase(); // Convert to uppercase
+    if (inputLen > 0) {
+      // Convert to uppercase in place
+      for (size_t i = 0; i < inputLen; i++) {
+        callsignInput[i] = toupper(callsignInput[i]);
+      }
       saveCallsign(callsignInput);
       vailCallsign = callsignInput;  // Update global Vail callsign
       beep(TONE_SELECT, BEEP_MEDIUM);
@@ -149,12 +157,13 @@ int handleCallsignInput(char key, LGFX &display) {
     beep(TONE_MENU_NAV, BEEP_SHORT);
     return -1;  // Exit settings
   }
-  else if (key >= 32 && key <= 126 && callsignInput.length() < 12) {
+  else if (key >= 32 && key <= 126 && inputLen < 12) {
     // Add printable character (max 12 chars for callsign)
     // Only accept alphanumeric
     char c = toupper(key);
     if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
-      callsignInput += c;
+      callsignInput[inputLen] = c;
+      callsignInput[inputLen + 1] = '\0';
       cursorVisible = true;
       lastBlink = millis();
       beep(TONE_MENU_NAV, BEEP_SHORT);
@@ -167,7 +176,7 @@ int handleCallsignInput(char key, LGFX &display) {
 }
 
 // Save callsign to flash memory
-void saveCallsign(String callsign) {
+void saveCallsign(const char* callsign) {
   callsignPrefs.begin("callsign", false);
   callsignPrefs.putString("call", callsign);
   callsignPrefs.end();
@@ -177,18 +186,21 @@ void saveCallsign(String callsign) {
 }
 
 // Load callsign from flash memory
-bool loadCallsign(String &callsign) {
+bool loadCallsign(char* callsign, size_t len) {
   callsignPrefs.begin("callsign", true);
-  callsign = callsignPrefs.getString("call", "");
+  String val = callsignPrefs.getString("call", "");
   callsignPrefs.end();
 
-  return (callsign.length() > 0);
+  strncpy(callsign, val.c_str(), len - 1);
+  callsign[len - 1] = '\0';
+
+  return (strlen(callsign) > 0);
 }
 
 // Load callsign on startup (call from setup())
 void loadSavedCallsign() {
-  String savedCallsign;
-  if (loadCallsign(savedCallsign)) {
+  char savedCallsign[CALLSIGN_MAX_LEN];
+  if (loadCallsign(savedCallsign, sizeof(savedCallsign))) {
     vailCallsign = savedCallsign;
     Serial.print("Loaded callsign: ");
     Serial.println(savedCallsign);

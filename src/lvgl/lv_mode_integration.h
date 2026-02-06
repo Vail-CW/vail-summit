@@ -3,12 +3,9 @@
  * Connects LVGL screens to the existing mode state machine
  *
  * This module provides the bridge between:
- * - The existing MenuMode enum and currentMode state
- * - The new LVGL-based screen rendering
+ * - The MenuMode enum (defined in src/core/modes.h)
+ * - The LVGL-based screen rendering
  * - Input handling delegation
- *
- * NOTE: This file uses int for mode values to avoid circular include dependency
- * with menu_ui.h. The mode values match the MenuMode enum defined there.
  */
 
 #ifndef LV_MODE_INTEGRATION_H
@@ -17,6 +14,8 @@
 #include <lvgl.h>
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
+#include "../core/modes.h"
+#include "../core/mode_registry.h"
 #include "lv_screen_manager.h"
 #include "lv_menu_screens.h"
 #include "lv_settings_screens.h"
@@ -37,175 +36,6 @@
 #include "../network/progress_sync.h"
 #include "../core/hardware_init.h"
 #include "../storage/sd_card.h"
-
-// ============================================
-// Mode Constants (MUST match MenuMode enum in menu_ui.h)
-// ============================================
-
-// We define these as constants instead of using the enum
-// to avoid circular include with menu_ui.h
-// CRITICAL: These values MUST match the MenuMode enum order exactly!
-#define LVGL_MODE_MAIN_MENU              0
-#define LVGL_MODE_TRAINING_MENU          1
-#define LVGL_MODE_HEAR_IT_MENU           2
-#define LVGL_MODE_HEAR_IT_TYPE_IT        3
-#define LVGL_MODE_HEAR_IT_CONFIGURE      4
-#define LVGL_MODE_HEAR_IT_START          5
-#define LVGL_MODE_PRACTICE               6
-#define LVGL_MODE_KOCH_METHOD            7
-#define LVGL_MODE_CW_ACADEMY_TRACK_SELECT      8
-#define LVGL_MODE_CW_ACADEMY_SESSION_SELECT    9
-#define LVGL_MODE_CW_ACADEMY_PRACTICE_TYPE_SELECT  10
-#define LVGL_MODE_CW_ACADEMY_MESSAGE_TYPE_SELECT   11
-#define LVGL_MODE_CW_ACADEMY_COPY_PRACTICE     12
-#define LVGL_MODE_CW_ACADEMY_SENDING_PRACTICE  13
-#define LVGL_MODE_CW_ACADEMY_QSO_PRACTICE      14
-#define LVGL_MODE_GAMES_MENU             15
-#define LVGL_MODE_MORSE_SHOOTER          16
-#define LVGL_MODE_MORSE_MEMORY           17
-#define LVGL_MODE_RADIO_MENU             18
-#define LVGL_MODE_RADIO_OUTPUT           19
-#define LVGL_MODE_CW_MEMORIES            20
-#define LVGL_MODE_SETTINGS_MENU          21
-#define LVGL_MODE_DEVICE_SETTINGS_MENU   22
-#define LVGL_MODE_WIFI_SUBMENU           23
-#define LVGL_MODE_GENERAL_SUBMENU        24
-#define LVGL_MODE_WIFI_SETTINGS          25
-#define LVGL_MODE_CW_SETTINGS            26
-#define LVGL_MODE_VOLUME_SETTINGS        27
-#define LVGL_MODE_BRIGHTNESS_SETTINGS    28
-#define LVGL_MODE_CALLSIGN_SETTINGS      29
-#define LVGL_MODE_WEB_PASSWORD_SETTINGS  30
-#define LVGL_MODE_VAIL_REPEATER          31
-#define LVGL_MODE_BLUETOOTH_MENU         32
-#define LVGL_MODE_BT_HID                 33
-#define LVGL_MODE_BT_MIDI                34
-#define LVGL_MODE_TOOLS_MENU             35
-#define LVGL_MODE_QSO_LOGGER_MENU        36
-#define LVGL_MODE_QSO_LOG_ENTRY          37
-#define LVGL_MODE_QSO_VIEW_LOGS          38
-#define LVGL_MODE_QSO_STATISTICS         39
-#define LVGL_MODE_QSO_LOGGER_SETTINGS    40
-#define LVGL_MODE_WEB_PRACTICE           41
-#define LVGL_MODE_WEB_MEMORY_CHAIN       42
-#define LVGL_MODE_WEB_HEAR_IT            43
-#define LVGL_MODE_CW_MENU                44
-#define LVGL_MODE_HAM_TOOLS_MENU         45
-#define LVGL_MODE_BAND_PLANS             46
-#define LVGL_MODE_PROPAGATION            47
-#define LVGL_MODE_ANTENNAS               48
-#define LVGL_MODE_LICENSE_STUDY          49
-#define LVGL_MODE_LICENSE_SELECT         50
-#define LVGL_MODE_LICENSE_QUIZ           51
-#define LVGL_MODE_LICENSE_STATS          52
-#define LVGL_MODE_SUMMIT_CHAT            53
-#define LVGL_MODE_DEVICE_BT_SUBMENU      54
-#define LVGL_MODE_BT_KEYBOARD_SETTINGS   55
-#define LVGL_MODE_LICENSE_DOWNLOAD       56
-#define LVGL_MODE_LICENSE_WIFI_ERROR     57
-#define LVGL_MODE_LICENSE_SD_ERROR       58
-#define LVGL_MODE_THEME_SETTINGS         59
-#define LVGL_MODE_LICENSE_ALL_STATS      60
-#define LVGL_MODE_SYSTEM_INFO            61
-#define LVGL_MODE_POTA_MENU              62
-#define LVGL_MODE_POTA_ACTIVE_SPOTS      63
-#define LVGL_MODE_POTA_SPOT_DETAIL       64
-#define LVGL_MODE_POTA_FILTERS           65
-#define LVGL_MODE_POTA_ACTIVATE          66
-
-// Koch Method sub-modes
-#define LVGL_MODE_KOCH_PRACTICE          67
-#define LVGL_MODE_KOCH_SETTINGS          68
-#define LVGL_MODE_KOCH_STATISTICS        69
-
-// Vail Master sub-modes
-#define LVGL_MODE_VAIL_MASTER            70
-#define LVGL_MODE_VAIL_MASTER_PRACTICE   71
-#define LVGL_MODE_VAIL_MASTER_SETTINGS   72
-#define LVGL_MODE_VAIL_MASTER_HISTORY    73
-#define LVGL_MODE_VAIL_MASTER_CHARSET    74
-
-// Koch Method additional sub-modes
-#define LVGL_MODE_KOCH_HELP              75
-#define LVGL_MODE_KOCH_CHAR_REF          76
-#define LVGL_MODE_KOCH_NEW_CHAR          77
-
-// Spark Watch game modes
-#define LVGL_MODE_SPARK_WATCH            78
-#define LVGL_MODE_SPARK_WATCH_DIFFICULTY 79
-#define LVGL_MODE_SPARK_WATCH_CAMPAIGN   80
-#define LVGL_MODE_SPARK_WATCH_MISSION    81
-#define LVGL_MODE_SPARK_WATCH_CHALLENGE  82
-#define LVGL_MODE_SPARK_WATCH_BRIEFING   83
-#define LVGL_MODE_SPARK_WATCH_GAMEPLAY   84
-#define LVGL_MODE_SPARK_WATCH_RESULTS    85
-#define LVGL_MODE_SPARK_WATCH_DEBRIEFING 86
-#define LVGL_MODE_SPARK_WATCH_SETTINGS   87
-#define LVGL_MODE_SPARK_WATCH_STATS      88
-
-// Story Time game modes
-#define LVGL_MODE_STORY_TIME             89
-#define LVGL_MODE_STORY_TIME_DIFFICULTY  90
-#define LVGL_MODE_STORY_TIME_LIST        91
-#define LVGL_MODE_STORY_TIME_LISTEN      92
-#define LVGL_MODE_STORY_TIME_QUIZ        93
-#define LVGL_MODE_STORY_TIME_RESULTS     94
-#define LVGL_MODE_STORY_TIME_PROGRESS    95
-#define LVGL_MODE_STORY_TIME_SETTINGS    96
-
-// Web Files update mode
-#define LVGL_MODE_WEB_FILES_UPDATE       97
-
-// LICW Training modes
-#define LVGL_MODE_LICW_CAROUSEL_SELECT   120
-#define LVGL_MODE_LICW_LESSON_SELECT     121
-#define LVGL_MODE_LICW_PRACTICE_TYPE     122
-#define LVGL_MODE_LICW_COPY_PRACTICE     123
-#define LVGL_MODE_LICW_SEND_PRACTICE     124
-#define LVGL_MODE_LICW_TTR_PRACTICE      125
-#define LVGL_MODE_LICW_IFR_PRACTICE      126
-#define LVGL_MODE_LICW_CSF_INTRO         127
-#define LVGL_MODE_LICW_WORD_DISCOVERY    128
-#define LVGL_MODE_LICW_QSO_PRACTICE      129
-#define LVGL_MODE_LICW_SETTINGS          130
-#define LVGL_MODE_LICW_PROGRESS          131
-#define LVGL_MODE_LICW_CFP_PRACTICE      132
-#define LVGL_MODE_LICW_ADVERSE_COPY      133
-
-// CW Speeder game modes
-#define LVGL_MODE_CW_SPEEDER_SELECT      134
-#define LVGL_MODE_CW_SPEEDER             135
-
-// POTA Recorder mode
-#define LVGL_MODE_POTA_RECORDER          136
-#define LVGL_MODE_POTA_RECORDER_SETUP    137
-
-// Morse Mailbox modes
-#define LVGL_MODE_MORSE_MAILBOX          140
-#define LVGL_MODE_MORSE_MAILBOX_LINK     141
-#define LVGL_MODE_MORSE_MAILBOX_INBOX    142
-#define LVGL_MODE_MORSE_MAILBOX_PLAYBACK 143
-#define LVGL_MODE_MORSE_MAILBOX_COMPOSE  144
-#define LVGL_MODE_MORSE_MAILBOX_ACCOUNT  145
-
-// Morse Notes modes
-#define LVGL_MODE_MORSE_NOTES_LIBRARY    165
-#define LVGL_MODE_MORSE_NOTES_RECORD     166
-#define LVGL_MODE_MORSE_NOTES_PLAYBACK   167
-#define LVGL_MODE_MORSE_NOTES_SETTINGS   168
-
-// CW School modes
-#define LVGL_MODE_CWSCHOOL               150
-#define LVGL_MODE_CWSCHOOL_LINK          151
-#define LVGL_MODE_CWSCHOOL_ACCOUNT       152
-#define LVGL_MODE_CWSCHOOL_TRAINING      153
-#define LVGL_MODE_CWSCHOOL_PROGRESS      154
-
-// Vail Course training modes
-#define LVGL_MODE_VAIL_COURSE_MODULE_SELECT  160
-#define LVGL_MODE_VAIL_COURSE_LESSON_SELECT  161
-#define LVGL_MODE_VAIL_COURSE_LESSON         162
-#define LVGL_MODE_VAIL_COURSE_PROGRESS       163
 
 // ============================================
 // Forward declarations from main file
@@ -278,7 +108,7 @@ extern struct LicenseStudySession licenseSession;
 // Track if volume was accessed via global "V" shortcut
 // When true, ESC returns to returnToModeAfterVolume instead of normal parent
 static bool volumeViaShortcut = false;
-static int returnToModeAfterVolume = LVGL_MODE_MAIN_MENU;
+static int returnToModeAfterVolume = MODE_MAIN_MENU;
 
 // ============================================
 // Mode Category Detection
@@ -288,25 +118,7 @@ static int returnToModeAfterVolume = LVGL_MODE_MAIN_MENU;
  * Check if a mode is a menu mode (not an active feature)
  */
 bool isMenuModeInt(int mode) {
-    switch (mode) {
-        case LVGL_MODE_MAIN_MENU:
-        case LVGL_MODE_CW_MENU:
-        case LVGL_MODE_TRAINING_MENU:
-        case LVGL_MODE_GAMES_MENU:
-        case LVGL_MODE_SETTINGS_MENU:
-        case LVGL_MODE_DEVICE_SETTINGS_MENU:
-        case LVGL_MODE_WIFI_SUBMENU:
-        case LVGL_MODE_GENERAL_SUBMENU:
-        case LVGL_MODE_HAM_TOOLS_MENU:
-        case LVGL_MODE_BLUETOOTH_MENU:
-        case LVGL_MODE_QSO_LOGGER_MENU:
-        case LVGL_MODE_HEAR_IT_MENU:
-        case LVGL_MODE_DEVICE_BT_SUBMENU:
-        case LVGL_MODE_LICENSE_SELECT:
-            return true;
-        default:
-            return false;
-    }
+    return isModeMenu(mode);
 }
 
 /*
@@ -315,100 +127,29 @@ bool isMenuModeInt(int mode) {
  * to avoid intercepting key input in training/input modes
  */
 bool isPureNavigationMenuInt(int mode) {
-    switch (mode) {
-        case LVGL_MODE_MAIN_MENU:
-        case LVGL_MODE_CW_MENU:
-        case LVGL_MODE_TRAINING_MENU:
-        case LVGL_MODE_GAMES_MENU:
-        case LVGL_MODE_SETTINGS_MENU:
-        case LVGL_MODE_DEVICE_SETTINGS_MENU:
-        case LVGL_MODE_HAM_TOOLS_MENU:
-        case LVGL_MODE_BLUETOOTH_MENU:
-        case LVGL_MODE_QSO_LOGGER_MENU:
-            return true;
-        default:
-            return false;
-    }
+    return isModePureNav(mode);
 }
 
 /*
  * Check if a mode is a settings mode
  */
 bool isSettingsModeInt(int mode) {
-    switch (mode) {
-        case LVGL_MODE_VOLUME_SETTINGS:
-        case LVGL_MODE_BRIGHTNESS_SETTINGS:
-        case LVGL_MODE_CW_SETTINGS:
-        case LVGL_MODE_CALLSIGN_SETTINGS:
-        case LVGL_MODE_WEB_PASSWORD_SETTINGS:
-        case LVGL_MODE_WIFI_SETTINGS:
-        case LVGL_MODE_BT_KEYBOARD_SETTINGS:
-        case LVGL_MODE_THEME_SETTINGS:
-        case LVGL_MODE_SYSTEM_INFO:
-            return true;
-        default:
-            return false;
-    }
+    return isModeSettings(mode);
 }
 
 /*
- * Check if a mode has special handling
- * NOTE: LVGL handles ALL modes - no legacy rendering
+ * Get the training mode name for practice time tracking
+ * Returns the name as a const char* (NULL if not a training mode)
  */
-bool useLegacyRenderingInt(int mode) {
-    // LVGL handles everything - no legacy rendering
-    return false;
-}
-
-/*
- * Check if a mode is a training/practice mode (for practice time tracking)
- * Returns the training mode name for session tracking, or empty string if not a training mode
- */
-String getTrainingModeName(int mode) {
-    switch (mode) {
-        // Training modes that count toward practice time
-        case LVGL_MODE_PRACTICE:
-            return "Practice";
-        case LVGL_MODE_CW_ACADEMY_COPY_PRACTICE:
-        case LVGL_MODE_CW_ACADEMY_SENDING_PRACTICE:
-        case LVGL_MODE_CW_ACADEMY_QSO_PRACTICE:
-            return "CWA";
-        case LVGL_MODE_HEAR_IT_TYPE_IT:
-        case LVGL_MODE_HEAR_IT_START:
-            return "HearIt";
-        case LVGL_MODE_VAIL_MASTER:
-        case LVGL_MODE_VAIL_MASTER_PRACTICE:
-            return "VailMaster";
-        case LVGL_MODE_LICW_COPY_PRACTICE:
-        case LVGL_MODE_LICW_SEND_PRACTICE:
-        case LVGL_MODE_LICW_TTR_PRACTICE:
-        case LVGL_MODE_LICW_IFR_PRACTICE:
-        case LVGL_MODE_LICW_CSF_INTRO:
-        case LVGL_MODE_LICW_WORD_DISCOVERY:
-        case LVGL_MODE_LICW_QSO_PRACTICE:
-        case LVGL_MODE_LICW_CFP_PRACTICE:
-        case LVGL_MODE_LICW_ADVERSE_COPY:
-            return "LICW";
-        case LVGL_MODE_CWSCHOOL_TRAINING:
-            return "CWSchool";
-        // Games also count as practice time
-        case LVGL_MODE_MORSE_MEMORY:
-            return "MemoryChain";
-        case LVGL_MODE_CW_SPEEDER:
-            return "CWSpeeder";
-        case LVGL_MODE_STORY_TIME_LISTEN:
-        case LVGL_MODE_STORY_TIME_QUIZ:
-            return "StoryTime";
-        default:
-            return "";  // Not a training mode
-    }
+const char* getTrainingModeNameStr(int mode) {
+    return lookupTrainingName(mode);
 }
 
 /*
  * Check if a mode is a training/practice mode
  */
 bool isTrainingModeInt(int mode) {
-    return getTrainingModeName(mode).length() > 0;
+    return isModeTraining(mode);
 }
 
 // ============================================
@@ -423,27 +164,27 @@ lv_obj_t* createScreenForModeInt(int mode) {
     // Menu screens
     if (isMenuModeInt(mode)) {
         switch (mode) {
-            case LVGL_MODE_MAIN_MENU:
+            case MODE_MAIN_MENU:
                 return createMainMenuScreen();
-            case LVGL_MODE_CW_MENU:
+            case MODE_CW_MENU:
                 return createCWMenuScreen();
-            case LVGL_MODE_TRAINING_MENU:
+            case MODE_TRAINING_MENU:
                 return createTrainingMenuScreen();
-            case LVGL_MODE_GAMES_MENU:
+            case MODE_GAMES_MENU:
                 return createGamesMenuScreen();
-            case LVGL_MODE_SETTINGS_MENU:
+            case MODE_SETTINGS_MENU:
                 return createSettingsMenuScreen();
-            case LVGL_MODE_DEVICE_SETTINGS_MENU:
+            case MODE_DEVICE_SETTINGS_MENU:
                 return createDeviceSettingsMenuScreen();
-            case LVGL_MODE_WIFI_SUBMENU:
+            case MODE_WIFI_SUBMENU:
                 return createWiFiSubmenuScreen();
-            case LVGL_MODE_GENERAL_SUBMENU:
+            case MODE_GENERAL_SUBMENU:
                 return createGeneralSubmenuScreen();
-            case LVGL_MODE_HAM_TOOLS_MENU:
+            case MODE_HAM_TOOLS_MENU:
                 return createHamToolsMenuScreen();
-            case LVGL_MODE_BLUETOOTH_MENU:
+            case MODE_BLUETOOTH_MENU:
                 return createBluetoothMenuScreen();
-            case LVGL_MODE_QSO_LOGGER_MENU:
+            case MODE_QSO_LOGGER_MENU:
                 return createQSOLoggerMenuScreen();
             default:
                 break;
@@ -476,7 +217,7 @@ lv_obj_t* createScreenForModeInt(int mode) {
     if (storyTimeScreen != NULL) return storyTimeScreen;
 
     // Morse Mailbox screens
-    if (mode >= LVGL_MODE_MORSE_MAILBOX && mode <= LVGL_MODE_MORSE_MAILBOX_ACCOUNT) {
+    if (mode >= MODE_MORSE_MAILBOX && mode <= MODE_MORSE_MAILBOX_ACCOUNT) {
         lv_obj_t* mailboxScreen = NULL;
         if (handleMailboxMode(mode)) {
             // handleMailboxMode calls loadScreen internally, return NULL to avoid double loading
@@ -485,7 +226,7 @@ lv_obj_t* createScreenForModeInt(int mode) {
     }
 
     // CW School screens
-    if (mode >= LVGL_MODE_CWSCHOOL && mode <= LVGL_MODE_CWSCHOOL_PROGRESS) {
+    if (mode >= MODE_CWSCHOOL && mode <= MODE_CWSCHOOL_PROGRESS) {
         if (handleCWSchoolMode(mode)) {
             // handleCWSchoolMode calls loadScreen internally, return NULL to avoid double loading
             return NULL;
@@ -493,21 +234,21 @@ lv_obj_t* createScreenForModeInt(int mode) {
     }
 
     // Morse Notes screens
-    if (mode >= LVGL_MODE_MORSE_NOTES_LIBRARY && mode <= LVGL_MODE_MORSE_NOTES_SETTINGS) {
+    if (mode >= MODE_MORSE_NOTES_LIBRARY && mode <= MODE_MORSE_NOTES_SETTINGS) {
         switch (mode) {
-            case LVGL_MODE_MORSE_NOTES_LIBRARY:
+            case MODE_MORSE_NOTES_LIBRARY:
                 return createMorseNotesLibraryScreen();
-            case LVGL_MODE_MORSE_NOTES_RECORD:
+            case MODE_MORSE_NOTES_RECORD:
                 return createMorseNotesRecordScreen();
-            case LVGL_MODE_MORSE_NOTES_PLAYBACK:
+            case MODE_MORSE_NOTES_PLAYBACK:
                 return createMorseNotesPlaybackScreen();
-            case LVGL_MODE_MORSE_NOTES_SETTINGS:
+            case MODE_MORSE_NOTES_SETTINGS:
                 return createMorseNotesSettingsScreen();
         }
     }
 
     // Vail Course screens
-    if (mode >= LVGL_MODE_VAIL_COURSE_MODULE_SELECT && mode <= LVGL_MODE_VAIL_COURSE_PROGRESS) {
+    if (mode >= MODE_VAIL_COURSE_MODULE_SELECT && mode <= MODE_VAIL_COURSE_PROGRESS) {
         if (handleVailCourseMode(mode)) {
             // handleVailCourseMode calls loadScreen internally, return NULL to avoid double loading
             return NULL;
@@ -516,13 +257,13 @@ lv_obj_t* createScreenForModeInt(int mode) {
 
     // Placeholder screens for unimplemented features
     switch (mode) {
-        case LVGL_MODE_BAND_PLANS:
+        case MODE_BAND_PLANS:
             return createBandPlansScreen();
-        case LVGL_MODE_PROPAGATION:
+        case MODE_PROPAGATION:
             return createBandConditionsScreen();
-        case LVGL_MODE_ANTENNAS:
+        case MODE_ANTENNAS:
             return createComingSoonScreen("ANTENNAS");
-        case LVGL_MODE_SUMMIT_CHAT:
+        case MODE_SUMMIT_CHAT:
             return createComingSoonScreen("SUMMIT CHAT");
         default:
             break;
@@ -548,7 +289,7 @@ extern int getCurrentModeAsInt();
 extern void setCurrentModeFromInt(int mode);
 
 // Track previous mode for practice session management
-static int previousModeForPractice = LVGL_MODE_MAIN_MENU;
+static int previousModeForPractice = MODE_MAIN_MENU;
 
 /*
  * Initialize mode-specific state after screen is loaded
@@ -557,133 +298,134 @@ static int previousModeForPractice = LVGL_MODE_MAIN_MENU;
  */
 void initializeModeInt(int mode) {
     // Practice time tracking: end previous session if leaving training mode
-    String prevModeName = getTrainingModeName(previousModeForPractice);
-    String newModeName = getTrainingModeName(mode);
+    const char* prevName = getTrainingModeNameStr(previousModeForPractice);
+    const char* newName = getTrainingModeNameStr(mode);
+    bool sameTraining = (prevName && newName && strcmp(prevName, newName) == 0);
 
-    if (prevModeName.length() > 0 && prevModeName != newModeName) {
+    if (prevName && !sameTraining) {
         // Leaving a training mode (or switching to different training mode)
         unsigned long sessionDuration = endPracticeSession();
-        Serial.printf("[Practice] Ended %s session: %lu sec\n", prevModeName.c_str(), sessionDuration);
+        Serial.printf("[Practice] Ended %s session: %lu sec\n", prevName, sessionDuration);
 
         // Sync session to cloud (if linked and significant duration)
         if (sessionDuration >= 30) {
-            syncSession(sessionDuration, prevModeName);
+            syncSession(sessionDuration, prevName);
         }
     }
 
-    if (newModeName.length() > 0 && prevModeName != newModeName) {
+    if (newName && !sameTraining) {
         // Entering a training mode
-        startPracticeSession(newModeName);
-        Serial.printf("[Practice] Started %s session\n", newModeName.c_str());
+        startPracticeSession(newName);
+        Serial.printf("[Practice] Started %s session\n", newName);
     }
 
     previousModeForPractice = mode;
 
     switch (mode) {
         // Training modes
-        case LVGL_MODE_PRACTICE:
+        case MODE_PRACTICE:
             Serial.println("[ModeInit] Starting Practice mode");
             startPracticeMode(tft);
             break;
-        case LVGL_MODE_CW_ACADEMY_TRACK_SELECT:
+        case MODE_CW_ACADEMY_TRACK_SELECT:
             Serial.println("[ModeInit] Starting CW Academy Track Select");
             loadCWAProgress();  // Load saved progress
             break;
-        case LVGL_MODE_CW_ACADEMY_SESSION_SELECT:
+        case MODE_CW_ACADEMY_SESSION_SELECT:
             Serial.println("[ModeInit] CW Academy Session Select");
             // Session select screen handles its own init
             break;
-        case LVGL_MODE_CW_ACADEMY_PRACTICE_TYPE_SELECT:
+        case MODE_CW_ACADEMY_PRACTICE_TYPE_SELECT:
             Serial.println("[ModeInit] CW Academy Practice Type Select");
             // Practice type select screen handles its own init
             break;
-        case LVGL_MODE_CW_ACADEMY_MESSAGE_TYPE_SELECT:
+        case MODE_CW_ACADEMY_MESSAGE_TYPE_SELECT:
             Serial.println("[ModeInit] CW Academy Message Type Select");
             // Message type select screen handles its own init
             break;
-        case LVGL_MODE_CW_ACADEMY_COPY_PRACTICE:
+        case MODE_CW_ACADEMY_COPY_PRACTICE:
             Serial.println("[ModeInit] Starting CW Academy Copy Practice (LVGL)");
             initCWACopyPractice();  // LVGL version initializes in screen creation
             break;
-        case LVGL_MODE_CW_ACADEMY_SENDING_PRACTICE:
+        case MODE_CW_ACADEMY_SENDING_PRACTICE:
             Serial.println("[ModeInit] Starting CW Academy Sending Practice (LVGL)");
             initCWASendingPractice();  // LVGL version with dual-core audio
             break;
-        case LVGL_MODE_CW_ACADEMY_QSO_PRACTICE:
+        case MODE_CW_ACADEMY_QSO_PRACTICE:
             Serial.println("[ModeInit] Starting CW Academy QSO Practice (LVGL)");
             initCWAQSOPractice();  // LVGL version
             break;
-        case LVGL_MODE_HEAR_IT_TYPE_IT:
-        case LVGL_MODE_HEAR_IT_MENU:
+        case MODE_HEAR_IT_TYPE_IT:
+        case MODE_HEAR_IT_MENU:
             Serial.println("[ModeInit] Starting Hear It Type It");
             startHearItTypeItMode(tft);
             break;
-        case LVGL_MODE_VAIL_MASTER:
+        case MODE_VAIL_MASTER:
             Serial.println("[ModeInit] Starting Vail Master");
             startVailMaster(tft);
             break;
 
         // LICW Training modes
-        case LVGL_MODE_LICW_CAROUSEL_SELECT:
+        case MODE_LICW_CAROUSEL_SELECT:
             Serial.println("[ModeInit] Starting LICW Carousel Select");
             initLICWTraining();  // Load saved progress
             break;
-        case LVGL_MODE_LICW_COPY_PRACTICE:
+        case MODE_LICW_COPY_PRACTICE:
             Serial.println("[ModeInit] Starting LICW Copy Practice");
             // Session reset handled in screen creation
             break;
 
         // Game modes
-        case LVGL_MODE_MORSE_SHOOTER:
+        case MODE_MORSE_SHOOTER:
             // Just load preferences, game starts when user presses START on settings screen
             Serial.println("[ModeInit] Loading Morse Shooter settings");
             loadShooterPrefs();
             break;
-        case LVGL_MODE_MORSE_MEMORY:
+        case MODE_MORSE_MEMORY:
             Serial.println("[ModeInit] Starting Memory Chain");
             memoryChainStart();
             break;
-        case LVGL_MODE_SPARK_WATCH:
+        case MODE_SPARK_WATCH:
             Serial.println("[ModeInit] Starting Spark Watch");
             startSparkWatch();
             break;
-        case LVGL_MODE_STORY_TIME:
+        case MODE_STORY_TIME:
             Serial.println("[ModeInit] Starting Story Time");
             storyTimeStart();
             break;
 
         // CW Speeder game
-        case LVGL_MODE_CW_SPEEDER_SELECT:
+        case MODE_CW_SPEEDER_SELECT:
             Serial.println("[ModeInit] Starting CW Speeder - Word Select");
             cwSpeedSelectStart();
             break;
-        case LVGL_MODE_CW_SPEEDER:
+        case MODE_CW_SPEEDER:
             Serial.println("[ModeInit] Starting CW Speeder - Game");
             cwSpeedGameStart();
             break;
 
         // Morse Mailbox modes
-        case LVGL_MODE_MORSE_MAILBOX:
-        case LVGL_MODE_MORSE_MAILBOX_LINK:
-        case LVGL_MODE_MORSE_MAILBOX_INBOX:
-        case LVGL_MODE_MORSE_MAILBOX_PLAYBACK:
-        case LVGL_MODE_MORSE_MAILBOX_COMPOSE:
-        case LVGL_MODE_MORSE_MAILBOX_ACCOUNT:
+        case MODE_MORSE_MAILBOX:
+        case MODE_MORSE_MAILBOX_LINK:
+        case MODE_MORSE_MAILBOX_INBOX:
+        case MODE_MORSE_MAILBOX_PLAYBACK:
+        case MODE_MORSE_MAILBOX_COMPOSE:
+        case MODE_MORSE_MAILBOX_ACCOUNT:
             Serial.printf("[ModeInit] Starting Morse Mailbox mode %d\n", mode);
             // Screen creation handled by handleMailboxMode()
             break;
 
         // Morse Notes modes
-        case LVGL_MODE_MORSE_NOTES_LIBRARY:
-        case LVGL_MODE_MORSE_NOTES_RECORD:
-        case LVGL_MODE_MORSE_NOTES_PLAYBACK:
-        case LVGL_MODE_MORSE_NOTES_SETTINGS:
+        case MODE_MORSE_NOTES_LIBRARY:
+        case MODE_MORSE_NOTES_RECORD:
+        case MODE_MORSE_NOTES_PLAYBACK:
+        case MODE_MORSE_NOTES_SETTINGS:
             Serial.printf("[ModeInit] Starting Morse Notes mode %d\n", mode);
             // Screen creation handled in onLVGLMenuSelect()
             break;
 
         // Network/radio modes
-        case LVGL_MODE_VAIL_REPEATER:
+        case MODE_VAIL_REPEATER:
             Serial.println("[ModeInit] Starting Vail Repeater");
             startVailRepeater(tft);
             // Auto-connect to General room only if callsign is set
@@ -692,99 +434,99 @@ void initializeModeInt(int mode) {
                 connectToVail("General");
             }
             break;
-        case LVGL_MODE_RADIO_OUTPUT:
+        case MODE_RADIO_OUTPUT:
             Serial.println("[ModeInit] Starting Radio Output");
             startRadioOutput(tft);
             break;
-        case LVGL_MODE_CW_MEMORIES:
+        case MODE_CW_MEMORIES:
             Serial.println("[ModeInit] Starting CW Memories");
             startCWMemoriesMode(tft);
             break;
-        case LVGL_MODE_PROPAGATION:
+        case MODE_PROPAGATION:
             Serial.println("[ModeInit] Starting Band Conditions");
             startBandConditions(tft);
             break;
 
         // POTA modes
-        case LVGL_MODE_POTA_ACTIVE_SPOTS:
+        case MODE_POTA_ACTIVE_SPOTS:
             Serial.println("[ModeInit] Starting POTA Active Spots");
             startPOTAActiveSpots(tft);
             break;
 
         // Bluetooth modes
-        case LVGL_MODE_BT_HID:
+        case MODE_BT_HID:
             Serial.println("[ModeInit] Starting BT HID");
             startBTHID(tft);
             break;
-        case LVGL_MODE_BT_MIDI:
+        case MODE_BT_MIDI:
             Serial.println("[ModeInit] Starting BT MIDI");
             startBTMIDI(tft);
             break;
-        case LVGL_MODE_BT_KEYBOARD_SETTINGS:
+        case MODE_BT_KEYBOARD_SETTINGS:
             Serial.println("[ModeInit] Starting BT Keyboard Settings");
             startBTKeyboardSettings(tft);
             break;
 
         // Settings modes
-        case LVGL_MODE_WIFI_SETTINGS:
+        case MODE_WIFI_SETTINGS:
             Serial.println("[ModeInit] Starting WiFi Settings (LVGL)");
             startWiFiSetupLVGL();  // Initialize WiFi setup state
             break;
-        case LVGL_MODE_CW_SETTINGS:
+        case MODE_CW_SETTINGS:
             Serial.println("[ModeInit] Starting CW Settings");
             startCWSettings(tft);
             break;
-        case LVGL_MODE_VOLUME_SETTINGS:
+        case MODE_VOLUME_SETTINGS:
             Serial.println("[ModeInit] Starting Volume Settings");
             initVolumeSettings(tft);
             break;
-        case LVGL_MODE_BRIGHTNESS_SETTINGS:
+        case MODE_BRIGHTNESS_SETTINGS:
             Serial.println("[ModeInit] Starting Brightness Settings");
             initBrightnessSettings(tft);
             break;
-        case LVGL_MODE_CALLSIGN_SETTINGS:
+        case MODE_CALLSIGN_SETTINGS:
             Serial.println("[ModeInit] Starting Callsign Settings");
             startCallsignSettings(tft);
             break;
-        case LVGL_MODE_WEB_PASSWORD_SETTINGS:
+        case MODE_WEB_PASSWORD_SETTINGS:
             Serial.println("[ModeInit] Starting Web Password Settings");
             startWebPasswordSettings(tft);
             break;
 
         // QSO Logger modes - now handled by LVGL screens in lv_mode_screens.h
         // Screen creation handles data loading, no legacy init needed
-        case LVGL_MODE_QSO_VIEW_LOGS:
+        case MODE_QSO_VIEW_LOGS:
             Serial.println("[ModeInit] View Logs - LVGL screen handles init");
             // loadQSOsForView() is called in createQSOViewLogsScreen()
             break;
-        case LVGL_MODE_QSO_STATISTICS:
+        case MODE_QSO_STATISTICS:
             Serial.println("[ModeInit] Statistics - LVGL screen handles init");
             // calculateStatistics() is called in createQSOStatisticsScreen()
             break;
-        case LVGL_MODE_QSO_LOGGER_SETTINGS:
+        case MODE_QSO_LOGGER_SETTINGS:
             Serial.println("[ModeInit] Logger Settings - LVGL screen handles init");
             // loadLoggerLocation() is called in createQSOLoggerSettingsScreen()
             break;
 
         // Web modes
-        case LVGL_MODE_WEB_PRACTICE:
+        case MODE_WEB_PRACTICE:
             Serial.println("[ModeInit] Starting Web Practice Mode");
             startWebPracticeMode(tft);
             break;
-        case LVGL_MODE_WEB_HEAR_IT:
+        case MODE_WEB_HEAR_IT:
             Serial.println("[ModeInit] Starting Web Hear It Mode");
             startWebHearItMode(tft);
             break;
 
         // License study modes
-        case LVGL_MODE_LICENSE_SELECT:
+        case MODE_LICENSE_SELECT:
             Serial.println("[ModeInit] Starting License Select");
             // Focus first license card for keyboard navigation
             if (license_select_cards[0]) {
                 lv_group_focus_obj(license_select_cards[0]);
             }
             break;
-        case LVGL_MODE_LICENSE_QUIZ:
+        case MODE_LICENSE_QUIZ:
             Serial.println("[ModeInit] Starting License Quiz");
             // NOTE: File existence is checked in license_type_select_handler before navigating here
             // If we reach this point, files should already exist on SD card
@@ -798,12 +540,12 @@ void initializeModeInt(int mode) {
                 lv_group_focus_obj(license_answer_btns[0]);
             }
             break;
-        case LVGL_MODE_LICENSE_STATS:
+        case MODE_LICENSE_STATS:
             Serial.println("[ModeInit] Starting License Stats");
             // Use LVGL version if available, otherwise call legacy
             startLicenseQuizLVGL(licenseSession.selectedLicense);  // Ensure pool is loaded
             break;
-        case LVGL_MODE_LICENSE_DOWNLOAD:
+        case MODE_LICENSE_DOWNLOAD:
             Serial.println("[ModeInit] Starting License Download");
             // Perform downloads and show progress
             if (performLicenseDownloadsLVGL()) {
@@ -812,7 +554,7 @@ void initializeModeInt(int mode) {
                 clearNavigationGroup();
                 lv_obj_t* quiz_screen = createLicenseQuizScreen();
                 loadScreen(quiz_screen, SCREEN_ANIM_FADE);
-                setCurrentModeFromInt(LVGL_MODE_LICENSE_QUIZ);
+                setCurrentModeFromInt(MODE_LICENSE_QUIZ);
                 startLicenseQuizLVGL(licenseSession.selectedLicense);
                 updateLicenseQuizDisplay();
             } else {
@@ -820,8 +562,8 @@ void initializeModeInt(int mode) {
                 Serial.println("[ModeInit] Downloads failed, user can press ESC to go back");
             }
             break;
-        case LVGL_MODE_LICENSE_WIFI_ERROR:
-        case LVGL_MODE_LICENSE_SD_ERROR:
+        case MODE_LICENSE_WIFI_ERROR:
+        case MODE_LICENSE_SD_ERROR:
             // Error screens just show message - ESC handled by focus container
             break;
 
@@ -858,7 +600,7 @@ bool handleGlobalHotkey(char key) {
         returnToModeAfterVolume = currentModeInt;
 
         // Navigate to volume settings (plays beep, creates screen)
-        onLVGLMenuSelect(LVGL_MODE_VOLUME_SETTINGS);
+        onLVGLMenuSelect(MODE_VOLUME_SETTINGS);
         return true;
     }
 
@@ -878,7 +620,7 @@ void onLVGLMenuSelect(int target_mode) {
     Serial.printf("[ModeIntegration] Menu selected mode: %d\n", target_mode);
 
     // Web Files update mode - uses reboot-based download (SSL requires early boot RAM)
-    if (target_mode == LVGL_MODE_WEB_FILES_UPDATE) {
+    if (target_mode == MODE_WEB_FILES_UPDATE) {
         // Play selection beep
         beep(TONE_SELECT, BEEP_MEDIUM);
 
@@ -922,7 +664,7 @@ void onLVGLMenuSelect(int target_mode) {
     }
 
     // Check SD card requirement for QSO log entry
-    if (target_mode == LVGL_MODE_QSO_LOG_ENTRY) {
+    if (target_mode == MODE_QSO_LOG_ENTRY) {
         // Try to initialize SD card if not already done
         if (!sdCardAvailable) {
             initSDCard();
@@ -987,258 +729,44 @@ void onLVGLMenuSelect(int target_mode) {
 
 /*
  * Get the parent mode for a given mode (for back navigation)
+ * Uses centralized parent table from mode_registry.h
  */
 int getParentModeInt(int mode) {
     // Special case: Volume accessed via global "V" shortcut
     // Returns to the menu the user was on, not the normal parent
-    if (mode == LVGL_MODE_VOLUME_SETTINGS && volumeViaShortcut) {
+    if (mode == MODE_VOLUME_SETTINGS && volumeViaShortcut) {
         int returnMode = returnToModeAfterVolume;
         volumeViaShortcut = false;  // Reset flag for next time
         Serial.printf("[ModeIntegration] Returning from Volume shortcut to mode %d\n", returnMode);
         return returnMode;
     }
 
-    switch (mode) {
-        // Main menu has no parent
-        case LVGL_MODE_MAIN_MENU:
-            return LVGL_MODE_MAIN_MENU;
-
-        // Top-level submenus return to main
-        case LVGL_MODE_CW_MENU:
-        case LVGL_MODE_GAMES_MENU:
-        case LVGL_MODE_HAM_TOOLS_MENU:
-        case LVGL_MODE_SETTINGS_MENU:
-            return LVGL_MODE_MAIN_MENU;
-
-        // CW submenu items
-        case LVGL_MODE_TRAINING_MENU:
-        case LVGL_MODE_PRACTICE:
-        case LVGL_MODE_VAIL_REPEATER:
-        case LVGL_MODE_BLUETOOTH_MENU:
-        case LVGL_MODE_RADIO_OUTPUT:
-        case LVGL_MODE_CW_MEMORIES:
-            return LVGL_MODE_CW_MENU;
-
-        // Training submenu items
-        case LVGL_MODE_HEAR_IT_MENU:
-        case LVGL_MODE_HEAR_IT_TYPE_IT:
-        case LVGL_MODE_HEAR_IT_START:
-        case LVGL_MODE_CW_ACADEMY_TRACK_SELECT:
-        case LVGL_MODE_VAIL_MASTER:
-            return LVGL_MODE_TRAINING_MENU;
-
-        // Vail Master sub-screens return to Vail Master menu
-        case LVGL_MODE_VAIL_MASTER_PRACTICE:
-        case LVGL_MODE_VAIL_MASTER_SETTINGS:
-        case LVGL_MODE_VAIL_MASTER_HISTORY:
-        case LVGL_MODE_VAIL_MASTER_CHARSET:
-            return LVGL_MODE_VAIL_MASTER;
-
-        // Hear It submenu items
-        case LVGL_MODE_HEAR_IT_CONFIGURE:
-            return LVGL_MODE_HEAR_IT_MENU;
-
-        // Games submenu items
-        case LVGL_MODE_MORSE_SHOOTER:
-        case LVGL_MODE_MORSE_MEMORY:
-        case LVGL_MODE_SPARK_WATCH:
-        case LVGL_MODE_STORY_TIME:
-        case LVGL_MODE_CW_SPEEDER_SELECT:
-            return LVGL_MODE_GAMES_MENU;
-
-        // Spark Watch sub-screens
-        case LVGL_MODE_SPARK_WATCH_DIFFICULTY:
-        case LVGL_MODE_SPARK_WATCH_CAMPAIGN:
-        case LVGL_MODE_SPARK_WATCH_SETTINGS:
-        case LVGL_MODE_SPARK_WATCH_STATS:
-            return LVGL_MODE_SPARK_WATCH;
-
-        case LVGL_MODE_SPARK_WATCH_CHALLENGE:
-            return LVGL_MODE_SPARK_WATCH_DIFFICULTY;
-
-        case LVGL_MODE_SPARK_WATCH_MISSION:
-            return LVGL_MODE_SPARK_WATCH_CAMPAIGN;
-
-        case LVGL_MODE_SPARK_WATCH_BRIEFING:
-            // Returns to challenge or mission select based on context
-            // Default to difficulty select; actual logic handled in screen code
-            return LVGL_MODE_SPARK_WATCH_CHALLENGE;
-
-        case LVGL_MODE_SPARK_WATCH_GAMEPLAY:
-            return LVGL_MODE_SPARK_WATCH_BRIEFING;
-
-        case LVGL_MODE_SPARK_WATCH_RESULTS:
-        case LVGL_MODE_SPARK_WATCH_DEBRIEFING:
-            return LVGL_MODE_SPARK_WATCH_GAMEPLAY;
-
-        // Story Time sub-screens
-        case LVGL_MODE_STORY_TIME_DIFFICULTY:
-        case LVGL_MODE_STORY_TIME_PROGRESS:
-        case LVGL_MODE_STORY_TIME_SETTINGS:
-            return LVGL_MODE_STORY_TIME;
-
-        case LVGL_MODE_STORY_TIME_LIST:
-            return LVGL_MODE_STORY_TIME_DIFFICULTY;
-
-        case LVGL_MODE_STORY_TIME_LISTEN:
-            return LVGL_MODE_STORY_TIME_LIST;
-
-        case LVGL_MODE_STORY_TIME_QUIZ:
-            return LVGL_MODE_STORY_TIME_LISTEN;
-
-        case LVGL_MODE_STORY_TIME_RESULTS:
-            return LVGL_MODE_STORY_TIME_QUIZ;
-
-        // Settings submenu items
-        case LVGL_MODE_DEVICE_SETTINGS_MENU:
-        case LVGL_MODE_CW_SETTINGS:
-            return LVGL_MODE_SETTINGS_MENU;
-
-        // Device settings submenu items
-        case LVGL_MODE_WIFI_SUBMENU:
-        case LVGL_MODE_GENERAL_SUBMENU:
-        case LVGL_MODE_DEVICE_BT_SUBMENU:
-        case LVGL_MODE_SYSTEM_INFO:
-            return LVGL_MODE_DEVICE_SETTINGS_MENU;
-
-        // WiFi submenu items
-        case LVGL_MODE_WIFI_SETTINGS:
-        case LVGL_MODE_WEB_PASSWORD_SETTINGS:
-            return LVGL_MODE_WIFI_SUBMENU;
-
-        // General submenu items
-        case LVGL_MODE_CALLSIGN_SETTINGS:
-        case LVGL_MODE_VOLUME_SETTINGS:
-        case LVGL_MODE_BRIGHTNESS_SETTINGS:
-        case LVGL_MODE_THEME_SETTINGS:
-            return LVGL_MODE_GENERAL_SUBMENU;
-
-        // Device BT submenu items
-        case LVGL_MODE_BT_KEYBOARD_SETTINGS:
-            return LVGL_MODE_DEVICE_BT_SUBMENU;
-
-        // Bluetooth submenu items
-        case LVGL_MODE_BT_HID:
-        case LVGL_MODE_BT_MIDI:
-            return LVGL_MODE_BLUETOOTH_MENU;
-
-        // Ham Tools submenu items
-        case LVGL_MODE_QSO_LOGGER_MENU:
-        case LVGL_MODE_BAND_PLANS:
-        case LVGL_MODE_PROPAGATION:
-        case LVGL_MODE_ANTENNAS:
-        case LVGL_MODE_LICENSE_SELECT:
-        case LVGL_MODE_SUMMIT_CHAT:
-        case LVGL_MODE_POTA_MENU:
-            return LVGL_MODE_HAM_TOOLS_MENU;
-
-        // POTA submenu items
-        case LVGL_MODE_POTA_ACTIVE_SPOTS:
-        case LVGL_MODE_POTA_ACTIVATE:
-        case LVGL_MODE_POTA_RECORDER_SETUP:
-            return LVGL_MODE_POTA_MENU;
-        case LVGL_MODE_POTA_SPOT_DETAIL:
-        case LVGL_MODE_POTA_FILTERS:
-            return LVGL_MODE_POTA_ACTIVE_SPOTS;
-        case LVGL_MODE_POTA_RECORDER:
-            return LVGL_MODE_POTA_RECORDER_SETUP;
-
-        // QSO Logger submenu items
-        case LVGL_MODE_QSO_LOG_ENTRY:
-        case LVGL_MODE_QSO_VIEW_LOGS:
-        case LVGL_MODE_QSO_STATISTICS:
-        case LVGL_MODE_QSO_LOGGER_SETTINGS:
-            return LVGL_MODE_QSO_LOGGER_MENU;
-
-        // CW Academy hierarchy
-        case LVGL_MODE_CW_ACADEMY_SESSION_SELECT:
-            return LVGL_MODE_CW_ACADEMY_TRACK_SELECT;
-        case LVGL_MODE_CW_ACADEMY_PRACTICE_TYPE_SELECT:
-            return LVGL_MODE_CW_ACADEMY_SESSION_SELECT;
-        case LVGL_MODE_CW_ACADEMY_MESSAGE_TYPE_SELECT:
-            return LVGL_MODE_CW_ACADEMY_PRACTICE_TYPE_SELECT;
-        case LVGL_MODE_CW_ACADEMY_COPY_PRACTICE:
-        case LVGL_MODE_CW_ACADEMY_SENDING_PRACTICE:
-            return LVGL_MODE_CW_ACADEMY_MESSAGE_TYPE_SELECT;
-        case LVGL_MODE_CW_ACADEMY_QSO_PRACTICE:
-            return LVGL_MODE_CW_ACADEMY_PRACTICE_TYPE_SELECT;
-
-        // License submenu items
-        case LVGL_MODE_LICENSE_QUIZ:
-        case LVGL_MODE_LICENSE_STATS:
-        case LVGL_MODE_LICENSE_DOWNLOAD:
-        case LVGL_MODE_LICENSE_WIFI_ERROR:
-        case LVGL_MODE_LICENSE_SD_ERROR:
-        case LVGL_MODE_LICENSE_ALL_STATS:
-            return LVGL_MODE_LICENSE_SELECT;
-
-        // LICW Training hierarchy
-        case LVGL_MODE_LICW_CAROUSEL_SELECT:
-            return LVGL_MODE_TRAINING_MENU;
-        case LVGL_MODE_LICW_LESSON_SELECT:
-            return LVGL_MODE_LICW_CAROUSEL_SELECT;
-        case LVGL_MODE_LICW_PRACTICE_TYPE:
-            return LVGL_MODE_LICW_LESSON_SELECT;
-        case LVGL_MODE_LICW_COPY_PRACTICE:
-        case LVGL_MODE_LICW_SEND_PRACTICE:
-        case LVGL_MODE_LICW_TTR_PRACTICE:
-        case LVGL_MODE_LICW_IFR_PRACTICE:
-        case LVGL_MODE_LICW_CSF_INTRO:
-        case LVGL_MODE_LICW_WORD_DISCOVERY:
-        case LVGL_MODE_LICW_QSO_PRACTICE:
-        case LVGL_MODE_LICW_CFP_PRACTICE:
-        case LVGL_MODE_LICW_ADVERSE_COPY:
-            return LVGL_MODE_LICW_PRACTICE_TYPE;
-        case LVGL_MODE_LICW_SETTINGS:
-        case LVGL_MODE_LICW_PROGRESS:
-            return LVGL_MODE_LICW_CAROUSEL_SELECT;
-
-        // CW Speeder
-        case LVGL_MODE_CW_SPEEDER:
-            return LVGL_MODE_CW_SPEEDER_SELECT;
-
-        // Morse Mailbox
-        case LVGL_MODE_MORSE_MAILBOX:
-        case LVGL_MODE_MORSE_MAILBOX_LINK:
-            return LVGL_MODE_CW_MENU;
-        case LVGL_MODE_MORSE_MAILBOX_INBOX:
-        case LVGL_MODE_MORSE_MAILBOX_ACCOUNT:
-            return LVGL_MODE_MORSE_MAILBOX;
-        case LVGL_MODE_MORSE_MAILBOX_PLAYBACK:
-        case LVGL_MODE_MORSE_MAILBOX_COMPOSE:
-            return LVGL_MODE_MORSE_MAILBOX_INBOX;
-
-        // Morse Notes
-        case LVGL_MODE_MORSE_NOTES_LIBRARY:
-            return LVGL_MODE_CW_MENU;
-        case LVGL_MODE_MORSE_NOTES_RECORD:
-        case LVGL_MODE_MORSE_NOTES_PLAYBACK:
-        case LVGL_MODE_MORSE_NOTES_SETTINGS:
-            return LVGL_MODE_MORSE_NOTES_LIBRARY;
-
-        // CW School (moved to Training menu)
-        case LVGL_MODE_CWSCHOOL:
-            return LVGL_MODE_TRAINING_MENU;
-        case LVGL_MODE_CWSCHOOL_LINK:
-        case LVGL_MODE_CWSCHOOL_ACCOUNT:
-        case LVGL_MODE_CWSCHOOL_TRAINING:
-        case LVGL_MODE_CWSCHOOL_PROGRESS:
-            return LVGL_MODE_CWSCHOOL;
-
-        // Vail Course parent modes
-        case LVGL_MODE_VAIL_COURSE_MODULE_SELECT:
-            return LVGL_MODE_CWSCHOOL_TRAINING;  // Go back to CW School training
-        case LVGL_MODE_VAIL_COURSE_LESSON_SELECT:
-            return LVGL_MODE_VAIL_COURSE_MODULE_SELECT;
-        case LVGL_MODE_VAIL_COURSE_LESSON:
-            return LVGL_MODE_VAIL_COURSE_LESSON_SELECT;
-        case LVGL_MODE_VAIL_COURSE_PROGRESS:
-            return LVGL_MODE_VAIL_COURSE_MODULE_SELECT;
-
-        default:
-            return LVGL_MODE_MAIN_MENU;
-    }
+    return lookupParentMode(mode);
 }
+
+// ============================================
+// Cleanup Dispatch Table
+// ============================================
+// Maps modes to their cleanup callbacks, called on back navigation.
+// Centralizes cleanup that was previously scattered as if-chains.
+
+static const ModeCallbackEntry cleanupTable[] = {
+    { MODE_PROPAGATION,                  cleanupBandConditions },
+    { MODE_WIFI_SETTINGS,                cleanupWiFiScreen },
+    { MODE_BT_HID,                       cleanupBTHIDScreen },
+    { MODE_HEAR_IT_TYPE_IT,              cleanupHearItTypeItScreen },
+    { MODE_HEAR_IT_MENU,                 cleanupHearItTypeItScreen },
+    { MODE_POTA_ACTIVE_SPOTS,            cleanupPOTAScreen },
+    { MODE_POTA_SPOT_DETAIL,             cleanupPOTAScreen },
+    { MODE_POTA_FILTERS,                 cleanupPOTAScreen },
+    { MODE_VAIL_REPEATER,                disconnectFromVail },
+    { MODE_CW_ACADEMY_COPY_PRACTICE,     resetCWACopyPracticeState },
+    { MODE_CW_ACADEMY_SENDING_PRACTICE,  resetCWASendingPracticeState },
+    { MODE_MORSE_NOTES_RECORD,           cleanupMorseNotesRecordScreen },
+    { MODE_MORSE_NOTES_PLAYBACK,         cleanupMorseNotesPlaybackScreen },
+    { MODE_VAIL_MASTER_CHARSET,          cleanupVailMasterCharset },
+};
+static const int cleanupTableSize = sizeof(cleanupTable) / sizeof(cleanupTable[0]);
 
 /*
  * Handle back navigation from LVGL screens
@@ -1251,43 +779,8 @@ void onLVGLBackNavigation() {
     // Play navigation beep
     beep(TONE_MENU_NAV, BEEP_SHORT);
 
-    // Mode-specific cleanup before leaving
-    if (currentModeInt == LVGL_MODE_PROPAGATION) {
-        cleanupBandConditions();
-    }
-    if (currentModeInt == LVGL_MODE_WIFI_SETTINGS) {
-        cleanupWiFiScreen();
-    }
-    if (currentModeInt == LVGL_MODE_BT_HID) {
-        cleanupBTHIDScreen();
-    }
-    if (currentModeInt == LVGL_MODE_HEAR_IT_TYPE_IT ||
-        currentModeInt == LVGL_MODE_HEAR_IT_MENU) {
-        cleanupHearItTypeItScreen();
-    }
-    if (currentModeInt == LVGL_MODE_POTA_ACTIVE_SPOTS ||
-        currentModeInt == LVGL_MODE_POTA_SPOT_DETAIL ||
-        currentModeInt == LVGL_MODE_POTA_FILTERS) {
-        cleanupPOTAScreen();
-    }
-    if (currentModeInt == LVGL_MODE_VAIL_REPEATER) {
-        // Properly disconnect from Vail when leaving the mode
-        disconnectFromVail();
-    }
-    // CW Academy cleanup
-    if (currentModeInt == LVGL_MODE_CW_ACADEMY_COPY_PRACTICE) {
-        resetCWACopyPracticeState();
-    }
-    if (currentModeInt == LVGL_MODE_CW_ACADEMY_SENDING_PRACTICE) {
-        resetCWASendingPracticeState();
-    }
-    // Morse Notes cleanup
-    if (currentModeInt == LVGL_MODE_MORSE_NOTES_RECORD) {
-        cleanupMorseNotesRecordScreen();
-    }
-    if (currentModeInt == LVGL_MODE_MORSE_NOTES_PLAYBACK) {
-        cleanupMorseNotesPlaybackScreen();
-    }
+    // Mode-specific cleanup before leaving (dispatch from table)
+    dispatchModeCallback(cleanupTable, cleanupTableSize, currentModeInt);
 
     // Get parent mode
     int parentMode = getParentModeInt(currentModeInt);
@@ -1350,7 +843,7 @@ void showInitialLVGLScreen() {
     lv_obj_t* main_menu = createMainMenuScreen();
     if (main_menu != NULL) {
         loadScreen(main_menu, SCREEN_ANIM_NONE);
-        setCurrentModeFromInt(LVGL_MODE_MAIN_MENU);
+        setCurrentModeFromInt(MODE_MAIN_MENU);
         currentSelection = 0;
 
         // Debug: verify navigation group has widgets

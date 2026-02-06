@@ -11,6 +11,7 @@
 #include "lv_widgets_summit.h"
 #include "lv_screen_manager.h"
 #include "../core/config.h"
+#include "../core/modes.h"
 #include "../training/training_vail_course_core.h"
 #include "../settings/settings_cwschool.h"
 
@@ -25,106 +26,11 @@ extern void onLVGLMenuSelect(int target_mode);  // Proper navigation with screen
 static lv_obj_t* vail_course_module_buttons[MODULE_COUNT];
 static int vail_course_selected_module = 0;
 
-// ============================================
-// Linear Navigation Handler
-// ============================================
-
-static void vail_course_linear_nav_handler(lv_event_t* e) {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code != LV_EVENT_KEY) return;
-
-    uint32_t key = lv_event_get_key(e);
-    lv_group_t* group = getLVGLInputGroup();
-
-    // Block TAB and horizontal navigation in vertical lists
-    if (key == '\t' || key == LV_KEY_NEXT || key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    // Explicitly handle UP - move to previous item
-    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
-        if (group) {
-            lv_group_focus_prev(group);
-            lv_obj_t* focused = lv_group_get_focused(group);
-            if (focused) {
-                lv_obj_scroll_to_view(focused, LV_ANIM_ON);
-            }
-        }
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    // Explicitly handle DOWN - move to next item
-    if (key == LV_KEY_DOWN) {
-        if (group) {
-            lv_group_focus_next(group);
-            lv_obj_t* focused = lv_group_get_focused(group);
-            if (focused) {
-                lv_obj_scroll_to_view(focused, LV_ANIM_ON);
-            }
-        }
-        lv_event_stop_processing(e);
-        return;
-    }
-}
-
-// ============================================
-// Module Grid Navigation (3-column grid)
-// ============================================
-
-static void vail_course_grid_nav_handler(lv_event_t* e) {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code != LV_EVENT_KEY) return;
-
-    uint32_t key = lv_event_get_key(e);
-
-    // Block TAB
-    if (key == '\t' || key == LV_KEY_NEXT) {
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    lv_obj_t* current = lv_event_get_target(e);
-    if (!current) return;
-
-    // Find current index
-    int currentIdx = -1;
-    for (int i = 0; i < MODULE_COUNT; i++) {
-        if (vail_course_module_buttons[i] == current) {
-            currentIdx = i;
-            break;
-        }
-    }
-    if (currentIdx < 0) return;
-
-    int newIdx = currentIdx;
-    int cols = 3;
-
-    // Handle arrow keys for 3-column grid
-    if (key == LV_KEY_LEFT) {
-        if (currentIdx % cols > 0) newIdx = currentIdx - 1;
-        lv_event_stop_processing(e);
-    } else if (key == LV_KEY_RIGHT) {
-        if (currentIdx % cols < cols - 1 && currentIdx < MODULE_COUNT - 1) newIdx = currentIdx + 1;
-        lv_event_stop_processing(e);
-    } else if (key == LV_KEY_UP || key == LV_KEY_PREV) {
-        if (currentIdx >= cols) newIdx = currentIdx - cols;
-        lv_event_stop_processing(e);
-    } else if (key == LV_KEY_DOWN) {
-        if (currentIdx + cols < MODULE_COUNT) newIdx = currentIdx + cols;
-        lv_event_stop_processing(e);
-    }
-
-    // Focus new button
-    if (newIdx != currentIdx && vail_course_module_buttons[newIdx]) {
-        lv_group_t* group = getLVGLInputGroup();
-        if (group) {
-            lv_group_focus_obj(vail_course_module_buttons[newIdx]);
-            lv_obj_scroll_to_view(vail_course_module_buttons[newIdx], LV_ANIM_ON);
-        }
-    }
-}
+// Navigation context for module grid (3-column grid)
+static int vail_course_module_button_count = 0;
+static NavGridContext vail_course_module_nav_ctx = {
+    vail_course_module_buttons, &vail_course_module_button_count, 3
+};
 
 // ============================================
 // Module Selection Screen
@@ -144,7 +50,7 @@ static void vail_course_module_click_handler(lv_event_t* e) {
     vailCourseProgress.currentModule = (VailCourseModule)moduleIdx;
 
     // Navigate to lesson select for this module
-    onLVGLMenuSelect(161);  // LVGL_MODE_VAIL_COURSE_LESSON_SELECT
+    onLVGLMenuSelect(MODE_VAIL_COURSE_LESSON_SELECT);
 }
 
 /*
@@ -194,44 +100,44 @@ lv_obj_t* createVailCourseModuleSelectScreen() {
     lv_obj_add_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
 
     // Create module buttons (4 rows x 3 columns)
+    vail_course_module_button_count = 0;
     for (int i = 0; i < MODULE_COUNT; i++) {
         bool unlocked = isVailCourseModuleUnlocked((VailCourseModule)i);
         bool completed = isVailCourseModuleCompleted((VailCourseModule)i);
 
         lv_obj_t* btn = lv_btn_create(grid);
-        lv_obj_set_size(btn, 145, 45);
+        lv_obj_set_size(btn, 145, 65);
 
         if (unlocked) {
+            applyMenuCardStyle(btn);
             if (completed) {
                 lv_obj_set_style_bg_color(btn, LV_COLOR_SUCCESS, 0);
                 lv_obj_set_style_bg_color(btn, LV_COLOR_ACCENT_GREEN, LV_STATE_FOCUSED);
-            } else {
-                lv_obj_set_style_bg_color(btn, LV_COLOR_CARD_BLUE, 0);
-                lv_obj_set_style_bg_color(btn, LV_COLOR_CARD_CYAN, LV_STATE_FOCUSED);
             }
         } else {
             lv_obj_set_style_bg_color(btn, LV_COLOR_TEXT_DISABLED, 0);
+            lv_obj_set_style_radius(btn, 8, 0);
             lv_obj_add_state(btn, LV_STATE_DISABLED);
         }
 
-        lv_obj_set_style_radius(btn, 8, 0);
-
         // Module name
         lv_obj_t* lbl = lv_label_create(btn);
-        String text = vailCourseModuleNames[i];
-        if (completed) text = LV_SYMBOL_OK " " + text;
-        else if (!unlocked) text = LV_SYMBOL_CLOSE " " + text;
-        lv_label_set_text(lbl, text.c_str());
+        char text[64];
+        if (completed) snprintf(text, sizeof(text), LV_SYMBOL_OK " %s", vailCourseModuleNames[i]);
+        else if (!unlocked) snprintf(text, sizeof(text), LV_SYMBOL_CLOSE " %s", vailCourseModuleNames[i]);
+        else snprintf(text, sizeof(text), "%s", vailCourseModuleNames[i]);
+        lv_label_set_text(lbl, text);
         lv_obj_set_style_text_font(lbl, getThemeFonts()->font_body, 0);
         lv_obj_center(lbl);
 
         if (unlocked) {
             lv_obj_add_event_cb(btn, vail_course_module_click_handler, LV_EVENT_CLICKED, (void*)(intptr_t)i);
-            lv_obj_add_event_cb(btn, vail_course_grid_nav_handler, LV_EVENT_KEY, NULL);
+            lv_obj_add_event_cb(btn, grid_nav_handler, LV_EVENT_KEY, &vail_course_module_nav_ctx);
             addNavigableWidget(btn);
         }
 
         vail_course_module_buttons[i] = btn;
+        if (unlocked) vail_course_module_button_count++;
     }
 
     // Footer
@@ -255,7 +161,7 @@ static void vail_course_lesson_click_handler(lv_event_t* e) {
     vailCourseProgress.currentPhase = PHASE_INTRO;
 
     // Navigate to lesson practice
-    onLVGLMenuSelect(162);  // LVGL_MODE_VAIL_COURSE_LESSON
+    onLVGLMenuSelect(MODE_VAIL_COURSE_LESSON);
 }
 
 lv_obj_t* createVailCourseLessonSelectScreen() {
@@ -273,19 +179,22 @@ lv_obj_t* createVailCourseLessonSelectScreen() {
     lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* title = lv_label_create(header);
-    String titleText = String(vailCourseModuleNames[module]) + " - Lessons";
-    lv_label_set_text(title, titleText.c_str());
+    char titleText[64];
+    snprintf(titleText, sizeof(titleText), "%s - Lessons", vailCourseModuleNames[module]);
+    lv_label_set_text(title, titleText);
     lv_obj_set_style_text_font(title, getThemeFonts()->font_input, 0);
     lv_obj_set_style_text_color(title, LV_COLOR_TEXT_PRIMARY, 0);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 15, 0);
 
     // Characters info
     lv_obj_t* chars_label = lv_label_create(header);
-    String charsText = "Chars: " + String(vailCourseModuleChars[module]);
+    char charsText[64];
     if (strlen(vailCourseModuleChars[module]) == 0) {
-        charsText = "Review";
+        strcpy(charsText, "Review");
+    } else {
+        snprintf(charsText, sizeof(charsText), "Chars: %s", vailCourseModuleChars[module]);
     }
-    lv_label_set_text(chars_label, charsText.c_str());
+    lv_label_set_text(chars_label, charsText);
     lv_obj_set_style_text_font(chars_label, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(chars_label, LV_COLOR_ACCENT_CYAN, 0);
     lv_obj_align(chars_label, LV_ALIGN_RIGHT_MID, -15, 0);
@@ -310,6 +219,7 @@ lv_obj_t* createVailCourseLessonSelectScreen() {
 
         lv_obj_t* btn = lv_btn_create(list);
         lv_obj_set_size(btn, 350, 50);
+        applyMenuCardStyle(btn);
 
         if (completed) {
             lv_obj_set_style_bg_color(btn, LV_COLOR_SUCCESS, 0);
@@ -317,22 +227,19 @@ lv_obj_t* createVailCourseLessonSelectScreen() {
         } else if (current) {
             lv_obj_set_style_bg_color(btn, LV_COLOR_CARD_CYAN, 0);
             lv_obj_set_style_bg_color(btn, LV_COLOR_CARD_BLUE, LV_STATE_FOCUSED);
-        } else {
-            lv_obj_set_style_bg_color(btn, LV_COLOR_CARD_BLUE, 0);
-            lv_obj_set_style_bg_color(btn, LV_COLOR_CARD_CYAN, LV_STATE_FOCUSED);
         }
-        lv_obj_set_style_radius(btn, 8, 0);
 
         lv_obj_t* lbl = lv_label_create(btn);
-        String lessonText = "Lesson " + String(i);
-        if (completed) lessonText = LV_SYMBOL_OK " " + lessonText;
-        else if (current) lessonText += " (Current)";
-        lv_label_set_text(lbl, lessonText.c_str());
+        char lessonText[64];
+        if (completed) snprintf(lessonText, sizeof(lessonText), LV_SYMBOL_OK " Lesson %d", i);
+        else if (current) snprintf(lessonText, sizeof(lessonText), "Lesson %d (Current)", i);
+        else snprintf(lessonText, sizeof(lessonText), "Lesson %d", i);
+        lv_label_set_text(lbl, lessonText);
         lv_obj_set_style_text_font(lbl, getThemeFonts()->font_input, 0);
         lv_obj_center(lbl);
 
         lv_obj_add_event_cb(btn, vail_course_lesson_click_handler, LV_EVENT_CLICKED, (void*)(intptr_t)i);
-        lv_obj_add_event_cb(btn, vail_course_linear_nav_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(btn, linear_nav_handler, LV_EVENT_KEY, NULL);
         addNavigableWidget(btn);
     }
 
@@ -360,8 +267,8 @@ struct VailCourseLessonState {
 
     // Current character/group being tested
     char currentChar;            // Single character being played
-    String currentGroup;         // Character group (for PHASE_GROUPS)
-    String availableChars;       // Characters available for this lesson
+    char currentGroup[16];       // Character group (for PHASE_GROUPS)
+    char availableChars[64];     // Characters available for this lesson
 
     // Playback state
     int playbackCount;           // Times character has been played
@@ -373,7 +280,7 @@ struct VailCourseLessonState {
     int introCharIndex;          // Which new character we're introducing
 
     // Group input accumulation (for PHASE_GROUPS)
-    String groupInputBuffer;     // Accumulated characters for group answer
+    char groupInputBuffer[16];   // Accumulated characters for group answer
 
     // UI elements
     lv_obj_t* screen;
@@ -396,12 +303,56 @@ static VailCourseLessonState lessonState = {0};
 #define VAIL_LESSON_PASS_THRESHOLD 80  // 80% to pass
 #define VAIL_FEEDBACK_DURATION_MS 1500 // Feedback display time
 
+// Auto-play timer for advancing after feedback / intro replays
+static lv_timer_t* vail_course_autoplay_timer = NULL;
+
 // Forward declarations
 void updateVailCourseLessonUI();
 void advanceVailCoursePhase();
 void startVailCourseLessonPhase();
 void playCurrentCharacter();
 void checkVailCourseLessonAnswer(char answer);
+void advanceVailCourseLessonItem();
+
+// Cancel any pending auto-play timer
+static void cancelVailCourseAutoplayTimer() {
+    if (vail_course_autoplay_timer) {
+        lv_timer_del(vail_course_autoplay_timer);
+        vail_course_autoplay_timer = NULL;
+    }
+}
+
+// Auto-play callback: advance to next item and play it (SOLO/MIXED/GROUPS)
+static void vail_course_autoplay_cb(lv_timer_t* timer) {
+    lv_timer_del(timer);
+    vail_course_autoplay_timer = NULL;
+    advanceVailCourseLessonItem();
+    // Only auto-play if we haven't moved to result phase
+    if (vailCourseProgress.currentPhase != PHASE_RESULT) {
+        playCurrentCharacter();
+    }
+    updateVailCourseLessonUI();
+}
+
+// Intro phase auto-replay callback: play character up to 3x then advance
+static void vail_course_intro_timer_cb(lv_timer_t* timer) {
+    lv_timer_del(timer);
+    vail_course_autoplay_timer = NULL;
+
+    if (lessonState.playbackCount < 3) {
+        playCurrentCharacter();  // Plays and increments playbackCount
+        // Schedule next replay
+        vail_course_autoplay_timer = lv_timer_create(vail_course_intro_timer_cb, 1500, NULL);
+    } else {
+        // Done with 3 plays, advance to next character or phase
+        advanceVailCourseLessonItem();
+        updateVailCourseLessonUI();
+        // If still in intro, start auto-play chain for the next character
+        if (vailCourseProgress.currentPhase == PHASE_INTRO) {
+            vail_course_autoplay_timer = lv_timer_create(vail_course_intro_timer_cb, 1000, NULL);
+        }
+    }
+}
 
 // Async playback functions from task_manager.h
 extern void requestPlayMorseStringFarnsworth(const char* str, int characterWPM, int effectiveWPM, int toneHz);
@@ -412,38 +363,39 @@ extern void resetMorsePlayback();
 
 // Get a random character from the available set
 char getRandomVailCourseChar() {
-    if (lessonState.availableChars.length() == 0) return 'E';
-    int idx = random(lessonState.availableChars.length());
+    int len = strlen(lessonState.availableChars);
+    if (len == 0) return 'E';
+    int idx = random(len);
     return lessonState.availableChars[idx];
 }
 
-// Get characters for current lesson
-String getVailCourseLessonChars() {
+// Get characters for current lesson (fills buffer)
+void getVailCourseLessonChars(char* buf, int bufSize) {
     VailCourseModule module = vailCourseProgress.currentModule;
-
-    // Get all characters up to and including this module
-    String chars = getVailCourseCumulativeChars(module);
 
     // For words and callsigns modules, use all letters
     if (module == MODULE_WORDS_COMMON || module == MODULE_CALLSIGNS) {
-        chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        strncpy(buf, "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", bufSize - 1);
+    } else {
+        // Get all characters up to and including this module
+        // getVailCourseCumulativeChars returns a String - convert immediately
+        String chars = getVailCourseCumulativeChars(module);
+        strncpy(buf, chars.c_str(), bufSize - 1);
     }
-
-    return chars;
+    buf[bufSize - 1] = '\0';
 }
 
 // Get the new characters for this module (for intro phase)
-String getVailCourseNewChars() {
-    return String(vailCourseModuleChars[vailCourseProgress.currentModule]);
+const char* getVailCourseNewChars() {
+    return vailCourseModuleChars[vailCourseProgress.currentModule];
 }
 
-// Generate a random group of characters
-String generateVailCourseGroup(int length) {
-    String group = "";
-    for (int i = 0; i < length; i++) {
-        group += getRandomVailCourseChar();
+// Generate a random group of characters (fills buffer)
+void generateVailCourseGroup(char* buf, int length) {
+    for (int i = 0; i < length && i < 15; i++) {
+        buf[i] = getRandomVailCourseChar();
     }
-    return group;
+    buf[length < 15 ? length : 15] = '\0';
 }
 
 // ============================================
@@ -452,19 +404,24 @@ String generateVailCourseGroup(int length) {
 
 // Clear group input buffer
 void clearVailCourseGroupInput() {
-    lessonState.groupInputBuffer = "";
+    lessonState.groupInputBuffer[0] = '\0';
 }
 
 // Add character to group input
 void addVailCourseGroupInputChar(char c) {
-    lessonState.groupInputBuffer += toupper(c);
+    int len = strlen(lessonState.groupInputBuffer);
+    if (len < (int)sizeof(lessonState.groupInputBuffer) - 1) {
+        lessonState.groupInputBuffer[len] = toupper(c);
+        lessonState.groupInputBuffer[len + 1] = '\0';
+    }
     updateVailCourseLessonUI();
 }
 
 // Remove last character from group input
 void backspaceVailCourseGroupInput() {
-    if (lessonState.groupInputBuffer.length() > 0) {
-        lessonState.groupInputBuffer.remove(lessonState.groupInputBuffer.length() - 1);
+    int len = strlen(lessonState.groupInputBuffer);
+    if (len > 0) {
+        lessonState.groupInputBuffer[len - 1] = '\0';
         updateVailCourseLessonUI();
     }
 }
@@ -472,19 +429,19 @@ void backspaceVailCourseGroupInput() {
 // Submit group input for validation
 void submitVailCourseGroupAnswer() {
     if (!lessonState.waitingForInput) return;
-    if (lessonState.groupInputBuffer.length() == 0) return;
+    if (strlen(lessonState.groupInputBuffer) == 0) return;
 
     lessonState.waitingForInput = false;
     lessonState.phaseTotal++;
 
     // Compare full group (case-insensitive)
-    bool correct = lessonState.groupInputBuffer.equalsIgnoreCase(lessonState.currentGroup);
+    bool correct = (strcasecmp(lessonState.groupInputBuffer, lessonState.currentGroup) == 0);
 
     if (correct) {
         lessonState.phaseCorrect++;
 
         // Update mastery for each character in the group
-        for (size_t i = 0; i < lessonState.currentGroup.length(); i++) {
+        for (size_t i = 0; i < strlen(lessonState.currentGroup); i++) {
             int charIdx = getVailCourseCharIndex(lessonState.currentGroup[i]);
             if (charIdx >= 0) {
                 vailCourseProgress.charMastery[charIdx].attempts++;
@@ -495,7 +452,7 @@ void submitVailCourseGroupAnswer() {
         }
     } else {
         // Penalize all chars in group for incorrect
-        for (size_t i = 0; i < lessonState.currentGroup.length(); i++) {
+        for (size_t i = 0; i < strlen(lessonState.currentGroup); i++) {
             int charIdx = getVailCourseCharIndex(lessonState.currentGroup[i]);
             if (charIdx >= 0) {
                 vailCourseProgress.charMastery[charIdx].attempts++;
@@ -515,6 +472,10 @@ void submitVailCourseGroupAnswer() {
 
     recordPracticeActivity();
     updateVailCourseLessonUI();
+
+    // Auto-advance after feedback delay
+    cancelVailCourseAutoplayTimer();
+    vail_course_autoplay_timer = lv_timer_create(vail_course_autoplay_cb, 1200, NULL);
 }
 
 // ============================================
@@ -522,6 +483,7 @@ void submitVailCourseGroupAnswer() {
 // ============================================
 
 void startVailCourseLessonPhase() {
+    cancelVailCourseAutoplayTimer();
     VailCoursePhase phase = vailCourseProgress.currentPhase;
 
     lessonState.phaseItemIndex = 0;
@@ -531,7 +493,7 @@ void startVailCourseLessonPhase() {
     lessonState.waitingForInput = false;
     lessonState.showingFeedback = false;
     clearVailCourseGroupInput();  // Clear group input buffer
-    lessonState.availableChars = getVailCourseLessonChars();
+    getVailCourseLessonChars(lessonState.availableChars, sizeof(lessonState.availableChars));
 
     switch (phase) {
         case PHASE_INTRO:
@@ -553,11 +515,12 @@ void startVailCourseLessonPhase() {
                 }
 
                 // Store new chars for this intro phase
-                lessonState.availableChars = newChars;
-                lessonState.currentChar = newChars[0];
+                strncpy(lessonState.availableChars, newChars.c_str(), sizeof(lessonState.availableChars) - 1);
+                lessonState.availableChars[sizeof(lessonState.availableChars) - 1] = '\0';
+                lessonState.currentChar = lessonState.availableChars[0];
 
                 Serial.printf("[VailCourse] INTRO phase: %d new chars: %s\n",
-                              lessonState.phaseItemCount, newChars.c_str());
+                              lessonState.phaseItemCount, lessonState.availableChars);
             }
             break;
 
@@ -570,9 +533,10 @@ void startVailCourseLessonPhase() {
                 );
 
                 lessonState.phaseItemCount = VAIL_LESSON_SOLO_COUNT;
-                lessonState.availableChars = newChars;
+                strncpy(lessonState.availableChars, newChars.c_str(), sizeof(lessonState.availableChars) - 1);
+                lessonState.availableChars[sizeof(lessonState.availableChars) - 1] = '\0';
 
-                if (lessonState.availableChars.length() == 0) {
+                if (strlen(lessonState.availableChars) == 0) {
                     // No new chars - skip to mixed
                     vailCourseProgress.currentPhase = PHASE_MIXED;
                     startVailCourseLessonPhase();
@@ -581,9 +545,9 @@ void startVailCourseLessonPhase() {
 
                 lessonState.currentChar = getRandomVailCourseChar();
 
-                Serial.printf("[VailCourse] SOLO phase: %d chars available: %s\n",
-                              lessonState.availableChars.length(),
-                              lessonState.availableChars.c_str());
+                Serial.printf("[VailCourse] SOLO phase: %zu chars available: %s\n",
+                              strlen(lessonState.availableChars),
+                              lessonState.availableChars);
             }
             break;
 
@@ -591,15 +555,19 @@ void startVailCourseLessonPhase() {
             {
                 // Practice ALL characters learned up to current lesson
                 lessonState.phaseItemCount = VAIL_LESSON_MIXED_COUNT;
-                lessonState.availableChars = getVailCourseCharsForLesson(
-                    vailCourseProgress.currentModule,
-                    vailCourseProgress.currentLesson
-                );
+                {
+                    String chars = getVailCourseCharsForLesson(
+                        vailCourseProgress.currentModule,
+                        vailCourseProgress.currentLesson
+                    );
+                    strncpy(lessonState.availableChars, chars.c_str(), sizeof(lessonState.availableChars) - 1);
+                    lessonState.availableChars[sizeof(lessonState.availableChars) - 1] = '\0';
+                }
                 lessonState.currentChar = getRandomVailCourseChar();
 
-                Serial.printf("[VailCourse] MIXED phase: %d chars available: %s\n",
-                              lessonState.availableChars.length(),
-                              lessonState.availableChars.c_str());
+                Serial.printf("[VailCourse] MIXED phase: %zu chars available: %s\n",
+                              strlen(lessonState.availableChars),
+                              lessonState.availableChars);
             }
             break;
 
@@ -607,15 +575,19 @@ void startVailCourseLessonPhase() {
             {
                 // Practice character groups using all learned chars
                 lessonState.phaseItemCount = VAIL_LESSON_GROUP_COUNT;
-                lessonState.availableChars = getVailCourseCharsForLesson(
-                    vailCourseProgress.currentModule,
-                    vailCourseProgress.currentLesson
-                );
-                lessonState.currentGroup = generateVailCourseGroup(2 + random(3)); // 2-4 chars
+                {
+                    String chars = getVailCourseCharsForLesson(
+                        vailCourseProgress.currentModule,
+                        vailCourseProgress.currentLesson
+                    );
+                    strncpy(lessonState.availableChars, chars.c_str(), sizeof(lessonState.availableChars) - 1);
+                    lessonState.availableChars[sizeof(lessonState.availableChars) - 1] = '\0';
+                }
+                generateVailCourseGroup(lessonState.currentGroup, 2 + random(3)); // 2-4 chars
 
-                Serial.printf("[VailCourse] GROUPS phase: %d chars available: %s\n",
-                              lessonState.availableChars.length(),
-                              lessonState.availableChars.c_str());
+                Serial.printf("[VailCourse] GROUPS phase: %zu chars available: %s\n",
+                              strlen(lessonState.availableChars),
+                              lessonState.availableChars);
             }
             break;
 
@@ -672,11 +644,10 @@ void playCurrentCharacter() {
     int effWPM = vailCourseProgress.effectiveWPM;
 
     if (phase == PHASE_GROUPS) {
-        requestPlayMorseStringFarnsworth(lessonState.currentGroup.c_str(), charWPM, effWPM, TONE_SIDETONE);
+        requestPlayMorseStringFarnsworth(lessonState.currentGroup, charWPM, effWPM, TONE_SIDETONE);
     } else {
-        String charStr;
-        charStr += lessonState.currentChar;
-        requestPlayMorseStringFarnsworth(charStr.c_str(), charWPM, effWPM, TONE_SIDETONE);
+        char charStr[2] = { lessonState.currentChar, '\0' };
+        requestPlayMorseStringFarnsworth(charStr, charWPM, effWPM, TONE_SIDETONE);
     }
 
     lessonState.playbackCount++;
@@ -736,6 +707,10 @@ void checkVailCourseLessonAnswer(char answer) {
     recordPracticeActivity(); // Mark activity on answer
 
     updateVailCourseLessonUI();
+
+    // Auto-advance after feedback delay
+    cancelVailCourseAutoplayTimer();
+    vail_course_autoplay_timer = lv_timer_create(vail_course_autoplay_cb, 1200, NULL);
 }
 
 void advanceVailCourseLessonItem() {
@@ -757,7 +732,7 @@ void advanceVailCourseLessonItem() {
         case PHASE_INTRO:
             // Move to next new character in THIS lesson
             lessonState.introCharIndex++;
-            if (lessonState.introCharIndex < lessonState.availableChars.length()) {
+            if (lessonState.introCharIndex < (int)strlen(lessonState.availableChars)) {
                 lessonState.currentChar = lessonState.availableChars[lessonState.introCharIndex];
             }
             break;
@@ -768,7 +743,7 @@ void advanceVailCourseLessonItem() {
             break;
 
         case PHASE_GROUPS:
-            lessonState.currentGroup = generateVailCourseGroup(2 + random(3));
+            generateVailCourseGroup(lessonState.currentGroup, 2 + random(3));
             break;
 
         default:
@@ -817,6 +792,7 @@ static void vail_course_lesson_key_handler(lv_event_t* e) {
     // Handle result phase
     if (phase == PHASE_RESULT) {
         if (key == LV_KEY_ENTER || key == ' ') {
+            cancelVailCourseAutoplayTimer();
             // Calculate overall score
             int totalCorrect = vailCourseProgress.sessionCorrect;
             int totalTotal = vailCourseProgress.sessionTotal;
@@ -830,7 +806,7 @@ static void vail_course_lesson_key_handler(lv_event_t* e) {
 
             // Go back to lesson select
             endVailCourseSession();
-            onLVGLMenuSelect(161);  // Lesson select
+            onLVGLMenuSelect(MODE_VAIL_COURSE_LESSON_SELECT);
         }
         return;
     }
@@ -838,13 +814,20 @@ static void vail_course_lesson_key_handler(lv_event_t* e) {
     // Handle intro phase
     if (phase == PHASE_INTRO) {
         if (key == ' ' || key == LV_KEY_ENTER) {
+            cancelVailCourseAutoplayTimer();
             if (!isMorsePlaybackActive()) {
                 if (lessonState.playbackCount < 3) {
-                    // Play character
+                    // Play character and start auto-replay chain
                     playCurrentCharacter();
+                    vail_course_autoplay_timer = lv_timer_create(vail_course_intro_timer_cb, 1500, NULL);
                 } else {
                     // Done with this character, move to next
                     advanceVailCourseLessonItem();
+                    updateVailCourseLessonUI();
+                    // If still in intro, start auto-play for the next character
+                    if (vailCourseProgress.currentPhase == PHASE_INTRO) {
+                        vail_course_autoplay_timer = lv_timer_create(vail_course_intro_timer_cb, 1000, NULL);
+                    }
                 }
             }
         }
@@ -853,16 +836,23 @@ static void vail_course_lesson_key_handler(lv_event_t* e) {
 
     // Handle practice phases (SOLO, MIXED, GROUPS)
     if (lessonState.showingFeedback) {
-        // During feedback, space/enter advances
+        // During feedback, space/enter cancels auto-advance and immediately advances
         if (key == ' ' || key == LV_KEY_ENTER) {
+            cancelVailCourseAutoplayTimer();
             advanceVailCourseLessonItem();
+            // Auto-play the next item immediately
+            if (vailCourseProgress.currentPhase != PHASE_RESULT) {
+                playCurrentCharacter();
+            }
+            updateVailCourseLessonUI();
         }
         return;
     }
 
     if (!lessonState.waitingForInput) {
-        // Not waiting - space/enter plays character
+        // Not waiting - space/enter plays character (manual replay)
         if (key == ' ' || key == LV_KEY_ENTER) {
+            cancelVailCourseAutoplayTimer();
             if (!isMorsePlaybackActive()) {
                 playCurrentCharacter();
             }
@@ -944,12 +934,13 @@ void updateVailCourseLessonUI() {
             case PHASE_GROUPS:
                 if (lessonState.showingFeedback) {
                     // Show correct answer
-                    lv_label_set_text(lessonState.main_label, lessonState.currentGroup.c_str());
+                    lv_label_set_text(lessonState.main_label, lessonState.currentGroup);
 
                     // Show what user typed for comparison
                     if (lessonState.group_input_label) {
-                        String inputText = "You typed: " + lessonState.groupInputBuffer;
-                        lv_label_set_text(lessonState.group_input_label, inputText.c_str());
+                        char inputText[32];
+                        snprintf(inputText, sizeof(inputText), "You typed: %s", lessonState.groupInputBuffer);
+                        lv_label_set_text(lessonState.group_input_label, inputText);
                         lv_obj_clear_flag(lessonState.group_input_label, LV_OBJ_FLAG_HIDDEN);
                     }
                 } else if (lessonState.waitingForInput) {
@@ -958,13 +949,13 @@ void updateVailCourseLessonUI() {
 
                     // Show current input with cursor
                     if (lessonState.group_input_label) {
-                        String inputDisplay = lessonState.groupInputBuffer;
-                        if (inputDisplay.length() == 0) {
-                            inputDisplay = "(Type answer)";
+                        char inputDisplay[32];
+                        if (strlen(lessonState.groupInputBuffer) == 0) {
+                            strcpy(inputDisplay, "(Type answer)");
                         } else {
-                            inputDisplay += "_";  // Cursor indicator
+                            snprintf(inputDisplay, sizeof(inputDisplay), "%s_", lessonState.groupInputBuffer);
                         }
-                        lv_label_set_text(lessonState.group_input_label, inputDisplay.c_str());
+                        lv_label_set_text(lessonState.group_input_label, inputDisplay);
                         lv_obj_set_style_text_color(lessonState.group_input_label, LV_COLOR_ACCENT_CYAN, 0);
                         lv_obj_clear_flag(lessonState.group_input_label, LV_OBJ_FLAG_HIDDEN);
                     }
@@ -1043,16 +1034,16 @@ void updateVailCourseLessonUI() {
                 if (lessonState.playbackCount == 0) {
                     lv_label_set_text(lessonState.prompt_label, "Press SPACE to hear this character");
                 } else if (lessonState.playbackCount < 3) {
-                    lv_label_set_text(lessonState.prompt_label, "Press SPACE to hear again");
+                    lv_label_set_text(lessonState.prompt_label, "Listening...");
                 } else {
-                    lv_label_set_text(lessonState.prompt_label, "Press SPACE to continue");
+                    lv_label_set_text(lessonState.prompt_label, "Moving to next...");
                 }
                 break;
 
             case PHASE_SOLO:
             case PHASE_MIXED:
                 if (lessonState.showingFeedback) {
-                    lv_label_set_text(lessonState.prompt_label, "Press SPACE to continue");
+                    lv_label_set_text(lessonState.prompt_label, "");
                 } else if (lessonState.waitingForInput) {
                     lv_label_set_text(lessonState.prompt_label, "Type your answer");
                 } else {
@@ -1062,7 +1053,7 @@ void updateVailCourseLessonUI() {
 
             case PHASE_GROUPS:
                 if (lessonState.showingFeedback) {
-                    lv_label_set_text(lessonState.prompt_label, "Press SPACE to continue");
+                    lv_label_set_text(lessonState.prompt_label, "");
                 } else if (lessonState.waitingForInput) {
                     lv_label_set_text(lessonState.prompt_label, "Type full group, then ENTER to submit");
                 } else {
@@ -1083,8 +1074,10 @@ void updateVailCourseLessonUI() {
     if (lessonState.footer_label) {
         if (phase == PHASE_RESULT) {
             lv_label_set_text(lessonState.footer_label, "ENTER Continue   ESC Back");
+        } else if (phase == PHASE_GROUPS) {
+            lv_label_set_text(lessonState.footer_label, "Type Group   ENTER Submit   SPACE Replay   ESC Back");
         } else {
-            lv_label_set_text(lessonState.footer_label, "SPACE Play   Type Answer   ESC Back");
+            lv_label_set_text(lessonState.footer_label, FOOTER_TRAINING_AUTOPLAY);
         }
     }
 }
@@ -1107,9 +1100,11 @@ lv_obj_t* createVailCourseLessonScreen() {
     lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* title = lv_label_create(header);
-    String titleText = String(vailCourseModuleNames[vailCourseProgress.currentModule]) +
-                       " - Lesson " + String(vailCourseProgress.currentLesson);
-    lv_label_set_text(title, titleText.c_str());
+    char titleText[64];
+    snprintf(titleText, sizeof(titleText), "%s - Lesson %d",
+             vailCourseModuleNames[vailCourseProgress.currentModule],
+             vailCourseProgress.currentLesson);
+    lv_label_set_text(title, titleText);
     lv_obj_set_style_text_font(title, getThemeFonts()->font_input, 0);
     lv_obj_set_style_text_color(title, LV_COLOR_TEXT_PRIMARY, 0);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 15, 0);
@@ -1125,10 +1120,7 @@ lv_obj_t* createVailCourseLessonScreen() {
     lv_obj_t* content = lv_obj_create(screen);
     lv_obj_set_size(content, 420, 180);
     lv_obj_center(content);
-    lv_obj_set_style_bg_color(content, LV_COLOR_BG_LAYER2, 0);
-    lv_obj_set_style_border_width(content, 1, 0);
-    lv_obj_set_style_border_color(content, LV_COLOR_BORDER_SUBTLE, 0);
-    lv_obj_set_style_radius(content, 10, 0);
+    applyCardStyle(content);
     lv_obj_set_style_pad_all(content, 15, 0);
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -1189,7 +1181,7 @@ lv_obj_t* createVailCourseLessonScreen() {
 
     // Footer
     lessonState.footer_label = lv_label_create(screen);
-    lv_label_set_text(lessonState.footer_label, "SPACE Play   Type Answer   ESC Back");
+    lv_label_set_text(lessonState.footer_label, FOOTER_TRAINING_AUTOPLAY);
     lv_obj_set_style_text_font(lessonState.footer_label, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(lessonState.footer_label, LV_COLOR_WARNING, 0);
     lv_obj_align(lessonState.footer_label, LV_ALIGN_BOTTOM_MID, 0, -5);
@@ -1288,22 +1280,25 @@ lv_obj_t* createVailCourseProgressScreen() {
  * Called from main mode handler in lv_mode_integration.h
  */
 bool handleVailCourseMode(int mode) {
+    // Cancel any pending auto-play timer when switching modes
+    cancelVailCourseAutoplayTimer();
+
     lv_obj_t* screen = NULL;
 
     switch (mode) {
-        case 160:  // LVGL_MODE_VAIL_COURSE_MODULE_SELECT
+        case MODE_VAIL_COURSE_MODULE_SELECT:
             screen = createVailCourseModuleSelectScreen();
             break;
 
-        case 161:  // LVGL_MODE_VAIL_COURSE_LESSON_SELECT
+        case MODE_VAIL_COURSE_LESSON_SELECT:
             screen = createVailCourseLessonSelectScreen();
             break;
 
-        case 162:  // LVGL_MODE_VAIL_COURSE_LESSON
+        case MODE_VAIL_COURSE_LESSON:
             screen = createVailCourseLessonScreen();
             break;
 
-        case 163:  // LVGL_MODE_VAIL_COURSE_PROGRESS
+        case MODE_VAIL_COURSE_PROGRESS:
             screen = createVailCourseProgressScreen();
             break;
 

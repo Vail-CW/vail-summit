@@ -14,6 +14,7 @@
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
 #include "config.h"
+#include "morse_code.h"
 
 // ============================================
 // Task Configuration
@@ -150,84 +151,7 @@ static volatile MorsePlaybackRequest morsePlayback = {
     false, false, "", 0, 0, 0, false, 0, 0, 0, MORSE_IDLE, 0, false
 };
 
-// Morse code lookup table (matches morse_code.h)
-static const char* morseTableInternal[] = {
-    ".-",    // A
-    "-...",  // B
-    "-.-.",  // C
-    "-..",   // D
-    ".",     // E
-    "..-.",  // F
-    "--.",   // G
-    "....",  // H
-    "..",    // I
-    ".---",  // J
-    "-.-",   // K
-    ".-..",  // L
-    "--",    // M
-    "-.",    // N
-    "---",   // O
-    ".--.",  // P
-    "--.-",  // Q
-    ".-.",   // R
-    "...",   // S
-    "-",     // T
-    "..-",   // U
-    "...-",  // V
-    ".--",   // W
-    "-..-",  // X
-    "-.--",  // Y
-    "--..",  // Z
-    "-----", // 0
-    ".----", // 1
-    "..---", // 2
-    "...--", // 3
-    "....-", // 4
-    ".....", // 5
-    "-....", // 6
-    "--...", // 7
-    "---..", // 8
-    "----.", // 9
-    ".-.-.-", // Period
-    "--..--", // Comma
-    "..--..", // Question mark
-    ".----.", // Apostrophe
-    "-.-.--", // Exclamation
-    "-..-.",  // Slash
-    "-.--.",  // Parenthesis (
-    "-.--.-", // Parenthesis )
-    ".-...",  // Ampersand
-    "---...", // Colon
-    "-.-.-.", // Semicolon
-    "-...-",  // Equals
-    ".-.-.",  // Plus
-    "-....-", // Hyphen/Minus
-    "..--.-", // Underscore
-    ".-..-.", // Quote
-    "...-..-", // Dollar
-    ".--.-."  // At sign
-};
-
-// Get morse pattern for a character (internal version for audio task)
-static const char* getMorsePatternInternal(char c) {
-    c = toupper(c);
-    if (c >= 'A' && c <= 'Z') {
-        return morseTableInternal[c - 'A'];
-    } else if (c >= '0' && c <= '9') {
-        return morseTableInternal[26 + (c - '0')];
-    } else if (c == '.') {
-        return morseTableInternal[36];
-    } else if (c == ',') {
-        return morseTableInternal[37];
-    } else if (c == '?') {
-        return morseTableInternal[38];
-    } else if (c == '/') {
-        return morseTableInternal[41];
-    } else if (c == '-') {
-        return morseTableInternal[47];
-    }
-    return nullptr;
-}
+// Uses morseTable[] and getMorseCode() from morse_code.h (no duplicate table needed)
 
 // ============================================
 // Thread-Safe API Functions (called from UI core)
@@ -628,7 +552,7 @@ void processMorsePlayback() {
                     return;
                 }
 
-                const char* pattern = getMorsePatternInternal(c);
+                const char* pattern = getMorseCode(c);
                 if (pattern != nullptr) {
                     // Valid character - start playing first element
                     morsePlayback.elementIndex = 0;
@@ -668,7 +592,7 @@ void processMorsePlayback() {
 
                 // Get current character pattern
                 char c = morsePlayback.text[morsePlayback.charIndex];
-                const char* pattern = getMorsePatternInternal(c);
+                const char* pattern = getMorseCode(c);
 
                 if (pattern == nullptr) {
                     // Should not happen, but handle gracefully
@@ -714,7 +638,7 @@ void processMorsePlayback() {
             if (now >= morsePlayback.stateEndTime) {
                 // Start next element
                 char c = morsePlayback.text[morsePlayback.charIndex];
-                const char* pattern = getMorsePatternInternal(c);
+                const char* pattern = getMorseCode(c);
 
                 if (pattern != nullptr && pattern[morsePlayback.elementIndex] != '\0') {
                     char element = pattern[morsePlayback.elementIndex];

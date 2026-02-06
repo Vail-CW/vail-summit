@@ -47,6 +47,7 @@ extern int batteryPercent;
 // Training modes
 #define FOOTER_TRAINING_ACTIVE      "ENTER Submit   LEFT Replay   RIGHT Skip   ESC Exit"
 #define FOOTER_TRAINING_WAIT        "Keying in progress...   ESC Exit"
+#define FOOTER_TRAINING_AUTOPLAY    "Type Answer   SPACE Replay   ESC Back"
 
 // ============================================
 // Forward Declarations

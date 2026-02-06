@@ -13,6 +13,7 @@
 
 #include <Preferences.h>
 #include "../core/config.h"
+#include "../core/modes.h"
 #include "../core/morse_code.h"
 #include "../core/task_manager.h"  // For dual-core audio API
 #include "../audio/i2s_audio.h"
@@ -556,8 +557,7 @@ static void cs_select_btn_event_cb(lv_event_t* e) {
     csSaveSelectedChallenge();
     csLoadBestTimeForChallenge(challenge);
 
-    // Navigate to game screen (LVGL_MODE_CW_SPEEDER = 135)
-    onLVGLMenuSelect(135);
+    onLVGLMenuSelect(MODE_CW_SPEEDER);
 }
 
 static void cs_select_key_event_cb(lv_event_t* e) {

@@ -19,6 +19,10 @@
 #include "morse_wpm.h"  // Same folder
 #include "../core/morse_code.h"
 
+// Maximum history size for decoder vectors to prevent unbounded memory growth
+#define MORSE_DECODER_MAX_HISTORY 500
+#define MORSE_DECODER_TRIM_AMOUNT 100
+
 /**
  * Reverse lookup: Convert morse pattern to character or prosign
  * Prosigns return special characters that will be displayed as text
@@ -213,6 +217,11 @@ public:
       timings.push_back(t);
     }
 
+    // Cap timings history to prevent unbounded growth
+    if (timings.size() > MORSE_DECODER_MAX_HISTORY) {
+      timings.erase(timings.begin(), timings.begin() + MORSE_DECODER_TRIM_AMOUNT);
+    }
+
     // Call addDecode for each element (for adaptive tracking)
     for (size_t i = 0; i < unusedTimes.size(); i++) {
       if (i < morse.length()) {
@@ -223,6 +232,11 @@ public:
     // Store morse characters
     for (char c : morse) {
       characters.push_back(c);
+    }
+
+    // Cap characters history to prevent unbounded growth
+    if (characters.size() > MORSE_DECODER_MAX_HISTORY) {
+      characters.erase(characters.begin(), characters.begin() + MORSE_DECODER_TRIM_AMOUNT);
     }
 
     // Decode morse pattern to text

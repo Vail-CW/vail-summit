@@ -507,6 +507,118 @@ char readKeyboardNonBlocking() {
   return 0;
 }
 
+// Helper function to read paddle state (DIT/DAH via GPIO and touch)
+void readPaddles(bool &dit, bool &dah) {
+  dit = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
+  dah = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
+}
+
+// ============================================
+// Mode Poll Wrappers
+// ============================================
+// Each wrapper encapsulates the per-loop logic for a mode.
+// Replaces scattered if/else blocks in the main loop.
+
+void pollPracticeMode() {
+    updatePracticeOscillator();
+    if (needsUIUpdate && !isTonePlaying()) {
+        updatePracticeDecoderDisplay(decodedText.c_str());
+        needsUIUpdate = false;
+    }
+}
+
+void pollHearIt() { updateHearItTypeIt(); }
+void pollCWACopy() { updateCWACopyPractice(); }
+void pollCWAQSO() { updateCWAQSOPractice(); }
+
+void pollCWASending() {
+    if (cwaUseLVGL) {
+        updateCWASendingPracticeLVGL();
+    } else {
+        updateCWASendingPractice();
+        if (cwaSendNeedsUIUpdate && !isTonePlaying()) {
+            drawCWASendDecodedOnly(tft);
+            cwaSendNeedsUIUpdate = false;
+        }
+    }
+}
+
+void pollVailRepeater() {
+    updateVailRepeater(tft);
+    updateVailScreenLVGL();
+}
+
+void pollMorseShooter() {
+    updateMorseShooterInput(tft);
+    updateMorseShooterVisuals(tft);
+}
+
+void pollMemoryChain() {
+    memoryChainUpdate();
+    bool ditPressed, dahPressed;
+    readPaddles(ditPressed, dahPressed);
+    memoryChainHandlePaddle(ditPressed, dahPressed);
+}
+
+void pollCWSpeeder() {
+    cwSpeedUpdate();
+    bool ditPressed, dahPressed;
+    readPaddles(ditPressed, dahPressed);
+    cwSpeedHandlePaddle(ditPressed, dahPressed);
+}
+
+void pollVailMasterPractice() { vmUpdateKeyer(); }
+void pollRadioOutput() { updateRadioOutput(); }
+void pollPOTARecorder() { updatePOTARecorder(); }
+
+void pollWebPractice() {
+    updateWebPracticeMode();
+    extern AsyncWebSocket* practiceWebSocket;
+    if (practiceWebSocket) practiceWebSocket->cleanupClients();
+}
+
+void pollWebMemoryChain() {
+    updateWebMemoryChain();
+    extern AsyncWebSocket* memoryChainWebSocket;
+    if (memoryChainWebSocket) memoryChainWebSocket->cleanupClients();
+}
+
+void pollWebHearIt() {
+    updateWebHearItMode();
+    extern AsyncWebSocket* hearItWebSocket;
+    if (hearItWebSocket) hearItWebSocket->cleanupClients();
+}
+
+void pollBTHID() { updateBTHID(); }
+void pollBTMIDI() { updateBTMIDI(); }
+void pollLICWSending() { updateLICWSendingPractice(); }
+
+// ============================================
+// Mode Poll Dispatch Table
+// ============================================
+
+static const ModeCallbackEntry pollTable[] = {
+    { MODE_PRACTICE,                     pollPracticeMode },
+    { MODE_HEAR_IT_TYPE_IT,              pollHearIt },
+    { MODE_CW_ACADEMY_COPY_PRACTICE,     pollCWACopy },
+    { MODE_CW_ACADEMY_QSO_PRACTICE,      pollCWAQSO },
+    { MODE_CW_ACADEMY_SENDING_PRACTICE,  pollCWASending },
+    { MODE_VAIL_REPEATER,                pollVailRepeater },
+    { MODE_MORSE_SHOOTER,                pollMorseShooter },
+    { MODE_MORSE_MEMORY,                 pollMemoryChain },
+    { MODE_CW_SPEEDER,                   pollCWSpeeder },
+    { MODE_VAIL_MASTER_PRACTICE,         pollVailMasterPractice },
+    { MODE_RADIO_OUTPUT,                 pollRadioOutput },
+    { MODE_POTA_RECORDER,                pollPOTARecorder },
+    { MODE_WEB_PRACTICE,                 pollWebPractice },
+    { MODE_WEB_MEMORY_CHAIN,             pollWebMemoryChain },
+    { MODE_WEB_HEAR_IT,                  pollWebHearIt },
+    { MODE_BT_HID,                       pollBTHID },
+    { MODE_BT_MIDI,                      pollBTMIDI },
+    { MODE_LICW_SEND_PRACTICE,           pollLICWSending },
+};
+static const int pollTableSize = sizeof(pollTable) / sizeof(pollTable[0]);
+
 // ============================================
 // Main Loop - Event Processing (LVGL-Only)
 // ============================================
@@ -562,153 +674,24 @@ void loop() {
   // Periodic memory health check (runs every 30 seconds internally)
   checkMemoryHealth();
 
-  // Update status data periodically (NEVER during audio-critical modes)
-  // Note: LVGL screens will read this data when they refresh
+  // Update status data periodically (skip during audio-critical/busy modes)
   static unsigned long lastStatusUpdate = 0;
-  if (currentMode != MODE_PRACTICE &&
-      currentMode != MODE_HEAR_IT_TYPE_IT &&
-      currentMode != MODE_CW_ACADEMY_SENDING_PRACTICE &&
-      currentMode != MODE_MORSE_SHOOTER &&
-      currentMode != MODE_MORSE_MEMORY &&
-      currentMode != MODE_RADIO_OUTPUT &&
-      currentMode != MODE_WEB_PRACTICE &&
-      currentMode != MODE_WEB_MEMORY_CHAIN &&
-      currentMode != MODE_BT_HID &&
-      currentMode != MODE_BT_MIDI &&
-      millis() - lastStatusUpdate > 5000) {
+  if (!isModeNoStatus((int)currentMode) && millis() - lastStatusUpdate > 5000) {
     updateStatus();
     lastStatusUpdate = millis();
   }
 
-  // Update practice oscillator if in practice mode
-  if (currentMode == MODE_PRACTICE) {
-    updatePracticeOscillator();
-
-    // Update LVGL decoded text display when new text is decoded
-    // Only update when not actively playing tone to avoid audio glitches
-    if (needsUIUpdate && !isTonePlaying()) {
-      updatePracticeDecoderDisplay(decodedText.c_str());
-      needsUIUpdate = false;
-    }
-  }
-
-  // Update Hear It Type It async playback
-  if (currentMode == MODE_HEAR_IT_TYPE_IT) {
-    updateHearItTypeIt();
-  }
-
-  // Update CW Academy Copy Practice async playback
-  if (currentMode == MODE_CW_ACADEMY_COPY_PRACTICE) {
-    updateCWACopyPractice();
-  }
-
-  // Update CW Academy QSO Practice async playback
-  if (currentMode == MODE_CW_ACADEMY_QSO_PRACTICE) {
-    updateCWAQSOPractice();
-  }
-
-  // Update CW Academy sending practice (paddle input processing with dual-core audio)
-  if (currentMode == MODE_CW_ACADEMY_SENDING_PRACTICE) {
-    if (cwaUseLVGL) {
-      updateCWASendingPracticeLVGL();  // LVGL version with dual-core audio
-    } else {
-      updateCWASendingPractice();  // Legacy version
-
-      // Update decoded text display when new text is decoded
-      if (cwaSendNeedsUIUpdate && !isTonePlaying()) {
-        drawCWASendDecodedOnly(tft);
-        cwaSendNeedsUIUpdate = false;
-      }
-    }
-  }
-
-  // Update Vail repeater if in Vail mode
-  if (currentMode == MODE_VAIL_REPEATER) {
-    updateVailRepeater(tft);
-    updateVailScreenLVGL();  // Update LVGL UI elements
-  }
+  // Dispatch mode-specific polling via registry table
+  dispatchModeCallback(pollTable, pollTableSize, (int)currentMode);
 
   // Update Morse Mailbox polling (runs in background regardless of mode)
   updateMailboxPolling();
 
-  // Update Morse Shooter game if in game mode
-  if (currentMode == MODE_MORSE_SHOOTER) {
-    updateMorseShooterInput(tft);
-    updateMorseShooterVisuals(tft);
-  }
-
-  // Update Memory Chain game if in game mode
-  if (currentMode == MODE_MORSE_MEMORY) {
-    memoryChainUpdate();
-    bool ditPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
-    bool dahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
-    memoryChainHandlePaddle(ditPressed, dahPressed);
-  }
-
-  // Update CW Speeder game if in game mode
-  if (currentMode == LVGL_MODE_CW_SPEEDER) {
-    cwSpeedUpdate();
-    bool ditPressed = (digitalRead(DIT_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DIT_PIN) > TOUCH_THRESHOLD);
-    bool dahPressed = (digitalRead(DAH_PIN) == PADDLE_ACTIVE) || (touchRead(TOUCH_DAH_PIN) > TOUCH_THRESHOLD);
-    cwSpeedHandlePaddle(ditPressed, dahPressed);
-  }
-
-  // Update Vail Master if in practice mode
-  // Note: Use LVGL mode constant since that's what's set by mode integration
-  if (currentMode == LVGL_MODE_VAIL_MASTER_PRACTICE) {
-    vmUpdateKeyer();
-  }
-
-  // Update Radio Output if in radio output mode
-  if (currentMode == MODE_RADIO_OUTPUT) {
-    updateRadioOutput();
-  }
-
-  // Update POTA Recorder if active (LVGL timer handles screen updates)
-  if (currentMode == LVGL_MODE_POTA_RECORDER) {
-    updatePOTARecorder();
-  }
-
-  // Update Web Practice mode if active
-  if (currentMode == MODE_WEB_PRACTICE) {
-    updateWebPracticeMode();
-    extern AsyncWebSocket* practiceWebSocket;
-    if (practiceWebSocket) practiceWebSocket->cleanupClients();
-  }
-
-  // Update Web Memory Chain mode if active
-  if (currentMode == MODE_WEB_MEMORY_CHAIN) {
-    updateWebMemoryChain();
-    extern AsyncWebSocket* memoryChainWebSocket;
-    if (memoryChainWebSocket) memoryChainWebSocket->cleanupClients();
-  }
-
-  // Update Web Hear It Type It mode if active
-  if (currentMode == MODE_WEB_HEAR_IT) {
-    updateWebHearItMode();
-    extern AsyncWebSocket* hearItWebSocket;
-    if (hearItWebSocket) hearItWebSocket->cleanupClients();
-  }
-
-  // Update BT HID mode if active
-  if (currentMode == MODE_BT_HID) {
-    updateBTHID();
-  }
-
-  // Update BT MIDI mode if active
-  if (currentMode == MODE_BT_MIDI) {
-    updateBTMIDI();
-  }
-
-  // Update BLE Keyboard host (for auto-reconnect, etc.)
+  // Update BLE Keyboard host (for auto-reconnect, skip during BT modes)
   if (currentMode != MODE_BT_HID && currentMode != MODE_BT_MIDI) {
     updateBLEKeyboardHost();
   }
 
   // Minimal delay - faster for audio-critical modes
-  delay((currentMode == MODE_PRACTICE || currentMode == MODE_CW_ACADEMY_SENDING_PRACTICE ||
-         currentMode == MODE_MORSE_SHOOTER || currentMode == MODE_MORSE_MEMORY ||
-         currentMode == MODE_RADIO_OUTPUT || currentMode == MODE_WEB_PRACTICE ||
-         currentMode == MODE_VAIL_REPEATER || currentMode == MODE_BT_HID ||
-         currentMode == MODE_BT_MIDI || currentMode == LVGL_MODE_VAIL_MASTER_PRACTICE) ? 1 : 10);
+  delay(isModeAudioCritical((int)currentMode) ? 1 : 10);
 }

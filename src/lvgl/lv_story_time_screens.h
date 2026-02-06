@@ -11,6 +11,7 @@
 #include "lv_widgets_summit.h"
 #include "lv_screen_manager.h"
 #include "../core/config.h"
+#include "../core/modes.h"
 #include "../games/game_story_time.h"
 #include "../games/game_story_time_data.h"
 
@@ -19,16 +20,6 @@ extern void onLVGLBackNavigation();
 extern void onLVGLMenuSelect(int target_mode);
 extern int cwTone;
 extern int cwSpeed;
-
-// Mode constants (must match lv_mode_integration.h)
-#define LVGL_MODE_STORY_TIME             89
-#define LVGL_MODE_STORY_TIME_DIFFICULTY  90
-#define LVGL_MODE_STORY_TIME_LIST        91
-#define LVGL_MODE_STORY_TIME_LISTEN      92
-#define LVGL_MODE_STORY_TIME_QUIZ        93
-#define LVGL_MODE_STORY_TIME_RESULTS     94
-#define LVGL_MODE_STORY_TIME_PROGRESS    95
-#define LVGL_MODE_STORY_TIME_SETTINGS    96
 
 // ============================================
 // Screen State Variables
@@ -129,7 +120,7 @@ lv_obj_t* createStoryTimeMenuScreen() {
 
     // Menu buttons
     const char* menu_items[] = {"Select Difficulty", "Progress", "Settings"};
-    const int menu_targets[] = {LVGL_MODE_STORY_TIME_DIFFICULTY, LVGL_MODE_STORY_TIME_PROGRESS, LVGL_MODE_STORY_TIME_SETTINGS};
+    const int menu_targets[] = {MODE_STORY_TIME_DIFFICULTY, MODE_STORY_TIME_PROGRESS, MODE_STORY_TIME_SETTINGS};
 
     int btn_y = HEADER_HEIGHT + 50;
     for (int i = 0; i < 3; i++) {
@@ -181,7 +172,7 @@ static void st_difficulty_select_handler(lv_event_t* e) {
     st_selected_diff_index = diff;
     st_scroll_index = 0;
     // Note: onLVGLMenuSelect already plays TONE_SELECT beep
-    onLVGLMenuSelect(LVGL_MODE_STORY_TIME_LIST);
+    onLVGLMenuSelect(MODE_STORY_TIME_LIST);
 }
 
 lv_obj_t* createStoryTimeDifficultyScreen() {
@@ -267,7 +258,7 @@ static void st_story_select_handler(lv_event_t* e) {
         int globalIndex = getGlobalStoryIndex(stSession.selectedDifficulty, index);
         stSelectStory(story, globalIndex);
         // Note: onLVGLMenuSelect already plays TONE_SELECT beep
-        onLVGLMenuSelect(LVGL_MODE_STORY_TIME_LISTEN);
+        onLVGLMenuSelect(MODE_STORY_TIME_LISTEN);
     }
 }
 
@@ -409,7 +400,7 @@ static void st_quiz_handler(lv_event_t* e) {
         stSession.currentQuestion = 0;
         stSession.correctAnswers = 0;
         // Note: onLVGLMenuSelect already plays TONE_SELECT beep
-        onLVGLMenuSelect(LVGL_MODE_STORY_TIME_QUIZ);
+        onLVGLMenuSelect(MODE_STORY_TIME_QUIZ);
     } else {
         beep(300, 150);  // Error beep - must listen first
     }
@@ -589,10 +580,10 @@ static void st_answer_handler(lv_event_t* e) {
     stSession.currentQuestion++;
     if (stSession.currentQuestion >= ST_MAX_QUESTIONS) {
         stFinishQuiz();
-        onLVGLMenuSelect(LVGL_MODE_STORY_TIME_RESULTS);
+        onLVGLMenuSelect(MODE_STORY_TIME_RESULTS);
     } else {
         // Reload quiz screen for next question
-        onLVGLMenuSelect(LVGL_MODE_STORY_TIME_QUIZ);
+        onLVGLMenuSelect(MODE_STORY_TIME_QUIZ);
     }
 }
 
@@ -602,7 +593,7 @@ static void st_quiz_key_handler(lv_event_t* e) {
 
     if (key == LV_KEY_ESC) {
         // Confirm exit? For now, just go back to listen
-        onLVGLMenuSelect(LVGL_MODE_STORY_TIME_LISTEN);
+        onLVGLMenuSelect(MODE_STORY_TIME_LISTEN);
         lv_event_stop_processing(e);
     }
 }
@@ -727,7 +718,7 @@ static void st_retry_handler(lv_event_t* e) {
     // Reset quiz state and go back to listen
     stSession.hasListenedOnce = true;  // Keep this so they can go straight to quiz
     // Note: onLVGLMenuSelect already plays TONE_SELECT beep
-    onLVGLMenuSelect(LVGL_MODE_STORY_TIME_LISTEN);
+    onLVGLMenuSelect(MODE_STORY_TIME_LISTEN);
 }
 
 static void st_next_handler(lv_event_t* e) {
@@ -743,19 +734,19 @@ static void st_next_handler(lv_event_t* e) {
             int globalIndex = getGlobalStoryIndex(stSession.selectedDifficulty, currentDiffIndex + 1);
             stSelectStory(next, globalIndex);
             // Note: onLVGLMenuSelect already plays TONE_SELECT beep
-            onLVGLMenuSelect(LVGL_MODE_STORY_TIME_LISTEN);
+            onLVGLMenuSelect(MODE_STORY_TIME_LISTEN);
             return;
         }
     }
 
     // No next story, go to list
     // Note: onLVGLMenuSelect already plays TONE_SELECT beep
-    onLVGLMenuSelect(LVGL_MODE_STORY_TIME_LIST);
+    onLVGLMenuSelect(MODE_STORY_TIME_LIST);
 }
 
 static void st_back_to_list_handler(lv_event_t* e) {
     // Note: onLVGLMenuSelect already plays TONE_SELECT beep
-    onLVGLMenuSelect(LVGL_MODE_STORY_TIME_LIST);
+    onLVGLMenuSelect(MODE_STORY_TIME_LIST);
 }
 
 lv_obj_t* createStoryTimeResultsScreen() {
@@ -1167,21 +1158,21 @@ lv_obj_t* createStoryTimeSettingsScreen() {
 
 lv_obj_t* createStoryTimeScreenForMode(int mode) {
     switch (mode) {
-        case LVGL_MODE_STORY_TIME:
+        case MODE_STORY_TIME:
             return createStoryTimeMenuScreen();
-        case LVGL_MODE_STORY_TIME_DIFFICULTY:
+        case MODE_STORY_TIME_DIFFICULTY:
             return createStoryTimeDifficultyScreen();
-        case LVGL_MODE_STORY_TIME_LIST:
+        case MODE_STORY_TIME_LIST:
             return createStoryTimeListScreen();
-        case LVGL_MODE_STORY_TIME_LISTEN:
+        case MODE_STORY_TIME_LISTEN:
             return createStoryTimeListenScreen();
-        case LVGL_MODE_STORY_TIME_QUIZ:
+        case MODE_STORY_TIME_QUIZ:
             return createStoryTimeQuizScreen();
-        case LVGL_MODE_STORY_TIME_RESULTS:
+        case MODE_STORY_TIME_RESULTS:
             return createStoryTimeResultsScreen();
-        case LVGL_MODE_STORY_TIME_PROGRESS:
+        case MODE_STORY_TIME_PROGRESS:
             return createStoryTimeProgressScreen();
-        case LVGL_MODE_STORY_TIME_SETTINGS:
+        case MODE_STORY_TIME_SETTINGS:
             return createStoryTimeSettingsScreen();
         default:
             return NULL;

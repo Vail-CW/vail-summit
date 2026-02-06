@@ -18,6 +18,7 @@
 #include "../training/training_license_data.h"
 #include "../training/training_license_stats.h"
 #include "../training/training_license_downloader.h"
+#include "../core/modes.h"
 #include "lv_vail_master_screens.h"
 #include "lv_licw_screens.h"
 
@@ -484,6 +485,9 @@ static void hear_it_key_event_cb(lv_event_t* e) {
         hear_it_update_focus();
 
         // Re-add focus container to nav group (was removed when entering training mode)
+        // Use lv_group_add_obj directly (not addNavigableWidget) because the widget's
+        // ESC handler was already attached during initial creation. Re-adding via
+        // addNavigableWidget would register a duplicate ESC handler.
         lv_group_t* group = getLVGLInputGroup();
         if (group != NULL && hear_it_focus_container != NULL) {
             lv_group_add_obj(group, hear_it_focus_container);
@@ -660,23 +664,32 @@ void cleanupHearItTypeItScreen() {
     hear_it_in_submenu = false;
 }
 
+// Timer callback for delayed playback after correct/incorrect answer
+static void hear_it_play_after_delay_cb(lv_timer_t* timer) {
+    lv_timer_del(timer);
+    hear_it_pending_timer = NULL;
+    playCurrentCallsign();
+}
+
 // Timer callback for correct answer - play next callsign after feedback delay
 static void hear_it_correct_timer_cb(lv_timer_t* timer) {
     Serial.println("[HearIt] Correct timer fired - next callsign");
     hear_it_pending_timer = NULL;  // Clear reference before delete
-    startNewCallsign();
-    delay(500);  // Brief pause before playback
-    playCurrentCallsign();
     lv_timer_del(timer);
+    startNewCallsign();
+    // Non-blocking: play after 500ms pause
+    hear_it_pending_timer = lv_timer_create(hear_it_play_after_delay_cb, 500, NULL);
+    lv_timer_set_repeat_count(hear_it_pending_timer, 1);
 }
 
 // Timer callback for incorrect answer - replay same callsign after feedback delay
 static void hear_it_incorrect_timer_cb(lv_timer_t* timer) {
     Serial.println("[HearIt] Incorrect timer fired - replaying");
     hear_it_pending_timer = NULL;  // Clear reference before delete
-    delay(500);  // Brief pause before replay
-    playCurrentCallsign();
     lv_timer_del(timer);
+    // Non-blocking: replay after 500ms pause
+    hear_it_pending_timer = lv_timer_create(hear_it_play_after_delay_cb, 500, NULL);
+    lv_timer_set_repeat_count(hear_it_pending_timer, 1);
 }
 
 // Timer callback for skip action - play new callsign after brief delay
@@ -773,7 +786,8 @@ static int hear_it_grid_cursor = 0;
 // Used for Hear It Type It preset character selection
 static const char KOCH_SEQUENCE[] = "KMRSUAPTLOWINJEF Y,VG5/Q9ZH38B?427C1D60X";
 
-// Get Koch characters for a lesson (returns count)
+// W1 NOTE: Returns String because tempSettings.customChars is a String type.
+// Full HearIt settings refactoring needed to convert this to char[].
 static String getKochCharsForLesson(int lesson) {
     String chars = "";
     for (int i = 0; i < lesson && i < KOCH_TOTAL; i++) {
@@ -1147,6 +1161,9 @@ void showHearItPresetPicker() {
     lv_obj_add_event_cb(hear_it_preset_modal, hear_it_preset_key_handler, LV_EVENT_KEY, NULL);
 
     // Add modal to navigation group and focus it
+    // Use lv_group_add_obj directly (not addNavigableWidget) because this modal has
+    // its own ESC handling via hear_it_preset_key_handler. Using addNavigableWidget
+    // would add the global ESC handler which would navigate back instead of closing the modal.
     lv_group_t* group = getLVGLInputGroup();
     if (group != NULL) {
         lv_group_add_obj(group, hear_it_preset_modal);
@@ -1785,41 +1802,6 @@ static lv_obj_t* cwa_message_type_btns[6] = {NULL};
 extern void onLVGLMenuSelect(int target_mode);
 
 /*
- * Linear navigation key handler for CWA selection screens
- * Handles UP/DOWN arrow keys for single-column lists
- * Similar to menu_grid_nav_handler but simplified for 1D navigation
- */
-static void cwa_linear_nav_handler(lv_event_t* e) {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code != LV_EVENT_KEY) return;
-
-    uint32_t key = lv_event_get_key(e);
-
-    // Only handle UP/DOWN keys (both KEY_UP/DOWN and PREV/NEXT mappings)
-    if (key != LV_KEY_PREV && key != LV_KEY_NEXT &&
-        key != LV_KEY_UP && key != LV_KEY_DOWN) return;
-
-    // Stop propagation to prevent LVGL's default handling
-    lv_event_stop_processing(e);
-
-    lv_group_t* group = getLVGLInputGroup();
-    if (!group) return;
-
-    // Navigate to previous or next object in the group
-    if (key == LV_KEY_PREV || key == LV_KEY_UP) {
-        lv_group_focus_prev(group);
-    } else if (key == LV_KEY_NEXT || key == LV_KEY_DOWN) {
-        lv_group_focus_next(group);
-    }
-
-    // Scroll focused object into view
-    lv_obj_t* focused = lv_group_get_focused(group);
-    if (focused) {
-        lv_obj_scroll_to_view(focused, LV_ANIM_ON);
-    }
-}
-
-/*
  * Event handler for CW Academy track selection
  * Navigates to session select screen
  */
@@ -1840,8 +1822,7 @@ static void cwa_track_select_handler(lv_event_t* e) {
     saveCWAProgress();
     // Note: onLVGLMenuSelect plays the selection beep
 
-    // Navigate to session select (mode 9)
-    onLVGLMenuSelect(9);
+    onLVGLMenuSelect(MODE_CW_ACADEMY_SESSION_SELECT);
 }
 
 /*
@@ -1858,8 +1839,7 @@ static void cwa_session_select_handler(lv_event_t* e) {
     saveCWAProgress();
     // Note: onLVGLMenuSelect plays the selection beep
 
-    // Navigate to practice type select (mode 10)
-    onLVGLMenuSelect(10);
+    onLVGLMenuSelect(MODE_CW_ACADEMY_PRACTICE_TYPE_SELECT);
 }
 
 /*
@@ -1886,12 +1866,11 @@ static void cwa_practice_type_select_handler(lv_event_t* e) {
     saveCWAProgress();
     // Note: onLVGLMenuSelect plays the selection beep
 
-    // Sessions 11-13 go directly to QSO practice (mode 14)
+    // Sessions 11-13 go directly to QSO practice
     if (cwaSelectedSession >= 11 && cwaSelectedSession <= 13) {
-        onLVGLMenuSelect(14);
+        onLVGLMenuSelect(MODE_CW_ACADEMY_QSO_PRACTICE);
     } else {
-        // Navigate to message type select (mode 11)
-        onLVGLMenuSelect(11);
+        onLVGLMenuSelect(MODE_CW_ACADEMY_MESSAGE_TYPE_SELECT);
     }
 }
 
@@ -1911,12 +1890,12 @@ static void cwa_message_type_select_handler(lv_event_t* e) {
 
     // Route based on practice type
     if (cwaSelectedPracticeType == PRACTICE_COPY) {
-        onLVGLMenuSelect(12);  // Copy practice
+        onLVGLMenuSelect(MODE_CW_ACADEMY_COPY_PRACTICE);
     } else if (cwaSelectedPracticeType == PRACTICE_SENDING) {
-        onLVGLMenuSelect(13);  // Sending practice
+        onLVGLMenuSelect(MODE_CW_ACADEMY_SENDING_PRACTICE);
     } else {
         // Daily drill - default to copy for now
-        onLVGLMenuSelect(12);
+        onLVGLMenuSelect(MODE_CW_ACADEMY_COPY_PRACTICE);
     }
 }
 
@@ -1977,7 +1956,7 @@ lv_obj_t* createCWAcademyTrackSelectScreen() {
         // Store track index in user_data and add event handlers
         lv_obj_set_user_data(track_btn, (void*)(intptr_t)i);
         lv_obj_add_event_cb(track_btn, cwa_track_select_handler, LV_EVENT_CLICKED, NULL);
-        lv_obj_add_event_cb(track_btn, cwa_linear_nav_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(track_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
 
         addNavigableWidget(track_btn);
         cwa_track_btns[i] = track_btn;
@@ -2065,7 +2044,7 @@ lv_obj_t* createCWAcademySessionSelectScreen() {
         // Store session number (1-based) and add event handlers
         lv_obj_set_user_data(session_btn, (void*)(intptr_t)(i + 1));
         lv_obj_add_event_cb(session_btn, cwa_session_select_handler, LV_EVENT_CLICKED, NULL);
-        lv_obj_add_event_cb(session_btn, cwa_linear_nav_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(session_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
 
         addNavigableWidget(session_btn);
         cwa_session_btns[i] = session_btn;
@@ -2181,7 +2160,7 @@ lv_obj_t* createCWAcademyPracticeTypeSelectScreen() {
         // Store practice type and add event handlers
         lv_obj_set_user_data(type_btn, (void*)(intptr_t)i);
         lv_obj_add_event_cb(type_btn, cwa_practice_type_select_handler, LV_EVENT_CLICKED, NULL);
-        lv_obj_add_event_cb(type_btn, cwa_linear_nav_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(type_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
 
         addNavigableWidget(type_btn);
         cwa_practice_type_btns[i] = type_btn;
@@ -2309,7 +2288,7 @@ lv_obj_t* createCWAcademyMessageTypeSelectScreen() {
         // Store actual message type index (not button index) in user_data
         lv_obj_set_user_data(msg_btn, (void*)(intptr_t)msgTypeIdx);
         lv_obj_add_event_cb(msg_btn, cwa_message_type_select_handler, LV_EVENT_CLICKED, NULL);
-        lv_obj_add_event_cb(msg_btn, cwa_linear_nav_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(msg_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
 
         addNavigableWidget(msg_btn);
         cwa_message_type_btns[i] = msg_btn;
@@ -2362,7 +2341,9 @@ extern bool cwaCopyWaitingForInput;
 extern bool cwaCopyShowingFeedback;
 extern void startCWACopyRound(LGFX& tft);
 extern String generateCWAContent();
-extern void playMorseString(const char* text, int wpm, int tone);
+extern void requestPlayMorseString(const char* text, int wpm, int toneHz);
+extern bool isMorsePlaybackActive();
+extern bool isMorsePlaybackComplete();
 extern LGFX tft;
 
 // Static widgets for Copy Practice screen
@@ -2375,6 +2356,7 @@ static lv_obj_t* cwa_copy_input_label = NULL;
 static lv_obj_t* cwa_copy_feedback_label = NULL;
 static lv_obj_t* cwa_copy_target_label = NULL;
 static lv_timer_t* cwa_copy_autoplay_timer = NULL;
+static lv_timer_t* cwa_copy_playback_timer = NULL;
 
 // State machine for copy practice
 enum CWACopyState {
@@ -2391,10 +2373,14 @@ static CWACopyState cwaCopyUIState = CWA_COPY_READY;
  * Initialize copy practice state for LVGL mode
  */
 void initCWACopyPractice() {
-    // Cancel any pending auto-play timer from previous session
+    // Cancel any pending timers from previous session
     if (cwa_copy_autoplay_timer) {
         lv_timer_del(cwa_copy_autoplay_timer);
         cwa_copy_autoplay_timer = NULL;
+    }
+    if (cwa_copy_playback_timer) {
+        lv_timer_del(cwa_copy_playback_timer);
+        cwa_copy_playback_timer = NULL;
     }
 
     cwaCopyRound = 0;
@@ -2469,7 +2455,7 @@ void updateCWACopyPracticeUI() {
                 lv_label_set_text(cwa_copy_prompt_label, "Type what you heard:");
                 break;
             case CWA_COPY_FEEDBACK:
-                lv_label_set_text(cwa_copy_prompt_label, "Press any key to continue");
+                lv_label_set_text(cwa_copy_prompt_label, "");
                 break;
             case CWA_COPY_COMPLETE:
                 lv_label_set_text(cwa_copy_prompt_label, "Session Complete!");
@@ -2481,6 +2467,66 @@ void updateCWACopyPracticeUI() {
     }
 }
 
+// Forward declaration for autoplay timer callback
+static void cwa_copy_autoplay_timer_cb(lv_timer_t* timer);
+
+/*
+ * Submit the current CWA copy practice answer.
+ * Shared by both manual ENTER submit and auto-submit on length match.
+ */
+static void cwaCopySubmitAnswer() {
+    cwaCopyTotal++;
+    if (cwaCopyInput.equalsIgnoreCase(cwaCopyTarget)) {
+        cwaCopyCorrect++;
+        beep(1000, 200);  // Success beep
+        if (cwaCopyRound >= 10) {
+            cwaCopyUIState = CWA_COPY_COMPLETE;
+        } else {
+            cwaCopyInput = "";
+            cwaCopyUIState = CWA_COPY_WAITING;
+            updateCWACopyPracticeUI();
+            if (cwa_copy_autoplay_timer) {
+                lv_timer_del(cwa_copy_autoplay_timer);
+            }
+            cwa_copy_autoplay_timer = lv_timer_create(cwa_copy_autoplay_timer_cb, 1000, NULL);
+        }
+    } else {
+        beep(400, 300);  // Error beep
+        cwaCopyUIState = CWA_COPY_FEEDBACK;
+        updateCWACopyPracticeUI();
+        // Auto-advance after 1.5s (longer than correct to read feedback)
+        if (cwa_copy_autoplay_timer) {
+            lv_timer_del(cwa_copy_autoplay_timer);
+        }
+        cwa_copy_autoplay_timer = lv_timer_create(cwa_copy_autoplay_timer_cb, 1500, NULL);
+    }
+    updateCWACopyPracticeUI();
+}
+
+/*
+ * Timer callback to check if async morse playback is complete.
+ * Transitions from PLAYING to INPUT state when done.
+ */
+static void cwa_copy_playback_check_cb(lv_timer_t* timer) {
+    if (isMorsePlaybackComplete()) {
+        lv_timer_del(timer);
+        cwa_copy_playback_timer = NULL;
+        cwaCopyUIState = CWA_COPY_INPUT;
+        updateCWACopyPracticeUI();
+    }
+}
+
+/*
+ * Start async morse playback and set up completion monitoring.
+ */
+static void cwaCopyStartPlayback() {
+    cwaCopyUIState = CWA_COPY_PLAYING;
+    updateCWACopyPracticeUI();
+    requestPlayMorseString(cwaCopyTarget.c_str(), cwSpeed, cwTone);
+    if (cwa_copy_playback_timer) lv_timer_del(cwa_copy_playback_timer);
+    cwa_copy_playback_timer = lv_timer_create(cwa_copy_playback_check_cb, 50, NULL);
+}
+
 /*
  * Timer callback for auto-play after 1 second delay
  */
@@ -2489,8 +2535,18 @@ static void cwa_copy_autoplay_timer_cb(lv_timer_t* timer) {
     lv_timer_del(timer);
     cwa_copy_autoplay_timer = NULL;
 
-    // Check if we're still in the waiting state (might have been cancelled)
-    if (cwaCopyUIState != CWA_COPY_WAITING) return;
+    // Check if we're still in the waiting or feedback state (might have been cancelled)
+    if (cwaCopyUIState != CWA_COPY_WAITING && cwaCopyUIState != CWA_COPY_FEEDBACK) return;
+
+    // If in feedback state, transition to waiting first then advance
+    if (cwaCopyUIState == CWA_COPY_FEEDBACK) {
+        if (cwaCopyRound >= 10) {
+            cwaCopyUIState = CWA_COPY_COMPLETE;
+            updateCWACopyPracticeUI();
+            return;
+        }
+        cwaCopyInput = "";
+    }
 
     // Start next round
     cwaCopyRound++;
@@ -2498,14 +2554,8 @@ static void cwa_copy_autoplay_timer_cb(lv_timer_t* timer) {
     cwaCopyInput = "";
     Serial.printf("[CWACopy] Auto-playing: %s\n", cwaCopyTarget.c_str());
 
-    cwaCopyUIState = CWA_COPY_PLAYING;
-    updateCWACopyPracticeUI();
-
-    playMorseString(cwaCopyTarget.c_str(), cwSpeed, cwTone);
-
-    // Switch to input mode
-    cwaCopyUIState = CWA_COPY_INPUT;
-    updateCWACopyPracticeUI();
+    // Use async playback with completion monitoring
+    cwaCopyStartPlayback();
 }
 
 /*
@@ -2520,10 +2570,14 @@ static void cwa_copy_key_event_cb(lv_event_t* e) {
 
     // Handle ESC always
     if (key == LV_KEY_ESC) {
-        // Cancel any pending auto-play timer
+        // Cancel any pending timers
         if (cwa_copy_autoplay_timer) {
             lv_timer_del(cwa_copy_autoplay_timer);
             cwa_copy_autoplay_timer = NULL;
+        }
+        if (cwa_copy_playback_timer) {
+            lv_timer_del(cwa_copy_playback_timer);
+            cwa_copy_playback_timer = NULL;
         }
         // Cleanup is handled by back navigation
         return;
@@ -2550,52 +2604,29 @@ static void cwa_copy_key_event_cb(lv_event_t* e) {
     switch (cwaCopyUIState) {
         case CWA_COPY_READY:
             if (key == ' ') {
-                // Start playing morse
-                cwaCopyUIState = CWA_COPY_PLAYING;
-                updateCWACopyPracticeUI();
-
-                // Generate new content and play
+                // Generate new content and play asynchronously
                 cwaCopyRound++;
                 cwaCopyTarget = generateCWAContent();
                 cwaCopyInput = "";
                 Serial.printf("[CWACopy] Playing: %s\n", cwaCopyTarget.c_str());
 
-                playMorseString(cwaCopyTarget.c_str(), cwSpeed, cwTone);
-
-                // After playing, switch to input mode
-                cwaCopyUIState = CWA_COPY_INPUT;
-                updateCWACopyPracticeUI();
+                cwaCopyStartPlayback();
             }
+            break;
+
+        case CWA_COPY_PLAYING:
+            // Ignore input while playing (except ESC handled above)
             break;
 
         case CWA_COPY_INPUT:
             if (key == ' ') {
-                // Replay
-                playMorseString(cwaCopyTarget.c_str(), cwSpeed, cwTone);
-            } else if (key == LV_KEY_ENTER) {
-                // Submit answer
-                cwaCopyTotal++;
-                if (cwaCopyInput.equalsIgnoreCase(cwaCopyTarget)) {
-                    cwaCopyCorrect++;
-                    beep(1000, 200);  // Success beep
-                    // Auto-advance on correct answer with 1-second delay
-                    if (cwaCopyRound >= 10) {
-                        cwaCopyUIState = CWA_COPY_COMPLETE;
-                    } else {
-                        cwaCopyInput = "";
-                        cwaCopyUIState = CWA_COPY_WAITING;
-                        updateCWACopyPracticeUI();
-                        if (cwa_copy_autoplay_timer) {
-                            lv_timer_del(cwa_copy_autoplay_timer);
-                        }
-                        cwa_copy_autoplay_timer = lv_timer_create(cwa_copy_autoplay_timer_cb, 1000, NULL);
-                    }
-                } else {
-                    beep(400, 300);  // Error beep
-                    // Show feedback for incorrect answers
-                    cwaCopyUIState = CWA_COPY_FEEDBACK;
+                // Replay asynchronously
+                if (!isMorsePlaybackActive()) {
+                    cwaCopyStartPlayback();
                 }
-                updateCWACopyPracticeUI();
+            } else if (key == LV_KEY_ENTER) {
+                // Manual submit
+                cwaCopySubmitAnswer();
             } else if (key == LV_KEY_BACKSPACE || key == 0x08) {
                 // Delete last character
                 if (cwaCopyInput.length() > 0) {
@@ -2605,28 +2636,34 @@ static void cwa_copy_key_event_cb(lv_event_t* e) {
                 }
             } else if (key >= 32 && key <= 126 && key != ' ') {
                 // Printable character - add to input
-                if (cwaCopyInput.length() < 20) {
+                if ((int)cwaCopyInput.length() < 20) {
                     cwaCopyInput += (char)toupper(key);
                     beep(TONE_MENU_NAV, BEEP_SHORT);
                     updateCWACopyPracticeUI();
+
+                    // Auto-submit when input length matches target length
+                    if ((int)cwaCopyInput.length() >= (int)cwaCopyTarget.length()) {
+                        cwaCopySubmitAnswer();
+                    }
                 }
             }
             break;
 
         case CWA_COPY_FEEDBACK:
-            // Any key continues to next round with auto-play
+            // Auto-advance timer is already running (1.5s).
+            // Any key accelerates to next round immediately.
+            if (cwa_copy_autoplay_timer) {
+                lv_timer_del(cwa_copy_autoplay_timer);
+                cwa_copy_autoplay_timer = NULL;
+            }
             if (cwaCopyRound >= 10) {
                 cwaCopyUIState = CWA_COPY_COMPLETE;
                 updateCWACopyPracticeUI();
             } else {
-                // Start 1-second delay before auto-play
                 cwaCopyInput = "";
                 cwaCopyUIState = CWA_COPY_WAITING;
                 updateCWACopyPracticeUI();
-                if (cwa_copy_autoplay_timer) {
-                    lv_timer_del(cwa_copy_autoplay_timer);
-                }
-                cwa_copy_autoplay_timer = lv_timer_create(cwa_copy_autoplay_timer_cb, 1000, NULL);
+                cwa_copy_autoplay_timer = lv_timer_create(cwa_copy_autoplay_timer_cb, 500, NULL);
             }
             break;
 
@@ -2753,7 +2790,7 @@ lv_obj_t* createCWAcademyCopyPracticeScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, "SPACE: Play   UP/DN: Chars   ENTER: Submit   ESC: Exit");
+    lv_label_set_text(help, FOOTER_TRAINING_AUTOPLAY "   UP/DN Chars");
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
@@ -3145,8 +3182,10 @@ static void cwa_send_key_event_cb(lv_event_t* e) {
 
         case CWA_SEND_SENDING:
             if (key == ' ') {
-                // Play target
-                playMorseString(cwaSendTarget.c_str(), 15, cwTone);
+                // Play target asynchronously
+                if (!isMorsePlaybackActive()) {
+                    requestPlayMorseString(cwaSendTarget.c_str(), 15, cwTone);
+                }
             }
             else if (key == 'R' || key == 'r') {
                 // Toggle reference
@@ -3331,10 +3370,10 @@ static lv_obj_t* cwa_qso_feedback_label = NULL;
 static int cwa_qso_round = 0;
 static int cwa_qso_correct = 0;
 static int cwa_qso_total = 0;
-static String cwa_qso_input = "";
-static String cwa_qso_expected = "";
-static String cwa_qso_station_call = "";
-static String cwa_qso_station_name = "";
+static char cwa_qso_input[64] = {0};
+static char cwa_qso_expected[64] = {0};
+static char cwa_qso_station_call[16] = {0};
+static char cwa_qso_station_name[16] = {0};
 static int cwa_qso_rst = 599;
 
 // Simulated station data
@@ -3349,15 +3388,17 @@ void initCWAQSOPractice() {
     cwa_qso_round = 0;
     cwa_qso_correct = 0;
     cwa_qso_total = 0;
-    cwa_qso_input = "";
-    cwa_qso_expected = "";
+    cwa_qso_input[0] = '\0';
+    cwa_qso_expected[0] = '\0';
     cwa_qso_state = CWA_QSO_READY;
 
     // Pick a random station
     randomSeed(esp_random());
     int idx = random(cwa_qso_num_stations);
-    cwa_qso_station_call = cwa_qso_callsigns[idx];
-    cwa_qso_station_name = cwa_qso_names[idx];
+    strncpy(cwa_qso_station_call, cwa_qso_callsigns[idx], sizeof(cwa_qso_station_call) - 1);
+    cwa_qso_station_call[sizeof(cwa_qso_station_call) - 1] = '\0';
+    strncpy(cwa_qso_station_name, cwa_qso_names[idx], sizeof(cwa_qso_station_name) - 1);
+    cwa_qso_station_name[sizeof(cwa_qso_station_name) - 1] = '\0';
     cwa_qso_rst = 559 + random(4) * 10;  // 559, 569, 579, 589, or 599
 }
 
@@ -3366,20 +3407,25 @@ void initCWAQSOPractice() {
  */
 void startCWAQSORound() {
     cwa_qso_round++;
-    cwa_qso_input = "";
+    cwa_qso_input[0] = '\0';
     cwa_qso_state = CWA_QSO_PLAYING;
 
     // Generate exchange based on round
     // Rounds 1-3: CQ exchange, Rounds 4-6: RST exchange, Rounds 7-10: Full exchange
     if (cwa_qso_round <= 3) {
         // CQ exchange: Station calls CQ, expect your call
-        cwa_qso_expected = vailCallsign.length() > 0 && vailCallsign != "GUEST" ? vailCallsign : "W1TEST";
+        if (vailCallsign.length() > 0 && vailCallsign != "GUEST") {
+            strncpy(cwa_qso_expected, vailCallsign.c_str(), sizeof(cwa_qso_expected) - 1);
+            cwa_qso_expected[sizeof(cwa_qso_expected) - 1] = '\0';
+        } else {
+            strcpy(cwa_qso_expected, "W1TEST");
+        }
     } else if (cwa_qso_round <= 6) {
         // RST exchange: Station sends RST, expect 599 back
-        cwa_qso_expected = "599";
+        strcpy(cwa_qso_expected, "599");
     } else {
         // Full exchange: Station sends name, expect your name
-        cwa_qso_expected = "OP";  // Placeholder - user should send their name
+        strcpy(cwa_qso_expected, "OP");  // Placeholder - user should send their name
     }
 }
 
@@ -3397,7 +3443,7 @@ void updateCWAQSOPracticeUI() {
     if (cwa_qso_station_label) {
         char buf[64];
         snprintf(buf, sizeof(buf), "Station: %s (%s)",
-                 cwa_qso_station_call.c_str(), cwa_qso_station_name.c_str());
+                 cwa_qso_station_call, cwa_qso_station_name);
         lv_label_set_text(cwa_qso_station_label, buf);
     }
 
@@ -3419,20 +3465,19 @@ void updateCWAQSOPracticeUI() {
     }
 
     if (cwa_qso_input_label) {
-        String display = cwa_qso_input.length() > 0 ? cwa_qso_input : "_";
-        lv_label_set_text(cwa_qso_input_label, display.c_str());
+        lv_label_set_text(cwa_qso_input_label, strlen(cwa_qso_input) > 0 ? cwa_qso_input : "_");
     }
 
     if (cwa_qso_feedback_label) {
         switch (cwa_qso_state) {
             case CWA_QSO_FEEDBACK: {
-                bool correct = cwa_qso_input.equalsIgnoreCase(cwa_qso_expected);
+                bool correct = (strcasecmp(cwa_qso_input, cwa_qso_expected) == 0);
                 if (correct) {
                     lv_label_set_text(cwa_qso_feedback_label, "CORRECT! Press any key to continue");
                     lv_obj_set_style_text_color(cwa_qso_feedback_label, LV_COLOR_SUCCESS, 0);
                 } else {
                     char buf[64];
-                    snprintf(buf, sizeof(buf), "Expected: %s - Press any key", cwa_qso_expected.c_str());
+                    snprintf(buf, sizeof(buf), "Expected: %s - Press any key", cwa_qso_expected);
                     lv_label_set_text(cwa_qso_feedback_label, buf);
                     lv_obj_set_style_text_color(cwa_qso_feedback_label, LV_COLOR_ERROR, 0);
                 }
@@ -3458,22 +3503,20 @@ void updateCWAQSOPracticeUI() {
  * Play QSO exchange audio
  */
 void playCWAQSOExchange() {
-    String exchange = "";
+    char exchange[128];
 
     if (cwa_qso_round <= 3) {
         // CQ exchange
-        exchange = "CQ CQ CQ DE " + cwa_qso_station_call + " " + cwa_qso_station_call + " K";
+        snprintf(exchange, sizeof(exchange), "CQ CQ CQ DE %s %s K", cwa_qso_station_call, cwa_qso_station_call);
     } else if (cwa_qso_round <= 6) {
         // RST exchange
-        char rst[8];
-        snprintf(rst, sizeof(rst), "%d", cwa_qso_rst);
-        exchange = "UR RST " + String(rst) + " " + String(rst);
+        snprintf(exchange, sizeof(exchange), "UR RST %d %d", cwa_qso_rst, cwa_qso_rst);
     } else {
         // Name exchange
-        exchange = "NAME " + cwa_qso_station_name + " " + cwa_qso_station_name;
+        snprintf(exchange, sizeof(exchange), "NAME %s %s", cwa_qso_station_name, cwa_qso_station_name);
     }
 
-    playMorseString(exchange.c_str(), cwSpeed, cwTone);
+    requestPlayMorseString(exchange, cwSpeed, cwTone);
     cwa_qso_state = CWA_QSO_INPUT;
     updateCWAQSOPracticeUI();
 }
@@ -3506,13 +3549,15 @@ static void cwa_qso_key_event_cb(lv_event_t* e) {
 
         case CWA_QSO_INPUT:
             if (key == ' ') {
-                // Replay exchange
-                playCWAQSOExchange();
+                // Replay exchange (only if not already playing)
+                if (!isMorsePlaybackActive()) {
+                    playCWAQSOExchange();
+                }
             }
             else if (key == LV_KEY_ENTER) {
                 // Submit answer
                 cwa_qso_total++;
-                if (cwa_qso_input.equalsIgnoreCase(cwa_qso_expected)) {
+                if (strcasecmp(cwa_qso_input, cwa_qso_expected) == 0) {
                     cwa_qso_correct++;
                     beep(1000, 200);
                 } else {
@@ -3523,16 +3568,19 @@ static void cwa_qso_key_event_cb(lv_event_t* e) {
             }
             else if (key == 0x08 || key == 0x7F) {
                 // Backspace
-                if (cwa_qso_input.length() > 0) {
-                    cwa_qso_input.remove(cwa_qso_input.length() - 1);
+                int len = strlen(cwa_qso_input);
+                if (len > 0) {
+                    cwa_qso_input[len - 1] = '\0';
                     beep(TONE_MENU_NAV, BEEP_SHORT);
                     updateCWAQSOPracticeUI();
                 }
             }
             else if (key >= 32 && key <= 126) {
                 // Printable character
-                if (cwa_qso_input.length() < 20) {
-                    cwa_qso_input += (char)toupper(key);
+                int len = strlen(cwa_qso_input);
+                if (len < (int)sizeof(cwa_qso_input) - 1) {
+                    cwa_qso_input[len] = toupper((char)key);
+                    cwa_qso_input[len + 1] = '\0';
                     beep(TONE_MENU_NAV, BEEP_SHORT);
                     updateCWAQSOPracticeUI();
                 }
@@ -3546,8 +3594,10 @@ static void cwa_qso_key_event_cb(lv_event_t* e) {
             } else {
                 // Pick new station for variety
                 int idx = random(cwa_qso_num_stations);
-                cwa_qso_station_call = cwa_qso_callsigns[idx];
-                cwa_qso_station_name = cwa_qso_names[idx];
+                strncpy(cwa_qso_station_call, cwa_qso_callsigns[idx], sizeof(cwa_qso_station_call) - 1);
+                cwa_qso_station_call[sizeof(cwa_qso_station_call) - 1] = '\0';
+                strncpy(cwa_qso_station_name, cwa_qso_names[idx], sizeof(cwa_qso_station_name) - 1);
+                cwa_qso_station_name[sizeof(cwa_qso_station_name) - 1] = '\0';
                 cwa_qso_rst = 559 + random(4) * 10;
 
                 startCWAQSORound();
@@ -3735,41 +3785,39 @@ static void license_type_select_handler(lv_event_t* e) {
         // Check SD card first
         if (!sdCardAvailable) {
             Serial.println("[LicenseScreen] SD card not available");
-            onLVGLMenuSelect(58);  // LVGL_MODE_LICENSE_SD_ERROR
+            onLVGLMenuSelect(MODE_LICENSE_SD_ERROR);
             return;
         }
 
         // Check WiFi
         if (WiFi.status() != WL_CONNECTED) {
             Serial.println("[LicenseScreen] WiFi not connected");
-            onLVGLMenuSelect(57);  // LVGL_MODE_LICENSE_WIFI_ERROR
+            onLVGLMenuSelect(MODE_LICENSE_WIFI_ERROR);
             return;
         }
 
         // Need to download - go to download screen
         Serial.println("[LicenseScreen] Navigating to download screen");
-        onLVGLMenuSelect(56);  // LVGL_MODE_LICENSE_DOWNLOAD
+        onLVGLMenuSelect(MODE_LICENSE_DOWNLOAD);
         return;
     }
 
     // Files exist, navigate directly to quiz mode
-    onLVGLMenuSelect(51);  // LVGL_MODE_LICENSE_QUIZ
+    onLVGLMenuSelect(MODE_LICENSE_QUIZ);
 }
 
 /*
  * Event handler for stats button
  */
 static void license_stats_btn_handler(lv_event_t* e) {
-    // Navigate to stats mode (52 = LVGL_MODE_LICENSE_STATS)
-    onLVGLMenuSelect(52);
+    onLVGLMenuSelect(MODE_LICENSE_STATS);
 }
 
 /*
  * Event handler for View Statistics card
  */
 static void license_view_stats_handler(lv_event_t* e) {
-    // Navigate to combined stats screen (60 = LVGL_MODE_LICENSE_ALL_STATS)
-    onLVGLMenuSelect(60);
+    onLVGLMenuSelect(MODE_LICENSE_ALL_STATS);
 }
 
 /*
@@ -5112,38 +5160,38 @@ lv_obj_t* createTrainingScreenForMode(int mode) {
     if (vmScreen != NULL) return vmScreen;
 
     switch (mode) {
-        case 6:  // MODE_PRACTICE
+        case MODE_PRACTICE:
             return createPracticeScreen();
-        case 2:  // MODE_HEAR_IT_MENU
-        case 3:  // MODE_HEAR_IT_TYPE_IT
+        case MODE_HEAR_IT_MENU:
+        case MODE_HEAR_IT_TYPE_IT:
             return createHearItTypeItScreen();
-        case 8:  // MODE_CW_ACADEMY_TRACK_SELECT
+        case MODE_CW_ACADEMY_TRACK_SELECT:
             return createCWAcademyTrackSelectScreen();
-        case 9:  // MODE_CW_ACADEMY_SESSION_SELECT
+        case MODE_CW_ACADEMY_SESSION_SELECT:
             return createCWAcademySessionSelectScreen();
-        case 10: // MODE_CW_ACADEMY_PRACTICE_TYPE_SELECT
+        case MODE_CW_ACADEMY_PRACTICE_TYPE_SELECT:
             return createCWAcademyPracticeTypeSelectScreen();
-        case 11: // MODE_CW_ACADEMY_MESSAGE_TYPE_SELECT
+        case MODE_CW_ACADEMY_MESSAGE_TYPE_SELECT:
             return createCWAcademyMessageTypeSelectScreen();
-        case 12: // MODE_CW_ACADEMY_COPY_PRACTICE
+        case MODE_CW_ACADEMY_COPY_PRACTICE:
             return createCWAcademyCopyPracticeScreen();
-        case 13: // MODE_CW_ACADEMY_SENDING_PRACTICE
+        case MODE_CW_ACADEMY_SENDING_PRACTICE:
             return createCWAcademySendingPracticeScreen();
-        case 14: // MODE_CW_ACADEMY_QSO_PRACTICE
+        case MODE_CW_ACADEMY_QSO_PRACTICE:
             return createCWAcademyQSOPracticeScreen();
-        case 50: // MODE_LICENSE_SELECT
+        case MODE_LICENSE_SELECT:
             return createLicenseSelectScreen();
-        case 51: // MODE_LICENSE_QUIZ
+        case MODE_LICENSE_QUIZ:
             return createLicenseQuizScreen();
-        case 52: // MODE_LICENSE_STATS
+        case MODE_LICENSE_STATS:
             return createLicenseStatsScreen();
-        case 56: // MODE_LICENSE_DOWNLOAD
+        case MODE_LICENSE_DOWNLOAD:
             return createLicenseDownloadScreen();
-        case 57: // MODE_LICENSE_WIFI_ERROR
+        case MODE_LICENSE_WIFI_ERROR:
             return createLicenseWiFiRequiredScreen();
-        case 58: // MODE_LICENSE_SD_ERROR
+        case MODE_LICENSE_SD_ERROR:
             return createLicenseSDCardErrorScreen();
-        case 60: // MODE_LICENSE_ALL_STATS
+        case MODE_LICENSE_ALL_STATS:
             return createLicenseAllStatsScreen();
         default:
             break;

@@ -10,10 +10,30 @@
 // MORSE NOTES - STORAGE LAYER
 // ===================================
 
-// Global library state
-static MorseNoteMetadata mnLibrary[MN_MAX_RECORDINGS];
+// Global library state (allocated in PSRAM to save ~44KB internal RAM)
+static MorseNoteMetadata* mnLibrary = NULL;
 static int mnLibraryCount = 0;
 static bool mnLibraryLoaded = false;
+
+/**
+ * Initialize mnLibrary array in PSRAM (or fallback to internal RAM)
+ * Must be called before any access to mnLibrary
+ */
+void initMorseNotesStorage() {
+    if (mnLibrary != NULL) return;  // Already initialized
+
+    mnLibrary = (MorseNoteMetadata*)ps_calloc(MN_MAX_RECORDINGS, sizeof(MorseNoteMetadata));
+    if (!mnLibrary) {
+        Serial.println("[MorseNotes] PSRAM alloc failed, falling back to internal RAM");
+        mnLibrary = (MorseNoteMetadata*)calloc(MN_MAX_RECORDINGS, sizeof(MorseNoteMetadata));
+    }
+    if (mnLibrary) {
+        Serial.printf("[MorseNotes] Library array allocated: %d bytes\n",
+                      MN_MAX_RECORDINGS * (int)sizeof(MorseNoteMetadata));
+    } else {
+        Serial.println("[MorseNotes] ERROR: Failed to allocate library array!");
+    }
+}
 
 // ===================================
 // FILENAME GENERATION
@@ -82,6 +102,10 @@ bool mnLoadLibrary() {
         return true;  // Already loaded
     }
 
+    // Ensure library array is allocated
+    initMorseNotesStorage();
+    if (!mnLibrary) return false;
+
     // Initialize directory
     if (!mnInitStorage()) {
         return false;
@@ -144,6 +168,8 @@ bool mnLoadLibrary() {
  * Save library to library.json (atomic write)
  */
 bool mnSaveLibrary() {
+    if (!mnLibrary) return false;
+
     // Open temp file
     File file = SD.open(MN_LIBRARY_TMP_FILE, FILE_WRITE);
     if (!file) {
@@ -286,6 +312,8 @@ bool mnSaveRecording(const char* title, const float* timings, int eventCount,
  */
 bool mnLoadRecording(unsigned long id, float* timings, int maxEvents,
                      int& eventCount, int& toneFreq, MorseNoteMetadata** metadata) {
+    if (!mnLibrary) return false;
+
     // Find metadata
     *metadata = nullptr;
     for (int i = 0; i < mnLibraryCount; i++) {
@@ -362,6 +390,8 @@ bool mnLoadRecording(unsigned long id, float* timings, int maxEvents,
  * Delete recording
  */
 bool mnDeleteRecording(unsigned long id) {
+    if (!mnLibrary) return false;
+
     // Find in library
     int index = -1;
     for (int i = 0; i < mnLibraryCount; i++) {
@@ -407,6 +437,7 @@ bool mnDeleteRecording(unsigned long id) {
  * Rename recording (update title only)
  */
 bool mnRenameRecording(unsigned long id, const char* newTitle) {
+    if (!mnLibrary) return false;
     for (int i = 0; i < mnLibraryCount; i++) {
         if (mnLibrary[i].id == id) {
             strlcpy(mnLibrary[i].title, newTitle, sizeof(mnLibrary[i].title));
@@ -422,6 +453,7 @@ bool mnRenameRecording(unsigned long id, const char* newTitle) {
  * Get metadata by ID
  */
 MorseNoteMetadata* mnGetMetadata(unsigned long id) {
+    if (!mnLibrary) return nullptr;
     for (int i = 0; i < mnLibraryCount; i++) {
         if (mnLibrary[i].id == id) {
             return &mnLibrary[i];
@@ -434,6 +466,7 @@ MorseNoteMetadata* mnGetMetadata(unsigned long id) {
  * Get metadata by index
  */
 MorseNoteMetadata* mnGetMetadataByIndex(int index) {
+    if (!mnLibrary) return nullptr;
     if (index >= 0 && index < mnLibraryCount) {
         return &mnLibrary[index];
     }

@@ -90,7 +90,6 @@ String getDeviceStatusJSON() {
     case MODE_MORSE_SHOOTER: modeStr = "Morse Shooter"; break;
     case MODE_MORSE_MEMORY: modeStr = "Memory Chain"; break;
     case MODE_GAMES_MENU: modeStr = "Games Menu"; break;
-    case MODE_RADIO_MENU: modeStr = "Radio Menu"; break;  // Legacy - now in CW Menu
     case MODE_RADIO_OUTPUT: modeStr = "Radio Output"; break;
     case MODE_CW_MEMORIES: modeStr = "CW Memories"; break;
     case MODE_SETTINGS_MENU: modeStr = "Settings Menu"; break;
@@ -102,13 +101,11 @@ String getDeviceStatusJSON() {
     case MODE_BLUETOOTH_MENU: modeStr = "Bluetooth Menu"; break;
     case MODE_BT_HID: modeStr = "BT HID"; break;
     case MODE_BT_MIDI: modeStr = "BT MIDI"; break;
-    case MODE_TOOLS_MENU: modeStr = "Tools Menu"; break;  // Legacy - now HAM_TOOLS_MENU
     case MODE_CW_MENU: modeStr = "CW Menu"; break;
     case MODE_HAM_TOOLS_MENU: modeStr = "Ham Tools Menu"; break;
     case MODE_BAND_PLANS: modeStr = "Band Plans"; break;
     case MODE_PROPAGATION: modeStr = "Propagation"; break;
     case MODE_ANTENNAS: modeStr = "Antennas"; break;
-    case MODE_LICENSE_STUDY: modeStr = "License Study"; break;
     case MODE_SUMMIT_CHAT: modeStr = "Summit Chat"; break;
     case MODE_QSO_LOGGER_MENU: modeStr = "QSO Logger Menu"; break;
     case MODE_QSO_LOG_ENTRY: modeStr = "QSO Logger"; break;

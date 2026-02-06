@@ -12,6 +12,7 @@
 #include "lv_widgets_summit.h"
 #include "lv_screen_manager.h"
 #include "../core/config.h"
+#include "../core/modes.h"
 #include "../network/pota_spots.h"
 #include "../qso/qso_logger.h"
 
@@ -20,14 +21,7 @@ extern void onLVGLMenuSelect(int target_mode);
 extern int getCurrentModeAsInt();
 extern void setCurrentModeFromInt(int mode);
 
-// Mode constants (must match lv_mode_integration.h)
-#define POTA_MODE_MENU              62
-#define POTA_MODE_ACTIVE_SPOTS      63
-#define POTA_MODE_SPOT_DETAIL       64
-#define POTA_MODE_FILTERS           65
-#define POTA_MODE_ACTIVATE          66
-#define POTA_MODE_RECORDER_SETUP    137
-#define POTA_MODE_RECORDER          136
+// Mode constants from unified enum (src/core/modes.h)
 
 // ============================================
 // Screen State
@@ -86,7 +80,7 @@ void cleanupPOTAScreen();
 // ============================================
 
 static void pota_auto_refresh_cb(lv_timer_t* timer) {
-    if (getCurrentModeAsInt() == POTA_MODE_ACTIVE_SPOTS && !potaSpotsCache.fetching) {
+    if (getCurrentModeAsInt() == MODE_POTA_ACTIVE_SPOTS && !potaSpotsCache.fetching) {
         // Trigger refresh
         fetchActiveSpots(potaSpotsCache);
         refreshPOTASpotsDisplay();
@@ -286,9 +280,9 @@ static const struct {
     const char* title;
     int target_mode;
 } potaMenuItems[] = {
-    {LV_SYMBOL_GPS, "Active Spots", POTA_MODE_ACTIVE_SPOTS},
-    {LV_SYMBOL_HOME, "Activate a Park", POTA_MODE_ACTIVATE},
-    {LV_SYMBOL_AUDIO, "POTA Recorder", POTA_MODE_RECORDER_SETUP}
+    {LV_SYMBOL_GPS, "Active Spots", MODE_POTA_ACTIVE_SPOTS},
+    {LV_SYMBOL_HOME, "Activate a Park", MODE_POTA_ACTIVATE},
+    {LV_SYMBOL_AUDIO, "POTA Recorder", MODE_POTA_RECORDER_SETUP}
 };
 #define POTA_MENU_COUNT 3
 
@@ -797,7 +791,7 @@ static void pota_spots_key_handler(lv_event_t* e) {
 
     // F or f - Filter
     if (key == 'F' || key == 'f') {
-        onLVGLMenuSelect(POTA_MODE_FILTERS);
+        onLVGLMenuSelect(MODE_POTA_FILTERS);
         lv_event_stop_processing(e);
         return;
     }
@@ -815,7 +809,7 @@ static void pota_spots_key_handler(lv_event_t* e) {
 
     // S or s - Search by callsign (opens filter screen with callsign input)
     if (key == 'S' || key == 's') {
-        onLVGLMenuSelect(POTA_MODE_FILTERS);
+        onLVGLMenuSelect(MODE_POTA_FILTERS);
         lv_event_stop_processing(e);
         return;
     }
@@ -845,7 +839,7 @@ static void pota_spots_key_handler(lv_event_t* e) {
     if (key == LV_KEY_ENTER) {
         if (filteredSpotCount > 0 && pota_spots_selected_row < filteredSpotCount) {
             selectedSpotIndex = filteredSpotIndices[pota_spots_selected_row];
-            onLVGLMenuSelect(POTA_MODE_SPOT_DETAIL);
+            onLVGLMenuSelect(MODE_POTA_SPOT_DETAIL);
         }
         lv_event_stop_processing(e);
         return;
@@ -1176,7 +1170,7 @@ static void pota_detail_key_handler(lv_event_t* e) {
             }
 
             // Navigate to QSO Logger
-            onLVGLMenuSelect(37);  // LVGL_MODE_QSO_LOG_ENTRY
+            onLVGLMenuSelect(MODE_QSO_LOG_ENTRY);
         }
         lv_event_stop_processing(e);
         return;
@@ -1633,7 +1627,7 @@ static void pota_filter_key_handler(lv_event_t* e) {
             }
             updateFilterActiveStatus();
             beep(1000, 100);
-            onLVGLMenuSelect(POTA_MODE_ACTIVE_SPOTS);
+            onLVGLMenuSelect(MODE_POTA_ACTIVE_SPOTS);
         } else if (pota_filter_focus_row == 5) {
             // Clear filter
             resetSpotFilter();
@@ -1645,7 +1639,7 @@ static void pota_filter_key_handler(lv_event_t* e) {
                 lv_textarea_set_text(filter_callsign_textarea, "");
             }
             beep(800, 100);
-            onLVGLMenuSelect(POTA_MODE_ACTIVE_SPOTS);
+            onLVGLMenuSelect(MODE_POTA_ACTIVE_SPOTS);
         }
         lv_event_stop_processing(e);
         return;
@@ -1669,19 +1663,19 @@ extern lv_obj_t* createPOTARecorderScreen();
 
 lv_obj_t* createPOTAScreenForMode(int mode) {
     switch (mode) {
-        case POTA_MODE_MENU:
+        case MODE_POTA_MENU:
             return createPOTAMenuScreen();
-        case POTA_MODE_ACTIVE_SPOTS:
+        case MODE_POTA_ACTIVE_SPOTS:
             return createPOTAActiveSpotsScreen();
-        case POTA_MODE_SPOT_DETAIL:
+        case MODE_POTA_SPOT_DETAIL:
             return createPOTASpotDetailScreen();
-        case POTA_MODE_FILTERS:
+        case MODE_POTA_FILTERS:
             return createPOTAFilterScreen();
-        case POTA_MODE_ACTIVATE:
+        case MODE_POTA_ACTIVATE:
             return createComingSoonScreen("ACTIVATE A PARK");
-        case POTA_MODE_RECORDER_SETUP:
+        case MODE_POTA_RECORDER_SETUP:
             return createPOTARecorderSetupScreen();
-        case POTA_MODE_RECORDER:
+        case MODE_POTA_RECORDER:
             return createPOTARecorderScreen();
         default:
             return NULL;
@@ -1700,7 +1694,7 @@ static void pota_autoload_cb(lv_timer_t* timer) {
     }
 
     // Only proceed if we're still on the active spots screen
-    if (getCurrentModeAsInt() != POTA_MODE_ACTIVE_SPOTS) {
+    if (getCurrentModeAsInt() != MODE_POTA_ACTIVE_SPOTS) {
         return;
     }
 

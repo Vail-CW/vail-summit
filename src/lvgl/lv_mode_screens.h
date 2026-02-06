@@ -11,6 +11,7 @@
 #include "lv_widgets_summit.h"
 #include "lv_screen_manager.h"
 #include "../core/config.h"
+#include "../core/modes.h"
 
 // Forward declaration for back navigation
 extern void onLVGLBackNavigation();
@@ -5150,26 +5151,25 @@ lv_obj_t* createQSOViewLogsScreen() {
 
 // ============================================
 // Screen Selector
-// Mode values MUST match MenuMode enum in menu_ui.h
 // ============================================
 
 lv_obj_t* createModeScreenForMode(int mode) {
     switch (mode) {
-        case 19: // MODE_RADIO_OUTPUT
+        case MODE_RADIO_OUTPUT:
             return createRadioOutputScreen();
-        case 20: // MODE_CW_MEMORIES
+        case MODE_CW_MEMORIES:
             return createCWMemoriesScreen();
-        case 31: // MODE_VAIL_REPEATER
+        case MODE_VAIL_REPEATER:
             return createVailRepeaterScreen();
-        case 33: // MODE_BT_HID
+        case MODE_BT_HID:
             return createBTHIDScreen();
-        case 37: // MODE_QSO_LOG_ENTRY
+        case MODE_QSO_LOG_ENTRY:
             return createQSOLogEntryScreen();
-        case 38: // MODE_QSO_VIEW_LOGS
+        case MODE_QSO_VIEW_LOGS:
             return createQSOViewLogsScreen();
-        case 39: // MODE_QSO_STATISTICS
+        case MODE_QSO_STATISTICS:
             return createQSOStatisticsScreen();
-        case 40: // MODE_QSO_LOGGER_SETTINGS
+        case MODE_QSO_LOGGER_SETTINGS:
             return createQSOLoggerSettingsScreen();
         default:
             Serial.printf("[ModeScreens] Unknown mode: %d\n", mode);

@@ -34,6 +34,38 @@ extern int cwWPM;      // From settings
 // Just reference the extern variable (it's already included via training files)
 
 // ============================================
+// Shared Playback Monitor (async morse playback)
+// ============================================
+
+static lv_timer_t* licw_playback_timer = NULL;
+typedef void (*LicwPlaybackCompleteCallback)();
+static LicwPlaybackCompleteCallback licw_on_playback_done = NULL;
+
+static void licw_playback_check_cb(lv_timer_t* timer) {
+    if (isMorsePlaybackComplete()) {
+        lv_timer_del(timer);
+        licw_playback_timer = NULL;
+        if (licw_on_playback_done) licw_on_playback_done();
+    }
+}
+
+static void licw_start_playback_monitor(LicwPlaybackCompleteCallback cb) {
+    if (licw_playback_timer) lv_timer_del(licw_playback_timer);
+    licw_on_playback_done = cb;
+    licw_playback_timer = lv_timer_create(licw_playback_check_cb, 50, NULL);
+}
+
+// Auto-play timer for advancing after feedback
+static lv_timer_t* licw_autoplay_timer = NULL;
+
+static void licw_cancel_autoplay_timer() {
+    if (licw_autoplay_timer) {
+        lv_timer_del(licw_autoplay_timer);
+        licw_autoplay_timer = NULL;
+    }
+}
+
+// ============================================
 // Screen State Variables
 // ============================================
 
@@ -47,104 +79,14 @@ static lv_obj_t* licw_carousel_btns[9] = {NULL};
 static lv_obj_t* licw_lesson_btns[10] = {NULL};
 static lv_obj_t* licw_practice_btns[8] = {NULL};
 
-// Grid navigation configuration for LICW selection screens
-// All LICW selection screens use 3 columns
-static const int LICW_GRID_COLUMNS = 3;
-
 // Current active button array and count for navigation
+// (Updated by each LICW screen to point to its own button array)
 static lv_obj_t** licw_nav_buttons = NULL;
 static int licw_nav_button_count = 0;
 
-/*
- * Generic 2D grid navigation handler for LICW selection screens
- * Handles arrow keys for proper grid navigation
- * Also blocks TAB (LV_KEY_NEXT) from triggering LVGL's default navigation
- */
-static void licw_grid_nav_handler(lv_event_t* e) {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code != LV_EVENT_KEY) return;
-
-    uint32_t key = lv_event_get_key(e);
-
-    // Block TAB key (LV_KEY_NEXT = '\t' = 9) from navigating
-    // TAB should not navigate in LICW selection menus
-    if (key == '\t' || key == LV_KEY_NEXT) {
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    // Handle all four arrow keys
-    if (key != LV_KEY_LEFT && key != LV_KEY_RIGHT &&
-        key != LV_KEY_PREV &&
-        key != LV_KEY_UP && key != LV_KEY_DOWN) return;
-
-    // Always stop propagation to prevent LVGL's default navigation
-    lv_event_stop_processing(e);
-
-    if (licw_nav_buttons == NULL || licw_nav_button_count <= 1) return;
-
-    // Get current focused object
-    lv_obj_t* focused = lv_event_get_target(e);
-    if (!focused) return;
-
-    // Find index of focused object in our button array
-    int focused_idx = -1;
-    for (int i = 0; i < licw_nav_button_count; i++) {
-        if (licw_nav_buttons[i] == focused) {
-            focused_idx = i;
-            break;
-        }
-    }
-    if (focused_idx < 0) return;
-
-    // Calculate grid position
-    int row = focused_idx / LICW_GRID_COLUMNS;
-    int col = focused_idx % LICW_GRID_COLUMNS;
-    int total_rows = (licw_nav_button_count + LICW_GRID_COLUMNS - 1) / LICW_GRID_COLUMNS;
-
-    int target_idx = -1;
-
-    if (key == LV_KEY_RIGHT) {
-        // Move right: only if not at rightmost column AND target exists
-        if (col < LICW_GRID_COLUMNS - 1) {
-            int potential = focused_idx + 1;
-            if (potential < licw_nav_button_count) {
-                target_idx = potential;
-            }
-        }
-    } else if (key == LV_KEY_LEFT) {
-        // Move left: only if not at leftmost column
-        if (col > 0) {
-            target_idx = focused_idx - 1;
-        }
-    } else if (key == LV_KEY_DOWN) {
-        // Move down: go to same column in next row
-        if (row < total_rows - 1) {
-            int potential = focused_idx + LICW_GRID_COLUMNS;
-            if (potential < licw_nav_button_count) {
-                target_idx = potential;
-            } else {
-                // Target column doesn't exist in last row (odd items case)
-                // Jump to last item if we're on the second-to-last row
-                target_idx = licw_nav_button_count - 1;
-            }
-        }
-    } else if (key == LV_KEY_PREV || key == LV_KEY_UP) {
-        // Move up: go to same column in previous row
-        if (row > 0) {
-            target_idx = focused_idx - LICW_GRID_COLUMNS;
-        }
-    }
-
-    // Focus target if valid and scroll into view
-    if (target_idx >= 0 && target_idx < licw_nav_button_count) {
-        lv_obj_t* target = licw_nav_buttons[target_idx];
-        if (target) {
-            lv_group_focus_obj(target);
-            lv_obj_scroll_to_view(target, LV_ANIM_ON);
-        }
-    }
-}
+// Navigation context for LICW grid (3 columns)
+// Uses pointers so it auto-tracks whichever screen sets licw_nav_buttons/licw_nav_button_count
+static NavGridContext licw_nav_ctx = { NULL, &licw_nav_button_count, 3 };
 
 // ============================================
 // Carousel Selection Screen
@@ -162,7 +104,7 @@ static void licw_carousel_click_handler(lv_event_t* e) {
                   carousel_idx, licwCarouselShortNames[carousel_idx]);
 
     // Navigate to lesson selection
-    onLVGLMenuSelect(121);  // LVGL_MODE_LICW_LESSON_SELECT
+    onLVGLMenuSelect(MODE_LICW_LESSON_SELECT);
 }
 
 /*
@@ -242,7 +184,7 @@ lv_obj_t* createLICWCarouselSelectScreen() {
         lv_obj_add_event_cb(btn, licw_carousel_click_handler, LV_EVENT_CLICKED, NULL);
 
         // Add grid navigation handler for arrow keys
-        lv_obj_add_event_cb(btn, licw_grid_nav_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(btn, grid_nav_handler, LV_EVENT_KEY, &licw_nav_ctx);
 
         // Store button reference
         licw_carousel_btns[i] = btn;
@@ -254,6 +196,7 @@ lv_obj_t* createLICWCarouselSelectScreen() {
     // Set up navigation context for this screen
     licw_nav_buttons = licw_carousel_btns;
     licw_nav_button_count = LICW_TOTAL_CAROUSELS;
+    licw_nav_ctx.buttons = licw_nav_buttons;
 
     // Footer
     lv_obj_t* footer = lv_label_create(screen);
@@ -280,7 +223,7 @@ static void licw_lesson_click_handler(lv_event_t* e) {
     Serial.printf("[LICW] Lesson selected: %d\n", lesson_num);
 
     // Navigate to practice type selection
-    onLVGLMenuSelect(122);  // LVGL_MODE_LICW_PRACTICE_TYPE
+    onLVGLMenuSelect(MODE_LICW_PRACTICE_TYPE);
 }
 
 /*
@@ -366,7 +309,7 @@ lv_obj_t* createLICWLessonSelectScreen() {
         lv_obj_add_event_cb(btn, licw_lesson_click_handler, LV_EVENT_CLICKED, NULL);
 
         // Add grid navigation handler for arrow keys
-        lv_obj_add_event_cb(btn, licw_grid_nav_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(btn, grid_nav_handler, LV_EVENT_KEY, &licw_nav_ctx);
 
         // Store button reference
         licw_lesson_btns[i - 1] = btn;
@@ -379,6 +322,7 @@ lv_obj_t* createLICWLessonSelectScreen() {
     // Set up navigation context for this screen
     licw_nav_buttons = licw_lesson_btns;
     licw_nav_button_count = lesson_btn_count;
+    licw_nav_ctx.buttons = licw_nav_buttons;
 
     // Footer
     lv_obj_t* footer = lv_label_create(screen);
@@ -421,31 +365,31 @@ static void licw_practice_click_handler(lv_event_t* e) {
     int target_mode;
     switch (licw_ui_practice_type) {
         case LICW_PRACTICE_CSF:
-            target_mode = 127;  // LVGL_MODE_LICW_CSF_INTRO
+            target_mode = MODE_LICW_CSF_INTRO;
             break;
         case LICW_PRACTICE_COPY:
-            target_mode = 123;  // LVGL_MODE_LICW_COPY_PRACTICE
+            target_mode = MODE_LICW_COPY_PRACTICE;
             break;
         case LICW_PRACTICE_SENDING:
-            target_mode = 124;  // LVGL_MODE_LICW_SEND_PRACTICE
+            target_mode = MODE_LICW_SEND_PRACTICE;
             break;
         case LICW_PRACTICE_IFR:
-            target_mode = 126;  // LVGL_MODE_LICW_IFR_PRACTICE
+            target_mode = MODE_LICW_IFR_PRACTICE;
             break;
         case LICW_PRACTICE_CFP:
-            target_mode = 132;  // LVGL_MODE_LICW_CFP_PRACTICE
+            target_mode = MODE_LICW_CFP_PRACTICE;
             break;
         case LICW_PRACTICE_WORD_DISCOVERY:
-            target_mode = 128;  // LVGL_MODE_LICW_WORD_DISCOVERY
+            target_mode = MODE_LICW_WORD_DISCOVERY;
             break;
         case LICW_PRACTICE_QSO:
-            target_mode = 129;  // LVGL_MODE_LICW_QSO_PRACTICE
+            target_mode = MODE_LICW_QSO_PRACTICE;
             break;
         case LICW_PRACTICE_ADVERSE:
-            target_mode = 133;  // LVGL_MODE_LICW_ADVERSE_COPY
+            target_mode = MODE_LICW_ADVERSE_COPY;
             break;
         default:
-            target_mode = 123;  // Default to copy practice
+            target_mode = MODE_LICW_COPY_PRACTICE;
             break;
     }
 
@@ -512,10 +456,7 @@ lv_obj_t* createLICWPracticeTypeScreen() {
     lv_obj_t* info = lv_obj_create(screen);
     lv_obj_set_size(info, LV_PCT(95), 50);
     lv_obj_set_pos(info, 10, 55);
-    lv_obj_set_style_bg_color(info, LV_COLOR_BG_LAYER2, 0);
-    lv_obj_set_style_border_width(info, 1, 0);
-    lv_obj_set_style_border_color(info, LV_COLOR_ACCENT_CYAN, 0);
-    lv_obj_set_style_radius(info, 8, 0);
+    applyCardStyle(info);
     lv_obj_set_style_pad_all(info, 8, 0);
     lv_obj_clear_flag(info, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -594,7 +535,7 @@ lv_obj_t* createLICWPracticeTypeScreen() {
         }
 
         // Add grid navigation handler for arrow keys
-        lv_obj_add_event_cb(btn, licw_grid_nav_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(btn, grid_nav_handler, LV_EVENT_KEY, &licw_nav_ctx);
 
         // Store button reference
         licw_practice_btns[btn_count++] = btn;
@@ -606,6 +547,7 @@ lv_obj_t* createLICWPracticeTypeScreen() {
     // Set up navigation context for this screen
     licw_nav_buttons = licw_practice_btns;
     licw_nav_button_count = btn_count;
+    licw_nav_ctx.buttons = licw_nav_buttons;
 
     // Footer
     lv_obj_t* footer = lv_label_create(screen);
@@ -634,10 +576,9 @@ static int licw_copy_input_pos = 0;
 static unsigned long licw_copy_play_end_time = 0;
 static bool licw_copy_waiting_for_input = false;
 
-// Forward declaration for morse playback
-// Note: Using character WPM for now; full Farnsworth would extend inter-character gaps
-extern void playMorseString(const char* str, int wpm, int toneFreq);
-extern int cwTone;  // From settings
+// Forward declaration for copy playback complete callback
+static void licwCopyOnPlaybackDone();
+static void licwCopyAutoAdvance(lv_timer_t* timer);
 
 // Play next character in copy practice
 void licwCopyPlayNext() {
@@ -653,37 +594,34 @@ void licwCopyPlayNext() {
         lv_label_set_text(licw_copy_input_label, "_");
     }
     if (licw_copy_char_label) {
-        lv_label_set_text(licw_copy_char_label, "?");  // Don't show character until after response
+        lv_label_set_text(licw_copy_char_label, "?");
     }
     if (licw_copy_feedback_label) {
-        lv_label_set_text(licw_copy_feedback_label, "Listen...");
+        lv_label_set_text(licw_copy_feedback_label, "Listening...");
         lv_obj_set_style_text_color(licw_copy_feedback_label, LV_COLOR_TEXT_SECONDARY, 0);
     }
 
     // Get lesson speed settings
     const LICWLesson* lesson = getLICWLesson(licwSelectedCarousel, licwSelectedLesson);
 
-    // Play the character using character WPM
-    // Note: For full Farnsworth, inter-character gaps should use effective WPM
+    // Play the character using async API
     char charStr[2] = {licw_copy_current_char, '\0'};
-    playMorseString(charStr, lesson->characterWPM, cwTone);
+    requestPlayMorseString(charStr, lesson->characterWPM, cwTone);
 
-    // Record when playback finishes (approximate - actual would need callback)
-    // For now, estimate based on character timing
-    int ditMs = 1200 / lesson->characterWPM;
-    const char* pattern = getMorseCode(licw_copy_current_char);
-    int charDuration = 0;
-    if (pattern) {
-        for (int i = 0; pattern[i]; i++) {
-            charDuration += (pattern[i] == '.') ? ditMs : (ditMs * 3);
-            if (pattern[i + 1]) charDuration += ditMs;  // inter-element gap
-        }
-    }
-    licw_copy_play_end_time = millis() + charDuration;
-
-    licw_copy_waiting_for_input = true;
+    // Block input during playback, monitor for completion
+    licw_copy_waiting_for_input = false;
+    licw_start_playback_monitor(licwCopyOnPlaybackDone);
 
     Serial.printf("[LICW Copy] Playing character: %c\n", licw_copy_current_char);
+}
+
+static void licwCopyOnPlaybackDone() {
+    licw_copy_play_end_time = millis();
+    licw_copy_waiting_for_input = true;
+    if (licw_copy_feedback_label) {
+        lv_label_set_text(licw_copy_feedback_label, "Type what you heard");
+        lv_obj_set_style_text_color(licw_copy_feedback_label, LV_COLOR_WARNING, 0);
+    }
 }
 
 // Handle keypress in copy practice
@@ -749,14 +687,25 @@ void licwCopyHandleKey(char key) {
     licw_copy_waiting_for_input = false;
     licw_copy_play_end_time = 0;
 
-    // Auto-advance after brief delay
-    // This would be handled in the update loop
+    // Auto-advance after feedback delay
+    licw_cancel_autoplay_timer();
+    licw_autoplay_timer = lv_timer_create(licwCopyAutoAdvance, correct ? 1200 : 1500, NULL);
+    lv_timer_set_repeat_count(licw_autoplay_timer, 1);
+}
+
+static void licwCopyAutoAdvance(lv_timer_t* timer) {
+    (void)timer;
+    licw_autoplay_timer = NULL;
+    licwCopyPlayNext();
 }
 
 // Copy practice keyboard handler
 static void licw_copy_key_handler(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code != LV_EVENT_KEY) return;
+
+    // Ignore input during playback
+    if (isMorsePlaybackActive()) return;
 
     uint32_t key = lv_event_get_key(e);
 
@@ -768,9 +717,11 @@ static void licw_copy_key_handler(lv_event_t* e) {
     else if (key >= '0' && key <= '9') {
         licwCopyHandleKey((char)key);
     }
-    // Handle space to play next
+    // Handle space to replay current / start first
     else if (key == ' ') {
-        if (!licw_copy_waiting_for_input && !isTonePlaying()) {
+        if (!licw_copy_waiting_for_input) {
+            // Cancel any pending auto-advance and play now
+            licw_cancel_autoplay_timer();
             licwCopyPlayNext();
         }
     }
@@ -795,52 +746,14 @@ lv_obj_t* createLICWCopyPracticeScreen() {
              carousel->shortName, licwSelectedLesson);
     createHeader(screen, header_text);
 
-    // Main content area
-    lv_obj_t* content = lv_obj_create(screen);
-    lv_obj_set_size(content, LV_PCT(90), 180);
-    lv_obj_center(content);
-    lv_obj_set_style_bg_color(content, LV_COLOR_BG_LAYER2, 0);
-    lv_obj_set_style_border_width(content, 2, 0);
-    lv_obj_set_style_border_color(content, LV_COLOR_ACCENT_CYAN, 0);
-    lv_obj_set_style_radius(content, 12, 0);
-    lv_obj_set_style_pad_all(content, 20, 0);
-    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
-
-    // Character display (shows "?" until answered, then the character)
-    // NO morse patterns - just the character letter itself
-    licw_copy_char_label = lv_label_create(content);
-    lv_label_set_text(licw_copy_char_label, "?");
-    lv_obj_set_style_text_font(licw_copy_char_label, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(licw_copy_char_label, LV_COLOR_ACCENT_CYAN, 0);
-
-    // User input display
-    licw_copy_input_label = lv_label_create(content);
-    lv_label_set_text(licw_copy_input_label, "_");
-    lv_obj_set_style_text_font(licw_copy_input_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(licw_copy_input_label, LV_COLOR_TEXT_PRIMARY, 0);
-
-    // Feedback label
-    licw_copy_feedback_label = lv_label_create(content);
-    lv_label_set_text(licw_copy_feedback_label, "Press SPACE to start");
-    lv_obj_set_style_text_font(licw_copy_feedback_label, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(licw_copy_feedback_label, LV_COLOR_TEXT_SECONDARY, 0);
-
-    // TTR display
-    licw_copy_ttr_label = lv_label_create(content);
-    lv_label_set_text(licw_copy_ttr_label, "TTR: --");
-    lv_obj_set_style_text_font(licw_copy_ttr_label, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(licw_copy_ttr_label, LV_COLOR_TEXT_SECONDARY, 0);
-
-    // Score display
+    // Score display (header row)
     licw_copy_score_label = lv_label_create(screen);
     lv_label_set_text(licw_copy_score_label, "0/0 (0%)");
     lv_obj_set_style_text_font(licw_copy_score_label, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(licw_copy_score_label, LV_COLOR_TEXT_PRIMARY, 0);
     lv_obj_align(licw_copy_score_label, LV_ALIGN_TOP_RIGHT, -20, 55);
 
-    // Speed info
+    // Speed info (header row)
     lv_obj_t* speed_info = lv_label_create(screen);
     char speed_text[32];
     snprintf(speed_text, sizeof(speed_text), "Speed: %d/%d WPM",
@@ -850,16 +763,51 @@ lv_obj_t* createLICWCopyPracticeScreen() {
     lv_obj_set_style_text_color(speed_info, LV_COLOR_TEXT_SECONDARY, 0);
     lv_obj_align(speed_info, LV_ALIGN_TOP_LEFT, 20, 55);
 
+    // Main display card
+    lv_obj_t* content = lv_obj_create(screen);
+    lv_obj_set_size(content, LV_PCT(90), 120);
+    lv_obj_align(content, LV_ALIGN_TOP_MID, 0, 80);
+    applyCardStyle(content);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Character display (shows "?" until answered)
+    licw_copy_char_label = lv_label_create(content);
+    lv_label_set_text(licw_copy_char_label, "?");
+    lv_obj_set_style_text_font(licw_copy_char_label, getThemeFonts()->font_title, 0);
+    lv_obj_set_style_text_color(licw_copy_char_label, LV_COLOR_ACCENT_CYAN, 0);
+
+    // User input display
+    licw_copy_input_label = lv_label_create(content);
+    lv_label_set_text(licw_copy_input_label, "_");
+    lv_obj_set_style_text_font(licw_copy_input_label, getThemeFonts()->font_subtitle, 0);
+    lv_obj_set_style_text_color(licw_copy_input_label, LV_COLOR_TEXT_PRIMARY, 0);
+
+    // Feedback label (below card)
+    licw_copy_feedback_label = lv_label_create(screen);
+    lv_label_set_text(licw_copy_feedback_label, "Press SPACE to start");
+    lv_obj_set_style_text_font(licw_copy_feedback_label, getThemeFonts()->font_input, 0);
+    lv_obj_set_style_text_color(licw_copy_feedback_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_align(licw_copy_feedback_label, LV_ALIGN_TOP_MID, 0, 210);
+
+    // TTR display (below feedback)
+    licw_copy_ttr_label = lv_label_create(screen);
+    lv_label_set_text(licw_copy_ttr_label, "TTR: --");
+    lv_obj_set_style_text_font(licw_copy_ttr_label, getThemeFonts()->font_body, 0);
+    lv_obj_set_style_text_color(licw_copy_ttr_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_align(licw_copy_ttr_label, LV_ALIGN_TOP_MID, 0, 235);
+
     // Footer
     lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, "Type what you hear - SPACE for next - ESC to exit");
+    lv_label_set_text(footer, FOOTER_TRAINING_AUTOPLAY);
     lv_obj_set_style_text_font(footer, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);
 
     // Add keyboard handler
     lv_obj_add_event_cb(content, licw_copy_key_handler, LV_EVENT_KEY, NULL);
-    lv_obj_add_flag(content, LV_OBJ_FLAG_CLICKABLE);  // Make focusable
+    lv_obj_add_flag(content, LV_OBJ_FLAG_CLICKABLE);
     addNavigableWidget(content);
 
     return screen;
@@ -876,7 +824,7 @@ static lv_obj_t* licw_send_score_label = NULL;
 static lv_obj_t* licw_send_feedback_label = NULL;
 
 static char licw_send_target[32] = "";
-static String licw_send_decoded = "";
+static char licw_send_decoded[64] = {0};
 static int licw_send_correct = 0;
 static int licw_send_total = 0;
 static int licw_send_round = 0;
@@ -919,7 +867,7 @@ void licwSendStartRound() {
     }
     licw_send_target[sizeof(licw_send_target) - 1] = '\0';
 
-    licw_send_decoded = "";
+    licw_send_decoded[0] = '\0';
     licw_send_waiting = true;
     licw_send_showing_feedback = false;
 
@@ -1085,7 +1033,7 @@ void updateLICWSendingPractice() {
 
     // Update UI if decoder produced output
     if (licw_send_needs_ui_update && licw_send_decoded_label) {
-        lv_label_set_text(licw_send_decoded_label, licw_send_decoded.length() > 0 ? licw_send_decoded.c_str() : "...");
+        lv_label_set_text(licw_send_decoded_label, strlen(licw_send_decoded) > 0 ? licw_send_decoded : "...");
         licw_send_needs_ui_update = false;
     }
 }
@@ -1101,7 +1049,7 @@ static void licw_send_key_handler(lv_event_t* e) {
         // Any key advances
         if (licw_send_round >= 10) {
             // Done - go back
-            onLVGLMenuSelect(122);  // Practice type select
+            onLVGLMenuSelect(MODE_LICW_PRACTICE_TYPE);
         } else {
             licwSendStartRound();
         }
@@ -1116,13 +1064,22 @@ static void licw_send_key_handler(lv_event_t* e) {
             }
 
             licw_send_total++;
-            String target = String(licw_send_target);
-            target.toUpperCase();
-            String decoded = licw_send_decoded;
-            decoded.toUpperCase();
-            decoded.trim();
 
-            bool correct = (decoded == target);
+            // Compare using char buffers
+            char target_upper[32];
+            strncpy(target_upper, licw_send_target, sizeof(target_upper) - 1);
+            target_upper[sizeof(target_upper) - 1] = '\0';
+            for (int i = 0; target_upper[i]; i++) target_upper[i] = toupper(target_upper[i]);
+
+            char decoded_upper[64];
+            strncpy(decoded_upper, licw_send_decoded, sizeof(decoded_upper) - 1);
+            decoded_upper[sizeof(decoded_upper) - 1] = '\0';
+            // Trim trailing spaces
+            int len = strlen(decoded_upper);
+            while (len > 0 && decoded_upper[len - 1] == ' ') decoded_upper[--len] = '\0';
+            for (int i = 0; decoded_upper[i]; i++) decoded_upper[i] = toupper(decoded_upper[i]);
+
+            bool correct = (strcmp(decoded_upper, target_upper) == 0);
             if (correct) {
                 licw_send_correct++;
                 beep(TONE_SUCCESS, BEEP_SHORT);
@@ -1141,7 +1098,7 @@ static void licw_send_key_handler(lv_event_t* e) {
                     lv_obj_set_style_text_color(licw_send_feedback_label, LV_COLOR_SUCCESS, 0);
                 } else {
                     char fb[64];
-                    snprintf(fb, sizeof(fb), "Was: %s, You: %s", licw_send_target, decoded.c_str());
+                    snprintf(fb, sizeof(fb), "Was: %s, You: %s", licw_send_target, decoded_upper);
                     lv_label_set_text(licw_send_feedback_label, fb);
                     lv_obj_set_style_text_color(licw_send_feedback_label, LV_COLOR_ERROR, 0);
                 }
@@ -1155,9 +1112,11 @@ static void licw_send_key_handler(lv_event_t* e) {
             }
         }
         else if (key == 'P' || key == 'p') {
-            // Play target
-            const LICWLesson* lesson = getLICWLesson(licwSelectedCarousel, licwSelectedLesson);
-            playMorseString(licw_send_target, lesson->characterWPM, cwTone);
+            // Play target (async)
+            if (!isMorsePlaybackActive()) {
+                const LICWLesson* lesson = getLICWLesson(licwSelectedCarousel, licwSelectedLesson);
+                requestPlayMorseString(licw_send_target, lesson->characterWPM, cwTone);
+            }
         }
     }
 }
@@ -1176,9 +1135,11 @@ lv_obj_t* createLICWSendPracticeScreen() {
         licwSendDecoder->setWPM(lesson->characterWPM);
     }
     licwSendDecoder->messageCallback = [](String morse, String text) {
-        for (unsigned int i = 0; i < text.length(); i++) {
-            licw_send_decoded += text[i];
+        int curLen = strlen(licw_send_decoded);
+        for (unsigned int i = 0; i < text.length() && curLen < (int)sizeof(licw_send_decoded) - 1; i++) {
+            licw_send_decoded[curLen++] = text[i];
         }
+        licw_send_decoded[curLen] = '\0';
         licw_send_needs_ui_update = true;
     };
 
@@ -1186,7 +1147,7 @@ lv_obj_t* createLICWSendPracticeScreen() {
     licw_send_correct = 0;
     licw_send_total = 0;
     licw_send_round = 0;
-    licw_send_decoded = "";
+    licw_send_decoded[0] = '\0';
 
     lv_obj_t* screen = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(screen, LV_COLOR_BG_DEEP, 0);
@@ -1196,45 +1157,14 @@ lv_obj_t* createLICWSendPracticeScreen() {
     snprintf(header_text, sizeof(header_text), "%s L%d SEND", carousel->shortName, licwSelectedLesson);
     createHeader(screen, header_text);
 
-    // Main content
-    lv_obj_t* content = lv_obj_create(screen);
-    lv_obj_set_size(content, LV_PCT(90), 180);
-    lv_obj_center(content);
-    lv_obj_set_style_bg_color(content, LV_COLOR_BG_LAYER2, 0);
-    lv_obj_set_style_border_width(content, 2, 0);
-    lv_obj_set_style_border_color(content, LV_COLOR_ACCENT_CYAN, 0);
-    lv_obj_set_style_radius(content, 12, 0);
-    lv_obj_set_style_pad_all(content, 20, 0);
-    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
-
-    // Target display (no morse patterns - just the character/word)
-    licw_send_target_label = lv_label_create(content);
-    lv_label_set_text(licw_send_target_label, "Send: ---");
-    lv_obj_set_style_text_font(licw_send_target_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(licw_send_target_label, LV_COLOR_ACCENT_CYAN, 0);
-
-    // Decoded display
-    licw_send_decoded_label = lv_label_create(content);
-    lv_label_set_text(licw_send_decoded_label, "...");
-    lv_obj_set_style_text_font(licw_send_decoded_label, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(licw_send_decoded_label, LV_COLOR_TEXT_PRIMARY, 0);
-
-    // Feedback
-    licw_send_feedback_label = lv_label_create(content);
-    lv_label_set_text(licw_send_feedback_label, "Press SPACE to start");
-    lv_obj_set_style_text_font(licw_send_feedback_label, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(licw_send_feedback_label, LV_COLOR_TEXT_SECONDARY, 0);
-
-    // Score
+    // Score (header row)
     licw_send_score_label = lv_label_create(screen);
     lv_label_set_text(licw_send_score_label, "0/0 (0%)");
     lv_obj_set_style_text_font(licw_send_score_label, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(licw_send_score_label, LV_COLOR_TEXT_PRIMARY, 0);
     lv_obj_align(licw_send_score_label, LV_ALIGN_TOP_RIGHT, -20, 55);
 
-    // Speed info
+    // Speed info (header row)
     lv_obj_t* speed_info = lv_label_create(screen);
     char speed_text[32];
     snprintf(speed_text, sizeof(speed_text), "Speed: %d/%d WPM", lesson->characterWPM, lesson->effectiveWPM);
@@ -1243,9 +1173,37 @@ lv_obj_t* createLICWSendPracticeScreen() {
     lv_obj_set_style_text_color(speed_info, LV_COLOR_TEXT_SECONDARY, 0);
     lv_obj_align(speed_info, LV_ALIGN_TOP_LEFT, 20, 55);
 
+    // Main display card - target to send
+    lv_obj_t* content = lv_obj_create(screen);
+    lv_obj_set_size(content, LV_PCT(90), 70);
+    lv_obj_align(content, LV_ALIGN_TOP_MID, 0, 80);
+    applyCardStyle(content);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Target display
+    licw_send_target_label = lv_label_create(content);
+    lv_label_set_text(licw_send_target_label, "Send: ---");
+    lv_obj_set_style_text_font(licw_send_target_label, getThemeFonts()->font_title, 0);
+    lv_obj_set_style_text_color(licw_send_target_label, LV_COLOR_ACCENT_CYAN, 0);
+
+    // Decoded display using decoder box
+    lv_obj_t* decoder_box = createDecoderBox(screen, 400, 60);
+    lv_obj_align(decoder_box, LV_ALIGN_TOP_MID, 0, 160);
+    licw_send_decoded_label = lv_obj_get_child(decoder_box, 0);
+    lv_label_set_text(licw_send_decoded_label, "...");
+
+    // Feedback
+    licw_send_feedback_label = lv_label_create(screen);
+    lv_label_set_text(licw_send_feedback_label, "Use paddle to send");
+    lv_obj_set_style_text_font(licw_send_feedback_label, getThemeFonts()->font_input, 0);
+    lv_obj_set_style_text_color(licw_send_feedback_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_align(licw_send_feedback_label, LV_ALIGN_TOP_MID, 0, 230);
+
     // Footer
     lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, "Use paddle - P to hear - ENTER when done - ESC exit");
+    lv_label_set_text(footer, "Paddle Send   P Hear   ENTER Submit   ESC Exit");
     lv_obj_set_style_text_font(footer, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);
@@ -1317,6 +1275,9 @@ void licwIFRStartRound() {
     Serial.printf("[LICW IFR] Round %d stream: %s\n", licw_ifr_round, licw_ifr_stream);
 }
 
+// Forward declaration for IFR auto-advance
+static void licwIFRAutoAdvance(lv_timer_t* timer);
+
 // Play the IFR stream (continuous, no replay allowed)
 void licwIFRPlayStream() {
     if (licw_ifr_playing) return;
@@ -1324,8 +1285,8 @@ void licwIFRPlayStream() {
     const LICWLesson* lesson = getLICWLesson(licwSelectedCarousel, licwSelectedLesson);
     licw_ifr_playing = true;
 
-    // Play the entire stream
-    playMorseString(licw_ifr_stream, lesson->characterWPM, cwTone);
+    // Play the entire stream (async)
+    requestPlayMorseString(licw_ifr_stream, lesson->characterWPM, cwTone);
 
     if (licw_ifr_feedback_label) {
         lv_label_set_text(licw_ifr_feedback_label, "Type as you hear - skip misses!");
@@ -1390,6 +1351,22 @@ void licwIFRHandleInput(char key) {
         }
 
         beep(pct >= 70 ? TONE_SUCCESS : TONE_ERROR, BEEP_SHORT);
+
+        // Auto-advance after feedback
+        licw_cancel_autoplay_timer();
+        licw_autoplay_timer = lv_timer_create(licwIFRAutoAdvance, 1500, NULL);
+        lv_timer_set_repeat_count(licw_autoplay_timer, 1);
+    }
+}
+
+static void licwIFRAutoAdvance(lv_timer_t* timer) {
+    (void)timer;
+    licw_autoplay_timer = NULL;
+    if (licw_ifr_round >= 10) {
+        onLVGLMenuSelect(MODE_LICW_PRACTICE_TYPE);
+    } else {
+        licwIFRStartRound();
+        licwIFRPlayStream();
     }
 }
 
@@ -1401,9 +1378,10 @@ static void licw_ifr_key_handler(lv_event_t* e) {
     uint32_t key = lv_event_get_key(e);
 
     if (licw_ifr_round_done) {
-        // Any key advances
+        // Cancel auto-advance and manually advance
+        licw_cancel_autoplay_timer();
         if (licw_ifr_round >= 10) {
-            onLVGLMenuSelect(122);  // Back to practice type
+            onLVGLMenuSelect(MODE_LICW_PRACTICE_TYPE);
         } else {
             licwIFRStartRound();
         }
@@ -1446,15 +1424,18 @@ lv_obj_t* createLICWIFRPracticeScreen() {
     lv_obj_set_style_text_color(info, LV_COLOR_WARNING, 0);
     lv_obj_align(info, LV_ALIGN_TOP_MID, 0, 55);
 
-    // Main content
+    // Score (header row)
+    licw_ifr_score_label = lv_label_create(screen);
+    lv_label_set_text(licw_ifr_score_label, "0/0 (0%)");
+    lv_obj_set_style_text_font(licw_ifr_score_label, getThemeFonts()->font_body, 0);
+    lv_obj_set_style_text_color(licw_ifr_score_label, LV_COLOR_TEXT_PRIMARY, 0);
+    lv_obj_align(licw_ifr_score_label, LV_ALIGN_TOP_RIGHT, -20, 55);
+
+    // Main display card
     lv_obj_t* content = lv_obj_create(screen);
-    lv_obj_set_size(content, LV_PCT(90), 150);
-    lv_obj_center(content);
-    lv_obj_set_style_bg_color(content, LV_COLOR_BG_LAYER2, 0);
-    lv_obj_set_style_border_width(content, 2, 0);
-    lv_obj_set_style_border_color(content, LV_COLOR_ACCENT_CYAN, 0);
-    lv_obj_set_style_radius(content, 12, 0);
-    lv_obj_set_style_pad_all(content, 20, 0);
+    lv_obj_set_size(content, LV_PCT(90), 120);
+    lv_obj_align(content, LV_ALIGN_TOP_MID, 0, 80);
+    applyCardStyle(content);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(content, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
@@ -1462,31 +1443,25 @@ lv_obj_t* createLICWIFRPracticeScreen() {
     // Stream display (hidden until played)
     licw_ifr_stream_label = lv_label_create(content);
     lv_label_set_text(licw_ifr_stream_label, "?????");
-    lv_obj_set_style_text_font(licw_ifr_stream_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(licw_ifr_stream_label, getThemeFonts()->font_subtitle, 0);
     lv_obj_set_style_text_color(licw_ifr_stream_label, LV_COLOR_TEXT_SECONDARY, 0);
 
     // User input
     licw_ifr_input_label = lv_label_create(content);
     lv_label_set_text(licw_ifr_input_label, "_");
-    lv_obj_set_style_text_font(licw_ifr_input_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(licw_ifr_input_label, getThemeFonts()->font_subtitle, 0);
     lv_obj_set_style_text_color(licw_ifr_input_label, LV_COLOR_ACCENT_CYAN, 0);
 
-    // Feedback
-    licw_ifr_feedback_label = lv_label_create(content);
+    // Feedback (below card)
+    licw_ifr_feedback_label = lv_label_create(screen);
     lv_label_set_text(licw_ifr_feedback_label, "Press SPACE to start");
     lv_obj_set_style_text_font(licw_ifr_feedback_label, getThemeFonts()->font_input, 0);
     lv_obj_set_style_text_color(licw_ifr_feedback_label, LV_COLOR_TEXT_SECONDARY, 0);
-
-    // Score
-    licw_ifr_score_label = lv_label_create(screen);
-    lv_label_set_text(licw_ifr_score_label, "0/0 (0%)");
-    lv_obj_set_style_text_font(licw_ifr_score_label, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(licw_ifr_score_label, LV_COLOR_TEXT_PRIMARY, 0);
-    lv_obj_align(licw_ifr_score_label, LV_ALIGN_TOP_RIGHT, -20, 55);
+    lv_obj_align(licw_ifr_feedback_label, LV_ALIGN_TOP_MID, 0, 210);
 
     // Footer
     lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, "SPACE play - type as you hear - NO replay - ESC exit");
+    lv_label_set_text(footer, "SPACE Play   Type as You Hear   NO Replay   ESC Exit");
     lv_obj_set_style_text_font(footer, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);
@@ -1532,6 +1507,9 @@ void licwCFPGenerate() {
     licw_cfp_active = false;
 }
 
+// Forward declaration for CFP auto-advance
+static void licwCFPAutoAdvance(lv_timer_t* timer);
+
 // Start CFP playback
 void licwCFPStart() {
     if (licw_cfp_active) return;
@@ -1540,11 +1518,11 @@ void licwCFPStart() {
     licw_cfp_active = true;
     licw_cfp_start_time = millis();
 
-    // Play all characters - user types as they hear
-    playMorseString(licw_cfp_chars, lesson->characterWPM, cwTone);
+    // Play all characters (async) - user types as they hear
+    requestPlayMorseString(licw_cfp_chars, lesson->characterWPM, cwTone);
 
     if (licw_cfp_char_label) {
-        lv_label_set_text(licw_cfp_char_label, "Listen and type...");
+        lv_label_set_text(licw_cfp_char_label, "Listening...");
     }
 }
 
@@ -1600,7 +1578,19 @@ void licwCFPHandleInput(char key) {
         }
 
         beep(matches >= (int)strlen(licw_cfp_chars) * 7 / 10 ? TONE_SUCCESS : TONE_ERROR, BEEP_SHORT);
+
+        // Auto-advance after feedback
+        licw_cancel_autoplay_timer();
+        licw_autoplay_timer = lv_timer_create(licwCFPAutoAdvance, 1500, NULL);
+        lv_timer_set_repeat_count(licw_autoplay_timer, 1);
     }
+}
+
+static void licwCFPAutoAdvance(lv_timer_t* timer) {
+    (void)timer;
+    licw_autoplay_timer = NULL;
+    licwCFPGenerate();
+    licwCFPStart();
 }
 
 // CFP key handler
@@ -1611,7 +1601,8 @@ static void licw_cfp_key_handler(lv_event_t* e) {
     uint32_t key = lv_event_get_key(e);
 
     if (!licw_cfp_active && licw_cfp_pos >= (int)strlen(licw_cfp_chars) && licw_cfp_pos > 0) {
-        // Round done, any key starts new
+        // Round done, cancel auto-advance and manually start new
+        licw_cancel_autoplay_timer();
         licwCFPGenerate();
         if (licw_cfp_char_label) lv_label_set_text(licw_cfp_char_label, "Press SPACE to start");
         if (licw_cfp_input_label) lv_label_set_text(licw_cfp_input_label, "_");
@@ -1619,6 +1610,7 @@ static void licw_cfp_key_handler(lv_event_t* e) {
     }
 
     if (key == ' ' && !licw_cfp_active) {
+        licw_cancel_autoplay_timer();
         licwCFPStart();
     }
     else if ((key >= 'a' && key <= 'z') || (key >= 'A' && key <= 'Z') ||
@@ -1652,15 +1644,18 @@ lv_obj_t* createLICWCFPPracticeScreen() {
     lv_obj_set_style_text_color(info, LV_COLOR_WARNING, 0);
     lv_obj_align(info, LV_ALIGN_TOP_MID, 0, 55);
 
-    // Content
+    // Score (header row)
+    licw_cfp_score_label = lv_label_create(screen);
+    lv_label_set_text(licw_cfp_score_label, "0/0 (0%)");
+    lv_obj_set_style_text_font(licw_cfp_score_label, getThemeFonts()->font_body, 0);
+    lv_obj_set_style_text_color(licw_cfp_score_label, LV_COLOR_TEXT_PRIMARY, 0);
+    lv_obj_align(licw_cfp_score_label, LV_ALIGN_TOP_RIGHT, -20, 55);
+
+    // Main display card
     lv_obj_t* content = lv_obj_create(screen);
-    lv_obj_set_size(content, LV_PCT(90), 150);
-    lv_obj_center(content);
-    lv_obj_set_style_bg_color(content, LV_COLOR_BG_LAYER2, 0);
-    lv_obj_set_style_border_width(content, 2, 0);
-    lv_obj_set_style_border_color(content, LV_COLOR_ACCENT_CYAN, 0);
-    lv_obj_set_style_radius(content, 12, 0);
-    lv_obj_set_style_pad_all(content, 15, 0);
+    lv_obj_set_size(content, LV_PCT(90), 120);
+    lv_obj_align(content, LV_ALIGN_TOP_MID, 0, 80);
+    applyCardStyle(content);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(content, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
@@ -1675,18 +1670,16 @@ lv_obj_t* createLICWCFPPracticeScreen() {
     lv_obj_set_style_text_font(licw_cfp_input_label, getThemeFonts()->font_input, 0);
     lv_obj_set_style_text_color(licw_cfp_input_label, LV_COLOR_ACCENT_CYAN, 0);
 
-    licw_cfp_rate_label = lv_label_create(content);
+    // Rate display (below card)
+    licw_cfp_rate_label = lv_label_create(screen);
     lv_label_set_text(licw_cfp_rate_label, "Rate: -- CPM");
     lv_obj_set_style_text_font(licw_cfp_rate_label, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(licw_cfp_rate_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_align(licw_cfp_rate_label, LV_ALIGN_TOP_MID, 0, 210);
 
-    licw_cfp_score_label = lv_label_create(screen);
-    lv_label_set_text(licw_cfp_score_label, "0/0 (0%)");
-    lv_obj_set_style_text_font(licw_cfp_score_label, getThemeFonts()->font_body, 0);
-    lv_obj_align(licw_cfp_score_label, LV_ALIGN_TOP_RIGHT, -20, 55);
-
+    // Footer
     lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, "SPACE start - type as you hear - ESC exit");
+    lv_label_set_text(footer, FOOTER_TRAINING_AUTOPLAY);
     lv_obj_set_style_text_font(footer, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);
@@ -1735,30 +1728,57 @@ void licwWordStartRound() {
     Serial.printf("[LICW Word] New word: %s\n", licw_word_current);
 }
 
+// Forward declarations for Word Discovery async/auto-play
+static void licwWordOnPlaybackDone();
+static void licwWordAutoAdvance(lv_timer_t* timer);
+
 void licwWordPlayCurrent() {
     const LICWLesson* lesson = getLICWLesson(licwSelectedCarousel, licwSelectedLesson);
-    playMorseString(licw_word_current, lesson->characterWPM, cwTone);
+    requestPlayMorseString(licw_word_current, lesson->characterWPM, cwTone);
 
+    licw_word_waiting = false;  // Block input during playback
     if (licw_word_feedback_label) {
-        lv_label_set_text(licw_word_feedback_label, "Type the word you heard");
+        lv_label_set_text(licw_word_feedback_label, "Listening...");
+        lv_obj_set_style_text_color(licw_word_feedback_label, LV_COLOR_TEXT_SECONDARY, 0);
+    }
+
+    licw_start_playback_monitor(licwWordOnPlaybackDone);
+}
+
+static void licwWordOnPlaybackDone() {
+    licw_word_waiting = false;  // Still not "waiting" until they start typing
+    if (licw_word_feedback_label) {
+        lv_label_set_text(licw_word_feedback_label, "Type the word   ENTER Submit");
         lv_obj_set_style_text_color(licw_word_feedback_label, LV_COLOR_WARNING, 0);
     }
+}
+
+static void licwWordAutoAdvance(lv_timer_t* timer) {
+    (void)timer;
+    licw_autoplay_timer = NULL;
+    licwWordStartRound();
+    licwWordPlayCurrent();
 }
 
 static void licw_word_key_handler(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code != LV_EVENT_KEY) return;
 
+    // Ignore input during playback
+    if (isMorsePlaybackActive()) return;
+
     uint32_t key = lv_event_get_key(e);
 
     if (licw_word_done) {
+        // Cancel auto-advance and manually advance
+        licw_cancel_autoplay_timer();
         licwWordStartRound();
         return;
     }
 
     if (key == ' ' && licw_word_waiting) {
+        licw_cancel_autoplay_timer();
         licwWordPlayCurrent();
-        licw_word_waiting = false;
     }
     else if ((key >= 'a' && key <= 'z') || (key >= 'A' && key <= 'Z')) {
         if (licw_word_input_pos < (int)sizeof(licw_word_input) - 1) {
@@ -1770,14 +1790,20 @@ static void licw_word_key_handler(lv_event_t* e) {
         }
     }
     else if (key == LV_KEY_ENTER || key == '\r') {
-        // Submit
+        // Submit - compare using char buffers
         licw_word_total++;
-        String target = String(licw_word_current);
-        target.toUpperCase();
-        String input = String(licw_word_input);
-        input.toUpperCase();
 
-        bool correct = (input == target);
+        char target_upper[32];
+        strncpy(target_upper, licw_word_current, sizeof(target_upper) - 1);
+        target_upper[sizeof(target_upper) - 1] = '\0';
+        for (int i = 0; target_upper[i]; i++) target_upper[i] = toupper(target_upper[i]);
+
+        char input_upper[32];
+        strncpy(input_upper, licw_word_input, sizeof(input_upper) - 1);
+        input_upper[sizeof(input_upper) - 1] = '\0';
+        for (int i = 0; input_upper[i]; i++) input_upper[i] = toupper(input_upper[i]);
+
+        bool correct = (strcmp(input_upper, target_upper) == 0);
         if (correct) {
             licw_word_correct++;
             beep(TONE_SUCCESS, BEEP_SHORT);
@@ -1793,7 +1819,7 @@ static void licw_word_key_handler(lv_event_t* e) {
                 snprintf(fb, sizeof(fb), "Correct! '%s'", licw_word_current);
                 lv_obj_set_style_text_color(licw_word_feedback_label, LV_COLOR_SUCCESS, 0);
             } else {
-                snprintf(fb, sizeof(fb), "Was: %s - any key continues", licw_word_current);
+                snprintf(fb, sizeof(fb), "Was: %s", licw_word_current);
                 lv_obj_set_style_text_color(licw_word_feedback_label, LV_COLOR_ERROR, 0);
             }
             lv_label_set_text(licw_word_feedback_label, fb);
@@ -1805,6 +1831,11 @@ static void licw_word_key_handler(lv_event_t* e) {
             snprintf(score, sizeof(score), "%d/%d (%d%%)", licw_word_correct, licw_word_total, pct);
             lv_label_set_text(licw_word_score_label, score);
         }
+
+        // Auto-advance after feedback
+        licw_cancel_autoplay_timer();
+        licw_autoplay_timer = lv_timer_create(licwWordAutoAdvance, correct ? 1200 : 1500, NULL);
+        lv_timer_set_repeat_count(licw_autoplay_timer, 1);
     }
     else if (key == LV_KEY_BACKSPACE || key == 0x08) {
         if (licw_word_input_pos > 0) {
@@ -1835,35 +1866,38 @@ lv_obj_t* createLICWWordDiscoveryScreen() {
     lv_obj_set_style_text_color(info, LV_COLOR_WARNING, 0);
     lv_obj_align(info, LV_ALIGN_TOP_MID, 0, 55);
 
+    // Score (header row)
+    licw_word_score_label = lv_label_create(screen);
+    lv_label_set_text(licw_word_score_label, "0/0 (0%)");
+    lv_obj_set_style_text_font(licw_word_score_label, getThemeFonts()->font_body, 0);
+    lv_obj_set_style_text_color(licw_word_score_label, LV_COLOR_TEXT_PRIMARY, 0);
+    lv_obj_align(licw_word_score_label, LV_ALIGN_TOP_RIGHT, -20, 55);
+
+    // Main display card
     lv_obj_t* content = lv_obj_create(screen);
-    lv_obj_set_size(content, LV_PCT(90), 150);
-    lv_obj_center(content);
-    lv_obj_set_style_bg_color(content, LV_COLOR_BG_LAYER2, 0);
-    lv_obj_set_style_border_width(content, 2, 0);
-    lv_obj_set_style_border_color(content, LV_COLOR_ACCENT_CYAN, 0);
-    lv_obj_set_style_radius(content, 12, 0);
-    lv_obj_set_style_pad_all(content, 20, 0);
+    lv_obj_set_size(content, LV_PCT(90), 120);
+    lv_obj_align(content, LV_ALIGN_TOP_MID, 0, 80);
+    applyCardStyle(content);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(content, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
 
+    // Input display
     licw_word_input_label = lv_label_create(content);
     lv_label_set_text(licw_word_input_label, "_");
-    lv_obj_set_style_text_font(licw_word_input_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(licw_word_input_label, getThemeFonts()->font_title, 0);
     lv_obj_set_style_text_color(licw_word_input_label, LV_COLOR_ACCENT_CYAN, 0);
 
-    licw_word_feedback_label = lv_label_create(content);
+    // Feedback (below card)
+    licw_word_feedback_label = lv_label_create(screen);
     lv_label_set_text(licw_word_feedback_label, "Press SPACE to hear word");
     lv_obj_set_style_text_font(licw_word_feedback_label, getThemeFonts()->font_input, 0);
     lv_obj_set_style_text_color(licw_word_feedback_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_align(licw_word_feedback_label, LV_ALIGN_TOP_MID, 0, 210);
 
-    licw_word_score_label = lv_label_create(screen);
-    lv_label_set_text(licw_word_score_label, "0/0 (0%)");
-    lv_obj_set_style_text_font(licw_word_score_label, getThemeFonts()->font_body, 0);
-    lv_obj_align(licw_word_score_label, LV_ALIGN_TOP_RIGHT, -20, 55);
-
+    // Footer
     lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, "SPACE play - type word - ENTER submit - ESC exit");
+    lv_label_set_text(footer, "SPACE Play   Type Word   ENTER Submit   ESC Exit");
     lv_obj_set_style_text_font(footer, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);
@@ -1906,22 +1940,30 @@ void licwQSOStartExchange() {
     }
 }
 
+// Forward declaration for QSO playback done
+static void licwQSOOnPlaybackDone();
+
 static void licw_qso_key_handler(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code != LV_EVENT_KEY) return;
 
+    // Ignore input during playback
+    if (isMorsePlaybackActive()) return;
+
     uint32_t key = lv_event_get_key(e);
 
     if (key == ' ') {
-        // Play sample QSO
+        // Play sample QSO (async)
         const LICWLesson* lesson = getLICWLesson(licwSelectedCarousel, licwSelectedLesson);
         const char* phrase = getLICWRandomPhrase(licwSelectedCarousel, licwSelectedLesson);
-        playMorseString(phrase, lesson->characterWPM, cwTone);
+        requestPlayMorseString(phrase, lesson->characterWPM, cwTone);
 
         if (licw_qso_feedback_label) {
-            lv_label_set_text(licw_qso_feedback_label, "Listen to the exchange...");
-            lv_obj_set_style_text_color(licw_qso_feedback_label, LV_COLOR_WARNING, 0);
+            lv_label_set_text(licw_qso_feedback_label, "Listening...");
+            lv_obj_set_style_text_color(licw_qso_feedback_label, LV_COLOR_TEXT_SECONDARY, 0);
         }
+
+        licw_start_playback_monitor(licwQSOOnPlaybackDone);
     }
     else if ((key >= 'a' && key <= 'z') || (key >= 'A' && key <= 'Z') ||
              (key >= '0' && key <= '9') || key == '/' || key == '?') {
@@ -1943,6 +1985,13 @@ static void licw_qso_key_handler(lv_event_t* e) {
     }
 }
 
+static void licwQSOOnPlaybackDone() {
+    if (licw_qso_feedback_label) {
+        lv_label_set_text(licw_qso_feedback_label, "Type what you heard   SPACE Replay");
+        lv_obj_set_style_text_color(licw_qso_feedback_label, LV_COLOR_WARNING, 0);
+    }
+}
+
 lv_obj_t* createLICWQSOPracticeScreen() {
     const LICWCarouselDef* carousel = getLICWCarousel(licwSelectedCarousel);
 
@@ -1959,14 +2008,11 @@ lv_obj_t* createLICWQSOPracticeScreen() {
     lv_obj_set_style_text_color(info, LV_COLOR_WARNING, 0);
     lv_obj_align(info, LV_ALIGN_TOP_MID, 0, 55);
 
+    // Main display card
     lv_obj_t* content = lv_obj_create(screen);
-    lv_obj_set_size(content, LV_PCT(90), 150);
-    lv_obj_center(content);
-    lv_obj_set_style_bg_color(content, LV_COLOR_BG_LAYER2, 0);
-    lv_obj_set_style_border_width(content, 2, 0);
-    lv_obj_set_style_border_color(content, LV_COLOR_ACCENT_CYAN, 0);
-    lv_obj_set_style_radius(content, 12, 0);
-    lv_obj_set_style_pad_all(content, 15, 0);
+    lv_obj_set_size(content, LV_PCT(90), 90);
+    lv_obj_align(content, LV_ALIGN_TOP_MID, 0, 80);
+    applyCardStyle(content);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(content, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
@@ -1978,18 +2024,23 @@ lv_obj_t* createLICWQSOPracticeScreen() {
     lv_label_set_long_mode(licw_qso_exchange_label, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(licw_qso_exchange_label, LV_PCT(95));
 
-    licw_qso_input_label = lv_label_create(content);
+    // Input display (below card)
+    licw_qso_input_label = lv_label_create(screen);
     lv_label_set_text(licw_qso_input_label, "_");
-    lv_obj_set_style_text_font(licw_qso_input_label, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(licw_qso_input_label, getThemeFonts()->font_input, 0);
     lv_obj_set_style_text_color(licw_qso_input_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_align(licw_qso_input_label, LV_ALIGN_TOP_MID, 0, 180);
 
-    licw_qso_feedback_label = lv_label_create(content);
+    // Feedback (below input)
+    licw_qso_feedback_label = lv_label_create(screen);
     lv_label_set_text(licw_qso_feedback_label, "SPACE to hear exchange");
     lv_obj_set_style_text_font(licw_qso_feedback_label, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(licw_qso_feedback_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_align(licw_qso_feedback_label, LV_ALIGN_TOP_MID, 0, 210);
 
+    // Footer
     lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, "SPACE play exchange - type what you hear - ESC exit");
+    lv_label_set_text(footer, FOOTER_TRAINING_AUTOPLAY);
     lv_obj_set_style_text_font(footer, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);
@@ -2018,6 +2069,10 @@ static int licw_adverse_correct = 0;
 static int licw_adverse_total = 0;
 static bool licw_adverse_waiting = false;
 
+// Forward declarations for Adverse async/auto-play
+static void licwAdverseOnPlaybackDone();
+static void licwAdverseAutoAdvance(lv_timer_t* timer);
+
 void licwAdversePlayNext() {
     licw_adverse_current = getLICWRandomChar(licwSelectedCarousel, licwSelectedLesson);
     const LICWLesson* lesson = getLICWLesson(licwSelectedCarousel, licwSelectedLesson);
@@ -2028,9 +2083,11 @@ void licwAdversePlayNext() {
     if (playWPM < 8) playWPM = 8;
 
     char str[2] = {licw_adverse_current, '\0'};
-    playMorseString(str, playWPM, cwTone);
+    requestPlayMorseString(str, playWPM, cwTone);
 
-    licw_adverse_waiting = true;
+    // Block input during playback
+    licw_adverse_waiting = false;
+    licw_start_playback_monitor(licwAdverseOnPlaybackDone);
 
     if (licw_adverse_char_label) {
         lv_label_set_text(licw_adverse_char_label, "?");
@@ -2044,6 +2101,14 @@ void licwAdversePlayNext() {
     }
 
     Serial.printf("[LICW Adverse] Playing: %c (speed %d)\n", licw_adverse_current, playWPM);
+}
+
+static void licwAdverseOnPlaybackDone() {
+    licw_adverse_waiting = true;
+    if (licw_adverse_feedback_label) {
+        lv_label_set_text(licw_adverse_feedback_label, "Type what you heard");
+        lv_obj_set_style_text_color(licw_adverse_feedback_label, LV_COLOR_WARNING, 0);
+    }
 }
 
 void licwAdverseHandleInput(char key) {
@@ -2080,15 +2145,31 @@ void licwAdverseHandleInput(char key) {
         snprintf(score, sizeof(score), "%d/%d (%d%%)", licw_adverse_correct, licw_adverse_total, pct);
         lv_label_set_text(licw_adverse_score_label, score);
     }
+
+    // Auto-advance after feedback
+    licw_cancel_autoplay_timer();
+    licw_autoplay_timer = lv_timer_create(licwAdverseAutoAdvance, correct ? 1200 : 1500, NULL);
+    lv_timer_set_repeat_count(licw_autoplay_timer, 1);
+}
+
+static void licwAdverseAutoAdvance(lv_timer_t* timer) {
+    (void)timer;
+    licw_autoplay_timer = NULL;
+    licwAdversePlayNext();
 }
 
 static void licw_adverse_key_handler(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code != LV_EVENT_KEY) return;
 
+    // Ignore input during playback
+    if (isMorsePlaybackActive()) return;
+
     uint32_t key = lv_event_get_key(e);
 
-    if (key == ' ' && !licw_adverse_waiting && !isTonePlaying()) {
+    if (key == ' ' && !licw_adverse_waiting) {
+        // Cancel any pending auto-advance and play now
+        licw_cancel_autoplay_timer();
         licwAdversePlayNext();
     }
     else if ((key >= 'a' && key <= 'z') || (key >= 'A' && key <= 'Z') ||
@@ -2117,40 +2198,44 @@ lv_obj_t* createLICWAdverseCopyScreen() {
     lv_obj_set_style_text_color(info, LV_COLOR_WARNING, 0);
     lv_obj_align(info, LV_ALIGN_TOP_MID, 0, 55);
 
+    // Score (header row)
+    licw_adverse_score_label = lv_label_create(screen);
+    lv_label_set_text(licw_adverse_score_label, "0/0 (0%)");
+    lv_obj_set_style_text_font(licw_adverse_score_label, getThemeFonts()->font_body, 0);
+    lv_obj_set_style_text_color(licw_adverse_score_label, LV_COLOR_TEXT_PRIMARY, 0);
+    lv_obj_align(licw_adverse_score_label, LV_ALIGN_TOP_RIGHT, -20, 55);
+
+    // Main display card
     lv_obj_t* content = lv_obj_create(screen);
-    lv_obj_set_size(content, LV_PCT(90), 150);
-    lv_obj_center(content);
-    lv_obj_set_style_bg_color(content, LV_COLOR_BG_LAYER2, 0);
-    lv_obj_set_style_border_width(content, 2, 0);
-    lv_obj_set_style_border_color(content, LV_COLOR_ACCENT_CYAN, 0);
-    lv_obj_set_style_radius(content, 12, 0);
-    lv_obj_set_style_pad_all(content, 20, 0);
+    lv_obj_set_size(content, LV_PCT(90), 120);
+    lv_obj_align(content, LV_ALIGN_TOP_MID, 0, 80);
+    applyCardStyle(content);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(content, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
 
+    // Character display
     licw_adverse_char_label = lv_label_create(content);
     lv_label_set_text(licw_adverse_char_label, "?");
-    lv_obj_set_style_text_font(licw_adverse_char_label, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(licw_adverse_char_label, getThemeFonts()->font_title, 0);
     lv_obj_set_style_text_color(licw_adverse_char_label, LV_COLOR_ACCENT_CYAN, 0);
 
+    // Input display
     licw_adverse_input_label = lv_label_create(content);
     lv_label_set_text(licw_adverse_input_label, "_");
-    lv_obj_set_style_text_font(licw_adverse_input_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(licw_adverse_input_label, getThemeFonts()->font_subtitle, 0);
     lv_obj_set_style_text_color(licw_adverse_input_label, LV_COLOR_TEXT_PRIMARY, 0);
 
-    licw_adverse_feedback_label = lv_label_create(content);
+    // Feedback (below card)
+    licw_adverse_feedback_label = lv_label_create(screen);
     lv_label_set_text(licw_adverse_feedback_label, "Press SPACE to start");
     lv_obj_set_style_text_font(licw_adverse_feedback_label, getThemeFonts()->font_input, 0);
     lv_obj_set_style_text_color(licw_adverse_feedback_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_align(licw_adverse_feedback_label, LV_ALIGN_TOP_MID, 0, 210);
 
-    licw_adverse_score_label = lv_label_create(screen);
-    lv_label_set_text(licw_adverse_score_label, "0/0 (0%)");
-    lv_obj_set_style_text_font(licw_adverse_score_label, getThemeFonts()->font_body, 0);
-    lv_obj_align(licw_adverse_score_label, LV_ALIGN_TOP_RIGHT, -20, 55);
-
+    // Footer
     lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, "SPACE next - type what you hear - ESC exit");
+    lv_label_set_text(footer, FOOTER_TRAINING_AUTOPLAY);
     lv_obj_set_style_text_font(footer, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);
@@ -2296,46 +2381,46 @@ lv_obj_t* createLICWPlaceholderScreen(const char* mode_name) {
  */
 lv_obj_t* createLICWScreenForMode(int mode) {
     switch (mode) {
-        case 120:  // LVGL_MODE_LICW_CAROUSEL_SELECT
+        case MODE_LICW_CAROUSEL_SELECT:
             return createLICWCarouselSelectScreen();
 
-        case 121:  // LVGL_MODE_LICW_LESSON_SELECT
+        case MODE_LICW_LESSON_SELECT:
             return createLICWLessonSelectScreen();
 
-        case 122:  // LVGL_MODE_LICW_PRACTICE_TYPE
+        case MODE_LICW_PRACTICE_TYPE:
             return createLICWPracticeTypeScreen();
 
-        case 123:  // LVGL_MODE_LICW_COPY_PRACTICE
+        case MODE_LICW_COPY_PRACTICE:
             return createLICWCopyPracticeScreen();
 
-        case 124:  // LVGL_MODE_LICW_SEND_PRACTICE
+        case MODE_LICW_SEND_PRACTICE:
             return createLICWSendPracticeScreen();
 
-        case 125:  // LVGL_MODE_LICW_TTR_PRACTICE
+        case MODE_LICW_TTR_PRACTICE:
             return createLICWPlaceholderScreen("TTR PRACTICE");
 
-        case 126:  // LVGL_MODE_LICW_IFR_PRACTICE
+        case MODE_LICW_IFR_PRACTICE:
             return createLICWIFRPracticeScreen();
 
-        case 127:  // LVGL_MODE_LICW_CSF_INTRO
+        case MODE_LICW_CSF_INTRO:
             return createLICWCSFScreen();
 
-        case 128:  // LVGL_MODE_LICW_WORD_DISCOVERY
+        case MODE_LICW_WORD_DISCOVERY:
             return createLICWWordDiscoveryScreen();
 
-        case 129:  // LVGL_MODE_LICW_QSO_PRACTICE
+        case MODE_LICW_QSO_PRACTICE:
             return createLICWQSOPracticeScreen();
 
-        case 130:  // LVGL_MODE_LICW_SETTINGS
+        case MODE_LICW_SETTINGS:
             return createLICWPlaceholderScreen("LICW SETTINGS");
 
-        case 131:  // LVGL_MODE_LICW_PROGRESS
+        case MODE_LICW_PROGRESS:
             return createLICWPlaceholderScreen("PROGRESS VIEW");
 
-        case 132:  // LVGL_MODE_LICW_CFP_PRACTICE
+        case MODE_LICW_CFP_PRACTICE:
             return createLICWCFPPracticeScreen();
 
-        case 133:  // LVGL_MODE_LICW_ADVERSE_COPY
+        case MODE_LICW_ADVERSE_COPY:
             return createLICWAdverseCopyScreen();
 
         default:

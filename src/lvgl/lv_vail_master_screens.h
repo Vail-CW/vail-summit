@@ -11,18 +11,12 @@
 #include "lv_widgets_summit.h"
 #include "lv_screen_manager.h"
 #include "../core/config.h"
+#include "../core/modes.h"
 #include "../training/training_vail_master.h"
 
 // Forward declarations from mode integration
 extern void onLVGLMenuSelect(int target_mode);
 extern void onLVGLBackNavigation();
-
-// Mode constants
-#define LVGL_MODE_VAIL_MASTER            70
-#define LVGL_MODE_VAIL_MASTER_PRACTICE   71
-#define LVGL_MODE_VAIL_MASTER_SETTINGS   72
-#define LVGL_MODE_VAIL_MASTER_HISTORY    73
-#define LVGL_MODE_VAIL_MASTER_CHARSET    74
 
 // ============================================
 // Static Screen Pointers
@@ -51,6 +45,7 @@ static lv_obj_t* vm_grouplen_value = NULL;
 
 // Menu cards
 static lv_obj_t* vm_mode_cards[5] = {NULL};
+static int vm_mode_card_count = 5;
 
 // Character set editor state
 static bool vm_charset_selected[50] = {false};
@@ -107,103 +102,28 @@ static void vm_mode_card_click_handler(lv_event_t* e) {
 
     // Start session and go to practice screen
     vmStartSession(mode);
-    onLVGLMenuSelect(LVGL_MODE_VAIL_MASTER_PRACTICE);
+    onLVGLMenuSelect(MODE_VAIL_MASTER_PRACTICE);
 }
 
+// Navigation context for Vail Master menu grid (3 columns, 5 cards)
+static NavGridContext vm_menu_nav_ctx = { vm_mode_cards, &vm_mode_card_count, VM_MENU_COLUMNS };
+
 /*
- * Custom 2D grid navigation handler for Vail Master menu
- * Intercepts arrow keys to navigate between mode cards in a grid layout
+ * Shortcut key handler for Vail Master menu
+ * Handles S (Settings) and H (History) hotkeys
  */
-static void vm_menu_grid_nav_handler(lv_event_t* e) {
+static void vm_menu_key_handler(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code != LV_EVENT_KEY) return;
 
     uint32_t key = lv_event_get_key(e);
 
-    // Handle arrow keys for grid navigation
-    if (key != LV_KEY_LEFT && key != LV_KEY_RIGHT &&
-        key != LV_KEY_PREV && key != LV_KEY_NEXT &&
-        key != LV_KEY_UP && key != LV_KEY_DOWN) {
-        // Handle S and H keys
-        if (key == 's' || key == 'S') {
-            lv_event_stop_processing(e);
-            onLVGLMenuSelect(LVGL_MODE_VAIL_MASTER_SETTINGS);
-            return;
-        } else if (key == 'h' || key == 'H') {
-            lv_event_stop_processing(e);
-            onLVGLMenuSelect(LVGL_MODE_VAIL_MASTER_HISTORY);
-            return;
-        } else if (key == LV_KEY_ESC) {
-            lv_event_stop_processing(e);
-            onLVGLBackNavigation();
-            return;
-        }
-        return;
-    }
-
-    // Stop propagation to prevent LVGL's default linear navigation
-    lv_event_stop_processing(e);
-
-    // Get current focused object
-    lv_obj_t* focused = lv_event_get_target(e);
-    if (!focused) return;
-
-    // Find index of focused object in our card array
-    int focused_idx = -1;
-    for (int i = 0; i < 5; i++) {
-        if (vm_mode_cards[i] == focused) {
-            focused_idx = i;
-            break;
-        }
-    }
-    if (focused_idx < 0) return;
-
-    // Calculate grid position (3 columns: 0,1,2 on row 0; 3,4 on row 1)
-    int row = focused_idx / VM_MENU_COLUMNS;
-    int col = focused_idx % VM_MENU_COLUMNS;
-    int total_rows = (5 + VM_MENU_COLUMNS - 1) / VM_MENU_COLUMNS;
-
-    int target_idx = -1;
-
-    if (key == LV_KEY_RIGHT) {
-        // Move right: only if not at rightmost column AND target exists
-        if (col < VM_MENU_COLUMNS - 1) {
-            int potential = focused_idx + 1;
-            if (potential < 5) {
-                target_idx = potential;
-            }
-        }
-    } else if (key == LV_KEY_LEFT) {
-        // Move left: only if not at leftmost column
-        if (col > 0) {
-            target_idx = focused_idx - 1;
-        }
-    } else if (key == LV_KEY_NEXT || key == LV_KEY_DOWN) {
-        // Move down: go to same column in next row
-        if (row < total_rows - 1) {
-            int potential = focused_idx + VM_MENU_COLUMNS;
-            if (potential < 5) {
-                target_idx = potential;
-            } else {
-                // Target column doesn't exist in last row (odd items case)
-                // Jump to last item if we're on the second-to-last row
-                target_idx = 5 - 1;  // last item index
-            }
-        }
-    } else if (key == LV_KEY_PREV || key == LV_KEY_UP) {
-        // Move up: go to same column in previous row
-        if (row > 0) {
-            target_idx = focused_idx - VM_MENU_COLUMNS;
-        }
-    }
-
-    // Focus target if valid
-    if (target_idx >= 0 && target_idx < 5) {
-        lv_obj_t* target = vm_mode_cards[target_idx];
-        if (target) {
-            lv_group_focus_obj(target);
-            lv_obj_scroll_to_view(target, LV_ANIM_ON);
-        }
+    if (key == 's' || key == 'S') {
+        lv_event_stop_processing(e);
+        onLVGLMenuSelect(MODE_VAIL_MASTER_SETTINGS);
+    } else if (key == 'h' || key == 'H') {
+        lv_event_stop_processing(e);
+        onLVGLMenuSelect(MODE_VAIL_MASTER_HISTORY);
     }
 }
 
@@ -229,23 +149,21 @@ lv_obj_t* createVailMasterMenuScreen() {
     // Status bar
     createCompactStatusBar(screen);
 
-    // Mode selection cards - use absolute positioning for precise 2-row layout
-    // Row 1: Sprint, Sweepstakes, Mixed (3 cards)
-    // Row 2: Uniform, Free Practice (2 cards centered)
-    // Screen: 480x320, Header: 40px, Footer: 30px, Available: ~250px
+    // Mode selection cards - flex wrap layout (3 + 2 cards)
+    lv_obj_t* card_container = lv_obj_create(screen);
+    lv_obj_set_size(card_container, SCREEN_WIDTH - 20, SCREEN_HEIGHT - HEADER_HEIGHT - 50);
+    lv_obj_set_pos(card_container, 10, HEADER_HEIGHT + 5);
+    lv_obj_set_style_bg_opa(card_container, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(card_container, 0, 0);
+    lv_obj_set_layout(card_container, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(card_container, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(card_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(card_container, 10, 0);
+    lv_obj_set_style_pad_column(card_container, 10, 0);
+    lv_obj_clear_flag(card_container, LV_OBJ_FLAG_SCROLLABLE);
 
     const int cardW = 140;
     const int cardH = 95;
-    const int gapX = 10;
-    const int gapY = 10;
-    const int startY = HEADER_HEIGHT + 10;
-
-    // Row 1: 3 cards evenly spaced
-    // Total width for 3 cards: 3*140 + 2*10 = 440px, centered in 480 = start at 20
-    const int row1StartX = (SCREEN_WIDTH - (3 * cardW + 2 * gapX)) / 2;
-    // Row 2: 2 cards centered
-    const int row2StartX = (SCREEN_WIDTH - (2 * cardW + 1 * gapX)) / 2;
-    const int row2Y = startY + cardH + gapY;
 
     const char* mode_names[] = {"Sprint", "Sweepstakes", "Mixed", "Uniform", "Free Practice"};
     const char* mode_descs[] = {
@@ -256,21 +174,10 @@ lv_obj_t* createVailMasterMenuScreen() {
         "Unscored"
     };
 
-    // Card positions: [x, y] for each of 5 cards
-    int card_positions[5][2] = {
-        {row1StartX, startY},                          // Sprint
-        {row1StartX + cardW + gapX, startY},           // Sweepstakes
-        {row1StartX + 2*(cardW + gapX), startY},       // Mixed
-        {row2StartX, row2Y},                           // Uniform
-        {row2StartX + cardW + gapX, row2Y}             // Free Practice
-    };
-
     for (int i = 0; i < 5; i++) {
-        lv_obj_t* card = lv_btn_create(screen);
+        lv_obj_t* card = lv_btn_create(card_container);
         lv_obj_set_size(card, cardW, cardH);
-        lv_obj_set_pos(card, card_positions[i][0], card_positions[i][1]);
-        lv_obj_add_style(card, getStyleMenuCard(), 0);
-        lv_obj_add_style(card, getStyleMenuCardFocused(), LV_STATE_FOCUSED);
+        applyMenuCardStyle(card);
 
         // Create column layout inside card for centered text
         lv_obj_t* col = lv_obj_create(card);
@@ -286,19 +193,20 @@ lv_obj_t* createVailMasterMenuScreen() {
         // Mode name - centered
         lv_obj_t* name = lv_label_create(col);
         lv_label_set_text(name, mode_names[i]);
-        lv_obj_set_style_text_font(name, &lv_font_montserrat_18, 0);
-        lv_obj_set_style_text_color(name, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_font(name, getThemeFonts()->font_body, 0);
+        lv_obj_set_style_text_color(name, LV_COLOR_TEXT_PRIMARY, 0);
         lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
 
         // Description - smaller font, gray, centered
         lv_obj_t* desc = lv_label_create(col);
         lv_label_set_text(desc, mode_descs[i]);
-        lv_obj_set_style_text_font(desc, &lv_font_montserrat_12, 0);
-        lv_obj_set_style_text_color(desc, lv_color_hex(0x888888), 0);
+        lv_obj_set_style_text_font(desc, getThemeFonts()->font_small, 0);
+        lv_obj_set_style_text_color(desc, LV_COLOR_TEXT_SECONDARY, 0);
         lv_obj_set_style_text_align(desc, LV_TEXT_ALIGN_CENTER, 0);
 
         lv_obj_add_event_cb(card, vm_mode_card_click_handler, LV_EVENT_CLICKED, (void*)(intptr_t)i);
-        lv_obj_add_event_cb(card, vm_menu_grid_nav_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(card, vm_menu_key_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(card, grid_nav_handler, LV_EVENT_KEY, &vm_menu_nav_ctx);
         addNavigableWidget(card);
 
         vm_mode_cards[i] = card;
@@ -307,8 +215,8 @@ lv_obj_t* createVailMasterMenuScreen() {
     // Footer with hints
     lv_obj_t* footer = lv_label_create(screen);
     lv_label_set_text(footer, "S Settings   H History   ESC Back");
-    lv_obj_set_style_text_font(footer, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(footer, lv_color_hex(0xFD9800), 0);  // Orange
+    lv_obj_set_style_text_font(footer, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -8);
 
     return screen;
@@ -453,7 +361,7 @@ static void vm_practice_key_handler(lv_event_t* e) {
             vmActive = false;
             stopTone();
             vmDecoder.flush();
-            onLVGLMenuSelect(LVGL_MODE_VAIL_MASTER_SETTINGS);
+            onLVGLMenuSelect(MODE_VAIL_MASTER_SETTINGS);
             break;
     }
 }
@@ -485,8 +393,8 @@ lv_obj_t* createVailMasterPracticeScreen() {
     // Score on right side of title bar
     vm_score_label = lv_label_create(title_bar);
     lv_label_set_text_fmt(vm_score_label, "Score: %d", vmSession.totalScore);
-    lv_obj_set_style_text_font(vm_score_label, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(vm_score_label, lv_color_hex(0x07E0), 0);  // Green
+    lv_obj_set_style_text_font(vm_score_label, getThemeFonts()->font_input, 0);
+    lv_obj_set_style_text_color(vm_score_label, LV_COLOR_SUCCESS, 0);  // Green
     lv_obj_align(vm_score_label, LV_ALIGN_RIGHT_MID, -15, 0);
 
     // Stats row
@@ -502,18 +410,18 @@ lv_obj_t* createVailMasterPracticeScreen() {
     // Trial counter
     vm_trial_label = lv_label_create(stats_row);
     lv_label_set_text_fmt(vm_trial_label, "Trial 1 / %d", vmSession.runLength);
-    lv_obj_set_style_text_font(vm_trial_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(vm_trial_label, getThemeFonts()->font_body, 0);
 
     // Streak
     vm_streak_label = lv_label_create(stats_row);
     lv_label_set_text(vm_streak_label, "Streak: 0");
-    lv_obj_set_style_text_font(vm_streak_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(vm_streak_label, lv_color_hex(0x07FF), 0);  // Cyan
+    lv_obj_set_style_text_font(vm_streak_label, getThemeFonts()->font_body, 0);
+    lv_obj_set_style_text_color(vm_streak_label, LV_COLOR_ACCENT_CYAN, 0);  // Cyan
 
     // Efficiency
     vm_efficiency_label = lv_label_create(stats_row);
     lv_label_set_text(vm_efficiency_label, "Eff: --");
-    lv_obj_set_style_text_font(vm_efficiency_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(vm_efficiency_label, getThemeFonts()->font_body, 0);
 
     // Target display (large, centered)
     lv_obj_t* target_container = lv_obj_create(screen);
@@ -524,14 +432,14 @@ lv_obj_t* createVailMasterPracticeScreen() {
 
     lv_obj_t* target_title = lv_label_create(target_container);
     lv_label_set_text(target_title, "TARGET:");
-    lv_obj_set_style_text_font(target_title, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(target_title, lv_color_hex(0x888888), 0);
+    lv_obj_set_style_text_font(target_title, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(target_title, LV_COLOR_TEXT_SECONDARY, 0);
     lv_obj_align(target_title, LV_ALIGN_TOP_LEFT, 5, 2);
 
     vm_target_label = lv_label_create(target_container);
     lv_label_set_text(vm_target_label, vmSession.trials[0].target);
-    lv_obj_set_style_text_font(vm_target_label, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(vm_target_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(vm_target_label, getThemeFonts()->font_input, 0);
+    lv_obj_set_style_text_color(vm_target_label, LV_COLOR_TEXT_PRIMARY, 0);
     lv_obj_set_width(vm_target_label, SCREEN_WIDTH - 40);
     lv_label_set_long_mode(vm_target_label, LV_LABEL_LONG_WRAP);
     lv_obj_align(vm_target_label, LV_ALIGN_CENTER, 0, 8);
@@ -546,14 +454,14 @@ lv_obj_t* createVailMasterPracticeScreen() {
 
     lv_obj_t* echo_title = lv_label_create(echo_container);
     lv_label_set_text(echo_title, "ECHO:");
-    lv_obj_set_style_text_font(echo_title, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(echo_title, lv_color_hex(0x888888), 0);
+    lv_obj_set_style_text_font(echo_title, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(echo_title, LV_COLOR_TEXT_SECONDARY, 0);
     lv_obj_align(echo_title, LV_ALIGN_TOP_LEFT, 5, 2);
 
     vm_echo_label = lv_label_create(echo_container);
     lv_label_set_text(vm_echo_label, "_");
-    lv_obj_set_style_text_font(vm_echo_label, &lv_font_montserrat_18, 0);
-    lv_obj_set_style_text_color(vm_echo_label, lv_color_hex(0x07FF), 0);  // Cyan
+    lv_obj_set_style_text_font(vm_echo_label, getThemeFonts()->font_subtitle, 0);
+    lv_obj_set_style_text_color(vm_echo_label, LV_COLOR_ACCENT_CYAN, 0);  // Cyan
     lv_obj_set_width(vm_echo_label, SCREEN_WIDTH - 40);
     lv_label_set_long_mode(vm_echo_label, LV_LABEL_LONG_WRAP);
     lv_obj_align(vm_echo_label, LV_ALIGN_CENTER, 0, 8);
@@ -561,8 +469,8 @@ lv_obj_t* createVailMasterPracticeScreen() {
     // Hints/controls footer
     vm_hint_label = lv_label_create(screen);
     lv_label_set_text(vm_hint_label, "SPACE Skip   C Clear   R Restart   S Settings   ESC Exit");
-    lv_obj_set_style_text_font(vm_hint_label, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(vm_hint_label, lv_color_hex(0xFD9800), 0);
+    lv_obj_set_style_text_font(vm_hint_label, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(vm_hint_label, LV_COLOR_WARNING, 0);
     lv_obj_align(vm_hint_label, LV_ALIGN_BOTTOM_MID, 0, -8);
 
     // Invisible focus container for keyboard input
@@ -607,12 +515,12 @@ static void vm_settings_update_focus() {
         if (rows[i] == NULL) continue;
 
         if (i == vm_settings_focus) {
-            lv_obj_set_style_border_color(rows[i], lv_color_hex(0x07FF), 0);
+            lv_obj_set_style_border_color(rows[i], LV_COLOR_ACCENT_CYAN, 0);
             lv_obj_set_style_border_width(rows[i], 2, 0);
             // Scroll the focused row into view
             lv_obj_scroll_to_view(rows[i], LV_ANIM_ON);
         } else {
-            lv_obj_set_style_border_color(rows[i], lv_color_hex(0x333333), 0);
+            lv_obj_set_style_border_color(rows[i], LV_COLOR_BORDER_SUBTLE, 0);
             lv_obj_set_style_border_width(rows[i], 1, 0);
         }
     }
@@ -716,7 +624,7 @@ static void vm_settings_key_handler(lv_event_t* e) {
     if (key == LV_KEY_ENTER && vm_settings_focus == 4) {
         lv_event_stop_processing(e);
         vmSaveSettings();
-        onLVGLMenuSelect(LVGL_MODE_VAIL_MASTER_CHARSET);
+        onLVGLMenuSelect(MODE_VAIL_MASTER_CHARSET);
         return;
     }
 
@@ -760,7 +668,7 @@ static void vm_grouplen_slider_cb(lv_event_t* e) {
 
 static void vm_charset_edit_btn_cb(lv_event_t* e) {
     vmSaveSettings();
-    onLVGLMenuSelect(LVGL_MODE_VAIL_MASTER_CHARSET);
+    onLVGLMenuSelect(MODE_VAIL_MASTER_CHARSET);
 }
 
 lv_obj_t* createVailMasterSettingsScreen() {
@@ -824,7 +732,7 @@ lv_obj_t* createVailMasterSettingsScreen() {
 
     vm_wpm_value = lv_label_create(wpm_row);
     lv_label_set_text_fmt(vm_wpm_value, "%d WPM", vmWPM);
-    lv_obj_set_style_text_color(vm_wpm_value, lv_color_hex(0x07FF), 0);
+    lv_obj_set_style_text_color(vm_wpm_value, LV_COLOR_ACCENT_CYAN, 0);
     lv_obj_align(vm_wpm_value, LV_ALIGN_RIGHT_MID, -10, 0);
 
     vm_wpm_slider = lv_slider_create(wpm_row);
@@ -846,7 +754,7 @@ lv_obj_t* createVailMasterSettingsScreen() {
 
     vm_runlen_value = lv_label_create(runlen_row);
     lv_label_set_text_fmt(vm_runlen_value, "%d trials", vmRunLength);
-    lv_obj_set_style_text_color(vm_runlen_value, lv_color_hex(0x07FF), 0);
+    lv_obj_set_style_text_color(vm_runlen_value, LV_COLOR_ACCENT_CYAN, 0);
     lv_obj_align(vm_runlen_value, LV_ALIGN_RIGHT_MID, -10, 0);
 
     // Group Count (row 2)
@@ -862,7 +770,7 @@ lv_obj_t* createVailMasterSettingsScreen() {
 
     vm_groupcnt_value = lv_label_create(grpcnt_row);
     lv_label_set_text_fmt(vm_groupcnt_value, "%d groups", vmMixedSettings.groupCount);
-    lv_obj_set_style_text_color(vm_groupcnt_value, lv_color_hex(0x07FF), 0);
+    lv_obj_set_style_text_color(vm_groupcnt_value, LV_COLOR_ACCENT_CYAN, 0);
     lv_obj_align(vm_groupcnt_value, LV_ALIGN_RIGHT_MID, -10, 0);
 
     vm_grpcnt_slider = lv_slider_create(grpcnt_row);
@@ -884,7 +792,7 @@ lv_obj_t* createVailMasterSettingsScreen() {
 
     vm_grouplen_value = lv_label_create(grplen_row);
     lv_label_set_text_fmt(vm_grouplen_value, "%d chars", vmMixedSettings.groupLength);
-    lv_obj_set_style_text_color(vm_grouplen_value, lv_color_hex(0x07FF), 0);
+    lv_obj_set_style_text_color(vm_grouplen_value, LV_COLOR_ACCENT_CYAN, 0);
     lv_obj_align(vm_grouplen_value, LV_ALIGN_RIGHT_MID, -10, 0);
 
     vm_grplen_slider = lv_slider_create(grplen_row);
@@ -942,8 +850,8 @@ lv_obj_t* createVailMasterSettingsScreen() {
     // Footer
     lv_obj_t* footer = lv_label_create(screen);
     lv_label_set_text(footer, "UP/DOWN Navigate   LEFT/RIGHT Adjust   ESC Save");
-    lv_obj_set_style_text_font(footer, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(footer, lv_color_hex(0xFD9800), 0);
+    lv_obj_set_style_text_font(footer, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -8);
 
     return screen;
@@ -1064,8 +972,8 @@ lv_obj_t* createVailMasterHistoryScreen() {
     // Footer
     lv_obj_t* footer = lv_label_create(screen);
     lv_label_set_text(footer, "ESC Back");
-    lv_obj_set_style_text_font(footer, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(footer, lv_color_hex(0xFD9800), 0);
+    lv_obj_set_style_text_font(footer, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -8);
 
     return screen;
@@ -1079,118 +987,33 @@ lv_obj_t* createVailMasterHistoryScreen() {
 // With 35px buttons + 5px gap = 40px per cell, in ~440px container = ~11 columns
 static const int VM_CHARSET_COLUMNS = 11;
 static const int VM_CHARSET_TOTAL = 41;  // 26 letters + 10 digits + 5 punctuation
+static int vm_charset_btn_count = 0;
+static NavGridContext vm_charset_nav_ctx = { vm_charset_btns, &vm_charset_btn_count, VM_CHARSET_COLUMNS };
 
-static void vm_charset_grid_nav_handler(lv_event_t* e) {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code != LV_EVENT_KEY) return;
+// Cleanup: save charset on back navigation
+static void cleanupVailMasterCharset() {
+    const char* all_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,?/=";
+    int all_len = strlen(all_chars);
 
-    uint32_t key = lv_event_get_key(e);
-
-    // Handle ESC for save and exit
-    if (key == LV_KEY_ESC) {
-        lv_event_stop_processing(e);
-
-        // Build charset string from selected characters
-        const char* all_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,?/=";
-        int all_len = strlen(all_chars);
-
-        vmMixedSettings.charsetLength = 0;
-        for (int i = 0; i < all_len && i < 50; i++) {
-            if (vm_charset_selected[i]) {
-                vmMixedSettings.charset[vmMixedSettings.charsetLength++] = all_chars[i];
-            }
-        }
-        vmMixedSettings.charset[vmMixedSettings.charsetLength] = '\0';
-
-        // Ensure at least some characters selected
-        if (vmMixedSettings.charsetLength == 0) {
-            strcpy(vmMixedSettings.charset, "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
-            vmMixedSettings.charsetLength = 26;
-        }
-
-        vmSaveSettings();
-        Serial.printf("[VailMaster] Charset saved: %s (%d chars)\n",
-                      vmMixedSettings.charset, vmMixedSettings.charsetLength);
-
-        onLVGLBackNavigation();
-        return;
-    }
-
-    // Handle ENTER for toggle
-    if (key == LV_KEY_ENTER) {
-        // Let the click handler deal with it
-        return;
-    }
-
-    // Handle arrow keys for grid navigation
-    if (key != LV_KEY_LEFT && key != LV_KEY_RIGHT &&
-        key != LV_KEY_PREV && key != LV_KEY_NEXT &&
-        key != LV_KEY_UP && key != LV_KEY_DOWN) {
-        return;
-    }
-
-    // Stop propagation to prevent LVGL's default linear navigation
-    lv_event_stop_processing(e);
-
-    // Get current focused object
-    lv_obj_t* focused = lv_event_get_target(e);
-    if (!focused) return;
-
-    // Find index of focused object in our button array
-    int focused_idx = -1;
-    for (int i = 0; i < VM_CHARSET_TOTAL; i++) {
-        if (vm_charset_btns[i] == focused) {
-            focused_idx = i;
-            break;
+    vmMixedSettings.charsetLength = 0;
+    for (int i = 0; i < all_len && i < 50; i++) {
+        if (vm_charset_selected[i]) {
+            vmMixedSettings.charset[vmMixedSettings.charsetLength++] = all_chars[i];
         }
     }
-    if (focused_idx < 0) return;
+    vmMixedSettings.charset[vmMixedSettings.charsetLength] = '\0';
 
-    // Calculate grid position
-    int row = focused_idx / VM_CHARSET_COLUMNS;
-    int col = focused_idx % VM_CHARSET_COLUMNS;
-    int total_rows = (VM_CHARSET_TOTAL + VM_CHARSET_COLUMNS - 1) / VM_CHARSET_COLUMNS;
-
-    int target_idx = -1;
-
-    if (key == LV_KEY_RIGHT) {
-        // Move right
-        int potential = focused_idx + 1;
-        if (potential < VM_CHARSET_TOTAL) {
-            target_idx = potential;
-        }
-    } else if (key == LV_KEY_LEFT) {
-        // Move left
-        if (focused_idx > 0) {
-            target_idx = focused_idx - 1;
-        }
-    } else if (key == LV_KEY_NEXT || key == LV_KEY_DOWN) {
-        // Move down
-        int potential = focused_idx + VM_CHARSET_COLUMNS;
-        if (potential < VM_CHARSET_TOTAL) {
-            target_idx = potential;
-        } else if (row < total_rows - 1) {
-            // Go to last item if target is past end
-            target_idx = VM_CHARSET_TOTAL - 1;
-        }
-    } else if (key == LV_KEY_PREV || key == LV_KEY_UP) {
-        // Move up
-        int potential = focused_idx - VM_CHARSET_COLUMNS;
-        if (potential >= 0) {
-            target_idx = potential;
-        }
+    // Ensure at least some characters selected
+    if (vmMixedSettings.charsetLength == 0) {
+        strcpy(vmMixedSettings.charset, "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+        vmMixedSettings.charsetLength = 26;
     }
 
-    // Focus target if valid
-    if (target_idx >= 0 && target_idx < VM_CHARSET_TOTAL) {
-        lv_obj_t* target = vm_charset_btns[target_idx];
-        if (target) {
-            lv_group_focus_obj(target);
-            lv_obj_scroll_to_view(target, LV_ANIM_ON);
-            beep(TONE_MENU_NAV, BEEP_SHORT);
-        }
-    }
+    vmSaveSettings();
+    Serial.printf("[VailMaster] Charset saved: %s (%d chars)\n",
+                  vmMixedSettings.charset, vmMixedSettings.charsetLength);
 }
+
 
 static void vm_charset_btn_toggle_cb(lv_event_t* e) {
     lv_obj_t* btn = lv_event_get_target(e);
@@ -1199,11 +1022,11 @@ static void vm_charset_btn_toggle_cb(lv_event_t* e) {
     vm_charset_selected[idx] = !vm_charset_selected[idx];
 
     if (vm_charset_selected[idx]) {
-        lv_obj_set_style_bg_color(btn, lv_color_hex(0x07FF), 0);  // Cyan when selected
-        lv_obj_set_style_text_color(lv_obj_get_child(btn, 0), lv_color_hex(0x000000), 0);
+        lv_obj_set_style_bg_color(btn, LV_COLOR_ACCENT_CYAN, 0);  // Cyan when selected
+        lv_obj_set_style_text_color(lv_obj_get_child(btn, 0), LV_COLOR_BG_DEEP, 0);
     } else {
-        lv_obj_set_style_bg_color(btn, lv_color_hex(0x1A1A2E), 0);  // Dark when deselected
-        lv_obj_set_style_text_color(lv_obj_get_child(btn, 0), lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_bg_color(btn, LV_COLOR_BG_LAYER2, 0);  // Dark when deselected
+        lv_obj_set_style_text_color(lv_obj_get_child(btn, 0), LV_COLOR_TEXT_PRIMARY, 0);
     }
 
     beep(TONE_MENU_NAV, BEEP_SHORT);
@@ -1212,6 +1035,7 @@ static void vm_charset_btn_toggle_cb(lv_event_t* e) {
 lv_obj_t* createVailMasterCharsetScreen() {
     // Clear navigation group first (required before creating widgets)
     clearNavigationGroup();
+    vm_charset_btn_count = 0;
 
     lv_obj_t* screen = createScreen();
     applyScreenStyle(screen);
@@ -1256,41 +1080,42 @@ lv_obj_t* createVailMasterCharsetScreen() {
 
         // Style based on selection state
         if (vm_charset_selected[i]) {
-            lv_obj_set_style_bg_color(btn, lv_color_hex(0x07FF), 0);
+            lv_obj_set_style_bg_color(btn, LV_COLOR_ACCENT_CYAN, 0);
         } else {
-            lv_obj_set_style_bg_color(btn, lv_color_hex(0x1A1A2E), 0);
+            lv_obj_set_style_bg_color(btn, LV_COLOR_BG_LAYER2, 0);
         }
-        lv_obj_set_style_border_color(btn, lv_color_hex(0x444444), 0);
+        lv_obj_set_style_border_color(btn, LV_COLOR_BORDER_LIGHT, 0);
         lv_obj_set_style_border_width(btn, 1, 0);
         lv_obj_set_style_radius(btn, 5, 0);
 
         // Focused style
-        lv_obj_set_style_outline_color(btn, lv_color_hex(0x07FF), LV_STATE_FOCUSED);
+        lv_obj_set_style_outline_color(btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
         lv_obj_set_style_outline_width(btn, 2, LV_STATE_FOCUSED);
 
         lv_obj_t* label = lv_label_create(btn);
         char ch_str[2] = {all_chars[i], '\0'};
         lv_label_set_text(label, ch_str);
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_16, 0);
+        lv_obj_set_style_text_font(label, getThemeFonts()->font_input, 0);
         if (vm_charset_selected[i]) {
-            lv_obj_set_style_text_color(label, lv_color_hex(0x000000), 0);
+            lv_obj_set_style_text_color(label, LV_COLOR_BG_DEEP, 0);
         } else {
-            lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+            lv_obj_set_style_text_color(label, LV_COLOR_TEXT_PRIMARY, 0);
         }
         lv_obj_center(label);
 
         lv_obj_add_event_cb(btn, vm_charset_btn_toggle_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
-        lv_obj_add_event_cb(btn, vm_charset_grid_nav_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(btn, grid_nav_handler, LV_EVENT_KEY, &vm_charset_nav_ctx);
         addNavigableWidget(btn);
 
         vm_charset_btns[i] = btn;
+        vm_charset_btn_count++;
     }
 
     // Footer
     lv_obj_t* footer = lv_label_create(screen);
     lv_label_set_text(footer, "ENTER Toggle   ESC Save & Back");
-    lv_obj_set_style_text_font(footer, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(footer, lv_color_hex(0xFD9800), 0);
+    lv_obj_set_style_text_font(footer, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -8);
 
     return screen;
@@ -1302,15 +1127,15 @@ lv_obj_t* createVailMasterCharsetScreen() {
 
 lv_obj_t* createVailMasterScreenForMode(int mode) {
     switch (mode) {
-        case LVGL_MODE_VAIL_MASTER:
+        case MODE_VAIL_MASTER:
             return createVailMasterMenuScreen();
-        case LVGL_MODE_VAIL_MASTER_PRACTICE:
+        case MODE_VAIL_MASTER_PRACTICE:
             return createVailMasterPracticeScreen();
-        case LVGL_MODE_VAIL_MASTER_SETTINGS:
+        case MODE_VAIL_MASTER_SETTINGS:
             return createVailMasterSettingsScreen();
-        case LVGL_MODE_VAIL_MASTER_HISTORY:
+        case MODE_VAIL_MASTER_HISTORY:
             return createVailMasterHistoryScreen();
-        case LVGL_MODE_VAIL_MASTER_CHARSET:
+        case MODE_VAIL_MASTER_CHARSET:
             return createVailMasterCharsetScreen();
         default:
             return NULL;

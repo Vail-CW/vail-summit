@@ -31,7 +31,7 @@ extern bool queueRadioMessage(const char* message);
 extern void saveCWSettings();
 extern void setVolume(int volume);
 extern int getVolume();
-extern void saveCallsign(String callsign);
+extern void saveCallsign(const char* callsign);
 extern bool checkWebAuth(AsyncWebServerRequest *request);
 
 // ============================================
@@ -324,7 +324,7 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
 
       // Update callsign
       vailCallsign = callsign;
-      saveCallsign(callsign);
+      saveCallsign(callsign.c_str());
 
       Serial.print("Callsign updated to ");
       Serial.print(callsign);

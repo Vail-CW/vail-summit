@@ -11,6 +11,7 @@
 #include "lv_widgets_summit.h"
 #include "lv_screen_manager.h"
 #include "../core/config.h"
+#include "../core/modes.h"
 
 // Note: Settings variables are accessed through the settings modules
 // These extern declarations must match the actual types from the settings headers
@@ -45,12 +46,12 @@ void setCwKeyTypeFromInt(int keyType);
 
 // Callsign (from vail_repeater.h)
 extern String vailCallsign;
-extern void saveCallsign(String callsign);
+extern void saveCallsign(const char* callsign);
 
 // Web password settings (from settings_web_password.h)
-extern String webPassword;
+extern char webPassword[];
 extern bool webAuthEnabled;
-extern void saveWebPassword(String password);
+extern void saveWebPassword(const char* password);
 extern void clearWebPassword();
 
 // ============================================
@@ -955,7 +956,7 @@ static void callsign_textarea_key_handler(lv_event_t* e) {
                 callsign.toUpperCase();
 
                 // Save using existing function
-                saveCallsign(callsign);
+                saveCallsign(callsign.c_str());
                 vailCallsign = callsign;  // Update global
 
                 // Note: onLVGLBackNavigation() already plays a nav beep
@@ -1100,19 +1101,20 @@ static void web_password_toggle_key_handler(lv_event_t* e) {
 
                 if (password.length() >= 8 && password.length() <= 16) {
                     // Valid password - save it
-                    webPassword = password;
+                    strncpy(webPassword, password.c_str(), 16);
+                    webPassword[16] = '\0';
                     webAuthEnabled = true;
-                    saveWebPassword(password);
+                    saveWebPassword(webPassword);
                     beep(TONE_SELECT, BEEP_MEDIUM);
                     Serial.println("[WebPW] Password saved on exit");
-                } else if (webPassword.length() >= 8) {
+                } else if (strlen(webPassword) >= 8) {
                     // Keep existing password
                     webAuthEnabled = true;
                     beep(TONE_SELECT, BEEP_SHORT);
                     Serial.println("[WebPW] Keeping existing password");
                 } else {
                     // No valid password - disable protection
-                    webPassword = "";
+                    webPassword[0] = '\0';
                     webAuthEnabled = false;
                     clearWebPassword();
                     beep(TONE_ERROR, BEEP_SHORT);
@@ -1121,7 +1123,7 @@ static void web_password_toggle_key_handler(lv_event_t* e) {
             }
         } else {
             // Disabled - clear password
-            webPassword = "";
+            webPassword[0] = '\0';
             webAuthEnabled = false;
             clearWebPassword();
             beep(TONE_SELECT, BEEP_SHORT);
@@ -1187,19 +1189,20 @@ static void web_password_field_key_handler(lv_event_t* e) {
 
             if (password.length() >= 8 && password.length() <= 16) {
                 // Valid password - save it
-                webPassword = password;
+                strncpy(webPassword, password.c_str(), 16);
+                webPassword[16] = '\0';
                 webAuthEnabled = true;
-                saveWebPassword(password);
+                saveWebPassword(webPassword);
                 beep(TONE_SELECT, BEEP_MEDIUM);
                 Serial.println("[WebPW] Password saved on exit");
-            } else if (webPassword.length() >= 8) {
+            } else if (strlen(webPassword) >= 8) {
                 // Keep existing password
                 webAuthEnabled = true;
                 beep(TONE_SELECT, BEEP_SHORT);
                 Serial.println("[WebPW] Keeping existing password");
             } else {
                 // No valid password - disable protection
-                webPassword = "";
+                webPassword[0] = '\0';
                 webAuthEnabled = false;
                 clearWebPassword();
                 beep(TONE_ERROR, BEEP_SHORT);
@@ -1321,8 +1324,8 @@ lv_obj_t* createWebPasswordSettingsScreen() {
     lv_textarea_set_max_length(web_password_textarea, 16);
     lv_textarea_set_placeholder_text(web_password_textarea, "Enter password");
     lv_textarea_set_password_mode(web_password_textarea, true);
-    if (webPassword.length() > 0) {
-        lv_textarea_set_text(web_password_textarea, webPassword.c_str());
+    if (strlen(webPassword) > 0) {
+        lv_textarea_set_text(web_password_textarea, webPassword);
     }
     lv_obj_add_style(web_password_textarea, getStyleTextarea(), 0);
 
@@ -1656,26 +1659,25 @@ lv_obj_t* createSystemInfoScreen() {
 
 // ============================================
 // Screen Selector
-// Mode values MUST match MenuMode enum in menu_ui.h
 // ============================================
 
 lv_obj_t* createSettingsScreenForMode(int mode) {
     switch (mode) {
-        case 27: // MODE_VOLUME_SETTINGS
+        case MODE_VOLUME_SETTINGS:
             return createVolumeSettingsScreen();
-        case 28: // MODE_BRIGHTNESS_SETTINGS
+        case MODE_BRIGHTNESS_SETTINGS:
             return createBrightnessSettingsScreen();
-        case 26: // MODE_CW_SETTINGS
+        case MODE_CW_SETTINGS:
             return createCWSettingsScreen();
-        case 29: // MODE_CALLSIGN_SETTINGS
+        case MODE_CALLSIGN_SETTINGS:
             return createCallsignSettingsScreen();
-        case 30: // MODE_WEB_PASSWORD_SETTINGS
+        case MODE_WEB_PASSWORD_SETTINGS:
             return createWebPasswordSettingsScreen();
-        case 25: // MODE_WIFI_SETTINGS
+        case MODE_WIFI_SETTINGS:
             return createWiFiSettingsScreen();
-        case 59: // MODE_THEME_SETTINGS
+        case MODE_THEME_SETTINGS:
             return createThemeSettingsScreen();
-        case 61: // MODE_SYSTEM_INFO
+        case MODE_SYSTEM_INFO:
             return createSystemInfoScreen();
         default:
             Serial.printf("[SettingsScreens] Unknown settings mode: %d\n", mode);

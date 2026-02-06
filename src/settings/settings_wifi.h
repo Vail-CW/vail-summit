@@ -10,6 +10,12 @@
 #include <Preferences.h>
 #include "../core/config.h"
 
+// Buffer sizes
+#define WIFI_SSID_MAX_LEN 33     // 32 chars + null terminator
+#define WIFI_PASSWORD_MAX_LEN 65 // 64 chars + null terminator
+#define WIFI_STATUS_MAX_LEN 64   // Status message buffer
+#define WIFI_AP_PASSWORD_LEN 16  // AP password buffer
+
 // WiFi settings state machine
 enum WiFiSettingsState {
   WIFI_STATE_CURRENT_CONNECTION,  // Show current connection status
@@ -25,7 +31,7 @@ enum WiFiSettingsState {
 
 // WiFi network info
 struct WiFiNetwork {
-  String ssid;
+  String ssid;  // Kept as String for LVGL compatibility (lv_wifi_screen.h)
   int rssi;
   bool encrypted;
 };
@@ -35,17 +41,17 @@ WiFiSettingsState wifiState = WIFI_STATE_SCANNING;
 WiFiNetwork networks[20];  // Store up to 20 networks
 int networkCount = 0;
 int selectedNetwork = 0;
-String passwordInput = "";
+char passwordInput[WIFI_PASSWORD_MAX_LEN] = "";
 bool passwordVisible = false;
 unsigned long lastBlink = 0;
 bool cursorVisible = true;
-String statusMessage = "";
+char statusMessage[WIFI_STATUS_MAX_LEN] = "";
 Preferences wifiPrefs;
 bool isAPMode = false;  // Track if device is in AP mode
-String apPassword = "vailsummit";  // Default AP password
+char apPassword[WIFI_AP_PASSWORD_LEN] = "vailsummit";  // Default AP password
 bool connectedFromAPMode = false;  // Track if connection was made from AP mode
 unsigned long connectionSuccessTime = 0;  // Time when connection succeeded
-String failedSSID = "";  // Track SSID that failed to connect (for password retry)
+char failedSSID[WIFI_SSID_MAX_LEN] = "";  // Track SSID that failed to connect (for password retry)
 
 // LVGL mode flag - when true, skip legacy draw functions (LVGL handles display)
 bool wifiSettingsUseLVGL = true;  // Default to LVGL mode
@@ -64,8 +70,8 @@ enum WiFiConnectionState {
 
 struct WiFiConnectionRequest {
     WiFiConnectionState state = WIFI_CONN_IDLE;
-    String ssid;
-    String password;
+    char ssid[WIFI_SSID_MAX_LEN];
+    char password[WIFI_PASSWORD_MAX_LEN];
     unsigned long startTime = 0;
     unsigned long timeout = 10000;  // 10 second timeout
     bool wasInAPMode = false;
@@ -74,7 +80,7 @@ struct WiFiConnectionRequest {
 static WiFiConnectionRequest wifiConnRequest;
 
 // Forward declarations for non-blocking connection
-void requestWiFiConnection(const String& ssid, const String& password);
+void requestWiFiConnection(const char* ssid, const char* password);
 bool updateWiFiConnection();
 void clearWiFiConnectionState();
 WiFiConnectionState getWiFiConnectionState();
@@ -90,8 +96,8 @@ void drawNetworkList(LGFX &display);
 void drawPasswordInput(LGFX &display);
 void drawResetConfirmation(LGFX &display);
 void drawAPModeScreen(LGFX &display);
-void connectToWiFi(String ssid, String password);
-void saveWiFiCredentials(String ssid, String password);
+void connectToWiFi(const char* ssid, const char* password);
+void saveWiFiCredentials(const char* ssid, const char* password);
 int loadAllWiFiCredentials(String ssids[3], String passwords[3]);
 bool loadWiFiCredentials(String &ssid, String &password);
 void autoConnectWiFi();
@@ -102,7 +108,7 @@ void stopAPMode();
 // Start WiFi settings mode
 void startWiFiSettings(LGFX &display) {
   selectedNetwork = 0;
-  passwordInput = "";
+  passwordInput[0] = '\0';
 
   // Check if already connected to WiFi
   if (WiFi.status() == WL_CONNECTED) {
@@ -112,7 +118,8 @@ void startWiFiSettings(LGFX &display) {
   } else {
     // Not connected, scan for networks
     wifiState = WIFI_STATE_SCANNING;
-    statusMessage = "Scanning for networks...";
+    strncpy(statusMessage, "Scanning for networks...", sizeof(statusMessage) - 1);
+    statusMessage[sizeof(statusMessage) - 1] = '\0';
     drawWiFiUI(display);
     scanNetworks();
 
@@ -120,7 +127,8 @@ void startWiFiSettings(LGFX &display) {
       wifiState = WIFI_STATE_NETWORK_LIST;
     } else {
       wifiState = WIFI_STATE_ERROR;
-      statusMessage = "No networks found. Try again?";
+      strncpy(statusMessage, "No networks found. Try again?", sizeof(statusMessage) - 1);
+      statusMessage[sizeof(statusMessage) - 1] = '\0';
     }
 
     drawWiFiUI(display);
@@ -299,7 +307,7 @@ void drawWiFiUI(LGFX &display) {
   // Draw footer instructions
   display.setTextSize(1);
   display.setTextColor(COLOR_WARNING);
-  String footerText = "";
+  const char* footerText = "";
 
   if (wifiState == WIFI_STATE_CURRENT_CONNECTION) {
     footerText = "C: Change Networks  ESC: Return";
@@ -311,7 +319,7 @@ void drawWiFiUI(LGFX &display) {
     footerText = "Press ESC to return";
   } else if (wifiState == WIFI_STATE_ERROR) {
     // Check if we can offer password retry
-    if (failedSSID.length() > 0 && statusMessage.indexOf("password") >= 0) {
+    if (strlen(failedSSID) > 0 && strstr(statusMessage, "password") != NULL) {
       footerText = "P: Retry Password  Enter: Rescan  ESC: Return";
     } else {
       footerText = "Enter: Rescan  ESC: Return";
@@ -324,7 +332,7 @@ void drawWiFiUI(LGFX &display) {
 
   int16_t x1, y1;
   uint16_t w, h;
-  getTextBounds_compat(display, footerText.c_str(), 0, 0, &x1, &y1, &w, &h);
+  getTextBounds_compat(display, footerText, 0, 0, &x1, &y1, &w, &h);
   int centerX = (SCREEN_WIDTH - w) / 2;
   display.setCursor(centerX, SCREEN_HEIGHT - 12);
   display.print(footerText);
@@ -413,12 +421,20 @@ void drawNetworkList(LGFX &display) {
     display.setCursor(ssidX, yPos + 6);
 
     // Truncate long SSIDs (adjust for star icon)
-    String ssid = networks[i].ssid;
+    // Use c_str() to get the SSID as char* for display
+    const char* ssidStr = networks[i].ssid.c_str();
+    size_t ssidLen = networks[i].ssid.length();
     int maxLen = isSaved ? 28 : 30;
-    if (ssid.length() > maxLen) {
-      ssid = ssid.substring(0, maxLen - 3) + "...";
+    if ((int)ssidLen > maxLen) {
+      // Print truncated with ellipsis
+      char truncBuf[34];
+      strncpy(truncBuf, ssidStr, maxLen - 3);
+      truncBuf[maxLen - 3] = '\0';
+      strncat(truncBuf, "...", sizeof(truncBuf) - strlen(truncBuf) - 1);
+      display.print(truncBuf);
+    } else {
+      display.print(ssidStr);
     }
-    display.print(ssid);
 
     yPos += 24;
   }
@@ -517,11 +533,17 @@ void drawPasswordInput(LGFX &display) {
   display.setTextSize(2);
   display.setTextColor(ST77XX_WHITE);
   display.setCursor(10, 75);
-  String ssid = networks[selectedNetwork].ssid;
-  if (ssid.length() > 20) {
-    ssid = ssid.substring(0, 17) + "...";
+  const char* ssidStr = networks[selectedNetwork].ssid.c_str();
+  size_t ssidLen = networks[selectedNetwork].ssid.length();
+  if (ssidLen > 20) {
+    char truncBuf[24];
+    strncpy(truncBuf, ssidStr, 17);
+    truncBuf[17] = '\0';
+    strncat(truncBuf, "...", sizeof(truncBuf) - strlen(truncBuf) - 1);
+    display.print(truncBuf);
+  } else {
+    display.print(ssidStr);
   }
-  display.print(ssid);
 
   // Draw password input box
   display.setTextSize(1);
@@ -538,18 +560,19 @@ void drawPasswordInput(LGFX &display) {
   display.setTextColor(ST77XX_WHITE);
   display.setCursor(15, 135);
 
+  size_t pwLen = strlen(passwordInput);
   if (passwordVisible) {
     display.print(passwordInput);
   } else {
     // Show asterisks
-    for (int i = 0; i < passwordInput.length(); i++) {
+    for (size_t i = 0; i < pwLen; i++) {
       display.print("*");
     }
   }
 
   // Blinking cursor
   if (cursorVisible) {
-    int cursorX = 15 + (passwordInput.length() * 12);
+    int cursorX = 15 + (pwLen * 12);
     if (cursorX < SCREEN_WIDTH - 25) {
       display.fillRect(cursorX, 135, 2, 16, ST77XX_WHITE);
     }
@@ -577,7 +600,8 @@ int handleWiFiInput(char key, LGFX &display) {
     if (key == 'c' || key == 'C') {
       // User wants to change networks - scan and show network list
       wifiState = WIFI_STATE_SCANNING;
-      statusMessage = "Scanning for networks...";
+      strncpy(statusMessage, "Scanning for networks...", sizeof(statusMessage) - 1);
+      statusMessage[sizeof(statusMessage) - 1] = '\0';
       beep(TONE_SELECT, BEEP_MEDIUM);
       drawWiFiUI(display);
       scanNetworks();
@@ -586,7 +610,8 @@ int handleWiFiInput(char key, LGFX &display) {
         wifiState = WIFI_STATE_NETWORK_LIST;
       } else {
         wifiState = WIFI_STATE_ERROR;
-        statusMessage = "No networks found. Try again?";
+        strncpy(statusMessage, "No networks found. Try again?", sizeof(statusMessage) - 1);
+        statusMessage[sizeof(statusMessage) - 1] = '\0';
       }
 
       drawWiFiUI(display);
@@ -635,12 +660,12 @@ int handleWiFiInput(char key, LGFX &display) {
         wifiState = WIFI_STATE_CONNECTING;
         beep(TONE_SELECT, BEEP_MEDIUM);
         drawWiFiUI(display);
-        connectToWiFi(networks[selectedNetwork].ssid, savedPassword);
+        connectToWiFi(networks[selectedNetwork].ssid.c_str(), savedPassword.c_str());
         return 2;
       } else if (networks[selectedNetwork].encrypted) {
         // Not saved and encrypted - prompt for password
         wifiState = WIFI_STATE_PASSWORD_INPUT;
-        passwordInput = "";
+        passwordInput[0] = '\0';
         cursorVisible = true;
         lastBlink = millis();
         beep(TONE_SELECT, BEEP_MEDIUM);
@@ -649,7 +674,7 @@ int handleWiFiInput(char key, LGFX &display) {
         // Open network, connect immediately
         wifiState = WIFI_STATE_CONNECTING;
         drawWiFiUI(display);
-        connectToWiFi(networks[selectedNetwork].ssid, "");
+        connectToWiFi(networks[selectedNetwork].ssid.c_str(), "");
         return 2;
       }
       return 1;
@@ -674,9 +699,10 @@ int handleWiFiInput(char key, LGFX &display) {
     }
   }
   else if (wifiState == WIFI_STATE_PASSWORD_INPUT) {
+    size_t pwLen = strlen(passwordInput);
     if (key == KEY_BACKSPACE) {
-      if (passwordInput.length() > 0) {
-        passwordInput.remove(passwordInput.length() - 1);
+      if (pwLen > 0) {
+        passwordInput[pwLen - 1] = '\0';
         cursorVisible = true;
         lastBlink = millis();
         drawPasswordInput(display);
@@ -688,7 +714,7 @@ int handleWiFiInput(char key, LGFX &display) {
       wifiState = WIFI_STATE_CONNECTING;
       beep(TONE_SELECT, BEEP_MEDIUM);
       drawWiFiUI(display);
-      connectToWiFi(networks[selectedNetwork].ssid, passwordInput);
+      connectToWiFi(networks[selectedNetwork].ssid.c_str(), passwordInput);
       return 2;
     }
     else if (key == KEY_ESC) {
@@ -704,9 +730,10 @@ int handleWiFiInput(char key, LGFX &display) {
       drawPasswordInput(display);
       return 1;
     }
-    else if (key >= 32 && key <= 126 && passwordInput.length() < 63) {
+    else if (key >= 32 && key <= 126 && pwLen < 63) {
       // Add printable character (max 63 chars for WiFi password)
-      passwordInput += key;
+      passwordInput[pwLen] = key;
+      passwordInput[pwLen + 1] = '\0';
       cursorVisible = true;
       lastBlink = millis();
       drawPasswordInput(display);
@@ -724,18 +751,18 @@ int handleWiFiInput(char key, LGFX &display) {
     }
 
     if (key == KEY_ESC) {
-      failedSSID = "";  // Clear failed SSID
+      failedSSID[0] = '\0';  // Clear failed SSID
       return -1;  // Exit WiFi settings
     }
     else if (wifiState == WIFI_STATE_ERROR && (key == 'p' || key == 'P')) {
       // Retry password if available
-      if (failedSSID.length() > 0 && statusMessage.indexOf("password") >= 0) {
+      if (strlen(failedSSID) > 0 && strstr(statusMessage, "password") != NULL) {
         Serial.println("Retrying password entry for failed network");
 
         // Find the failed network in the network list
         int failedNetworkIndex = -1;
         for (int i = 0; i < networkCount; i++) {
-          if (networks[i].ssid == failedSSID) {
+          if (strcmp(networks[i].ssid.c_str(), failedSSID) == 0) {
             failedNetworkIndex = i;
             break;
           }
@@ -744,11 +771,11 @@ int handleWiFiInput(char key, LGFX &display) {
         if (failedNetworkIndex >= 0) {
           selectedNetwork = failedNetworkIndex;
           wifiState = WIFI_STATE_PASSWORD_INPUT;
-          passwordInput = "";
+          passwordInput[0] = '\0';
           cursorVisible = true;
           lastBlink = millis();
           beep(TONE_SELECT, BEEP_MEDIUM);
-          failedSSID = "";  // Clear failed SSID
+          failedSSID[0] = '\0';  // Clear failed SSID
           drawWiFiUI(display);
           return 2;
         }
@@ -756,9 +783,10 @@ int handleWiFiInput(char key, LGFX &display) {
     }
     else if (wifiState == WIFI_STATE_ERROR && (key == KEY_ENTER || key == KEY_ENTER_ALT)) {
       // Rescan networks on ENTER when in error state
-      failedSSID = "";  // Clear failed SSID
+      failedSSID[0] = '\0';  // Clear failed SSID
       wifiState = WIFI_STATE_SCANNING;
-      statusMessage = "Scanning for networks...";
+      strncpy(statusMessage, "Scanning for networks...", sizeof(statusMessage) - 1);
+      statusMessage[sizeof(statusMessage) - 1] = '\0';
       drawWiFiUI(display);
       scanNetworks();
 
@@ -766,7 +794,8 @@ int handleWiFiInput(char key, LGFX &display) {
         wifiState = WIFI_STATE_NETWORK_LIST;
       } else {
         wifiState = WIFI_STATE_ERROR;
-        statusMessage = "No networks found. Try again?";
+        strncpy(statusMessage, "No networks found. Try again?", sizeof(statusMessage) - 1);
+        statusMessage[sizeof(statusMessage) - 1] = '\0';
       }
 
       drawWiFiUI(display);
@@ -781,7 +810,8 @@ int handleWiFiInput(char key, LGFX &display) {
 
       // Show confirmation message
       wifiState = WIFI_STATE_ERROR;
-      statusMessage = "WiFi settings erased";
+      strncpy(statusMessage, "WiFi settings erased", sizeof(statusMessage) - 1);
+      statusMessage[sizeof(statusMessage) - 1] = '\0';
       drawWiFiUI(display);
       delay(2000);
 
@@ -794,7 +824,8 @@ int handleWiFiInput(char key, LGFX &display) {
         wifiState = WIFI_STATE_NETWORK_LIST;
       } else {
         wifiState = WIFI_STATE_ERROR;
-        statusMessage = "No networks found. Try again?";
+        strncpy(statusMessage, "No networks found. Try again?", sizeof(statusMessage) - 1);
+        statusMessage[sizeof(statusMessage) - 1] = '\0';
       }
 
       drawWiFiUI(display);
@@ -823,7 +854,8 @@ int handleWiFiInput(char key, LGFX &display) {
         wifiState = WIFI_STATE_NETWORK_LIST;
       } else {
         wifiState = WIFI_STATE_ERROR;
-        statusMessage = "No networks found. Try again?";
+        strncpy(statusMessage, "No networks found. Try again?", sizeof(statusMessage) - 1);
+        statusMessage[sizeof(statusMessage) - 1] = '\0';
       }
 
       drawWiFiUI(display);
@@ -839,7 +871,7 @@ int handleWiFiInput(char key, LGFX &display) {
 }
 
 // Connect to WiFi network
-void connectToWiFi(String ssid, String password) {
+void connectToWiFi(const char* ssid, const char* password) {
   Serial.print("Connecting to: ");
   Serial.println(ssid);
 
@@ -860,7 +892,7 @@ void connectToWiFi(String ssid, String password) {
   }
 
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid.c_str(), password.c_str());
+  WiFi.begin(ssid, password);
 
   // Wait up to 10 seconds for connection
   int attempts = 0;
@@ -893,7 +925,8 @@ void connectToWiFi(String ssid, String password) {
     wifiState = WIFI_STATE_ERROR;
 
     // Track failed SSID for potential password retry
-    failedSSID = ssid;
+    strncpy(failedSSID, ssid, sizeof(failedSSID) - 1);
+    failedSSID[sizeof(failedSSID) - 1] = '\0';
 
     // Check if this was a saved network (might have wrong password)
     String savedSSIDs[3];
@@ -901,17 +934,18 @@ void connectToWiFi(String ssid, String password) {
     int savedCount = loadAllWiFiCredentials(savedSSIDs, savedPasswords);
     bool wasSaved = false;
     for (int j = 0; j < savedCount; j++) {
-      if (ssid == savedSSIDs[j]) {
+      if (strcmp(ssid, savedSSIDs[j].c_str()) == 0) {
         wasSaved = true;
         break;
       }
     }
 
     if (wasSaved) {
-      statusMessage = "Connection failed. Wrong password?";
+      strncpy(statusMessage, "Connection failed. Wrong password?", sizeof(statusMessage) - 1);
     } else {
-      statusMessage = "Failed to connect";
+      strncpy(statusMessage, "Failed to connect", sizeof(statusMessage) - 1);
     }
+    statusMessage[sizeof(statusMessage) - 1] = '\0';
 
     // If we were in AP mode and connection failed, restart AP mode
     if (wasInAPMode) {
@@ -922,7 +956,7 @@ void connectToWiFi(String ssid, String password) {
 }
 
 // Save WiFi credentials to flash memory (up to 3 networks)
-void saveWiFiCredentials(String ssid, String password) {
+void saveWiFiCredentials(const char* ssid, const char* password) {
   wifiPrefs.begin("wifi", false);
 
   // Load existing saved networks
@@ -934,17 +968,17 @@ void saveWiFiCredentials(String ssid, String password) {
   String pass3 = wifiPrefs.getString("pass3", "");
 
   // Check if this SSID already exists in the list
-  if (ssid == ssid1) {
+  if (strcmp(ssid, ssid1.c_str()) == 0) {
     // Update slot 1
     wifiPrefs.putString("pass1", password);
     Serial.println("Updated existing network in slot 1");
   }
-  else if (ssid == ssid2) {
+  else if (strcmp(ssid, ssid2.c_str()) == 0) {
     // Update slot 2
     wifiPrefs.putString("pass2", password);
     Serial.println("Updated existing network in slot 2");
   }
-  else if (ssid == ssid3) {
+  else if (strcmp(ssid, ssid3.c_str()) == 0) {
     // Update slot 3
     wifiPrefs.putString("pass3", password);
     Serial.println("Updated existing network in slot 3");
@@ -986,6 +1020,7 @@ void saveWiFiCredentials(String ssid, String password) {
 }
 
 // Load WiFi credentials from flash memory (loads all saved networks)
+// Note: Returns String arrays for compatibility with LVGL wifi screen
 int loadAllWiFiCredentials(String ssids[3], String passwords[3]) {
   wifiPrefs.begin("wifi", true);
 
@@ -1111,12 +1146,14 @@ void startAPMode() {
   for(int i=0; i<17; i=i+8) {
     chipId |= ((ESP.getEfuseMac() >> (40 - i)) & 0xff) << i;
   }
-  String apSSID = "VAIL-SUMMIT-" + String(chipId, HEX);
-  apSSID.toUpperCase();
+  char apSSID[32];
+  snprintf(apSSID, sizeof(apSSID), "VAIL-SUMMIT-%X", chipId);
+  // Convert to uppercase
+  for (char* p = apSSID; *p; p++) *p = toupper(*p);
 
   // Start AP mode
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(apSSID.c_str(), apPassword.c_str());
+  WiFi.softAP(apSSID, apPassword);
 
   IPAddress IP = WiFi.softAPIP();
   Serial.print("AP Mode started. SSID: ");
@@ -1176,19 +1213,21 @@ void updateAPModeWebServer() {
 // ============================================
 
 // Request a WiFi connection (non-blocking, called from LVGL event handlers)
-void requestWiFiConnection(const String& ssid, const String& password) {
+void requestWiFiConnection(const char* ssid, const char* password) {
     if (wifiConnRequest.state != WIFI_CONN_IDLE) {
         Serial.println("[WiFi] Connection already in progress, ignoring request");
         return;
     }
 
-    wifiConnRequest.ssid = ssid;
-    wifiConnRequest.password = password;
+    strncpy(wifiConnRequest.ssid, ssid, sizeof(wifiConnRequest.ssid) - 1);
+    wifiConnRequest.ssid[sizeof(wifiConnRequest.ssid) - 1] = '\0';
+    strncpy(wifiConnRequest.password, password, sizeof(wifiConnRequest.password) - 1);
+    wifiConnRequest.password[sizeof(wifiConnRequest.password) - 1] = '\0';
     wifiConnRequest.state = WIFI_CONN_REQUESTED;
     wifiConnRequest.timeout = 10000;  // 10 second timeout
     wifiConnRequest.wasInAPMode = isAPMode;
 
-    Serial.printf("[WiFi] Non-blocking connection requested to: %s\n", ssid.c_str());
+    Serial.printf("[WiFi] Non-blocking connection requested to: %s\n", ssid);
 }
 
 // Internal: Start the actual WiFi connection
@@ -1208,12 +1247,12 @@ static void startWiFiConnectionInternal() {
 
     // Start connection
     WiFi.mode(WIFI_STA);
-    WiFi.begin(wifiConnRequest.ssid.c_str(), wifiConnRequest.password.c_str());
+    WiFi.begin(wifiConnRequest.ssid, wifiConnRequest.password);
 
     wifiConnRequest.startTime = millis();
     wifiConnRequest.state = WIFI_CONN_STARTING;
 
-    Serial.printf("[WiFi] WiFi.begin() called for: %s\n", wifiConnRequest.ssid.c_str());
+    Serial.printf("[WiFi] WiFi.begin() called for: %s\n", wifiConnRequest.ssid);
 }
 
 // Poll the connection state (called from main loop)
@@ -1252,7 +1291,8 @@ bool updateWiFiConnection() {
                 Serial.println("[WiFi] Connection timeout!");
 
                 // Track failed SSID
-                failedSSID = wifiConnRequest.ssid;
+                strncpy(failedSSID, wifiConnRequest.ssid, sizeof(failedSSID) - 1);
+                failedSSID[sizeof(failedSSID) - 1] = '\0';
 
                 // Restore AP mode if we were in it
                 if (wifiConnRequest.wasInAPMode) {
@@ -1268,7 +1308,8 @@ bool updateWiFiConnection() {
             if (WiFi.status() == WL_CONNECT_FAILED || WiFi.status() == WL_NO_SSID_AVAIL) {
                 Serial.printf("[WiFi] Connection failed early (status: %d)\n", WiFi.status());
 
-                failedSSID = wifiConnRequest.ssid;
+                strncpy(failedSSID, wifiConnRequest.ssid, sizeof(failedSSID) - 1);
+                failedSSID[sizeof(failedSSID) - 1] = '\0';
 
                 if (wifiConnRequest.wasInAPMode) {
                     Serial.println("[WiFi] Restoring AP mode...");
@@ -1292,8 +1333,8 @@ bool updateWiFiConnection() {
 // Clear connection state (call after handling success/failure in UI)
 void clearWiFiConnectionState() {
     wifiConnRequest.state = WIFI_CONN_IDLE;
-    wifiConnRequest.ssid = "";
-    wifiConnRequest.password = "";
+    wifiConnRequest.ssid[0] = '\0';
+    wifiConnRequest.password[0] = '\0';
     wifiConnRequest.startTime = 0;
     wifiConnRequest.wasInAPMode = false;
 }

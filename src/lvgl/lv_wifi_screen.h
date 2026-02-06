@@ -909,7 +909,7 @@ void createAPModeView(lv_obj_t* parent) {
     lv_obj_add_style(pw_lbl, getStyleLabelBody(), 0);
 
     lv_obj_t* pw_val = lv_label_create(card);
-    lv_label_set_text(pw_val, apPassword.c_str());
+    lv_label_set_text(pw_val, apPassword);
     lv_obj_set_style_text_color(pw_val, LV_COLOR_ACCENT_CYAN, 0);
     lv_obj_set_style_text_font(pw_val, getThemeFonts()->font_input, 0);
 
@@ -995,7 +995,7 @@ void performWiFiScan() {
 void attemptWiFiConnection(const String& ssid, const String& password) {
     // Non-blocking: just request the connection
     // UI is already set to LVGL_WIFI_CONNECTING by caller
-    requestWiFiConnection(ssid, password);
+    requestWiFiConnection(ssid.c_str(), password.c_str());
     // Main loop will poll updateWiFiConnection() and call updateWiFiScreen()
 }
 
