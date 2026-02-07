@@ -604,6 +604,12 @@ lv_obj_t* createSparkWatchBriefingScreen() {
     lv_obj_set_style_text_font(speed_label, getThemeFonts()->font_body, 0);
     lv_obj_align(speed_label, LV_ALIGN_TOP_LEFT, 20, 185);
 
+    lv_obj_t* speed_hint = lv_label_create(screen);
+    lv_label_set_text(speed_hint, "arrows + ENTER");
+    lv_obj_set_style_text_font(speed_hint, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(speed_hint, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_align(speed_hint, LV_ALIGN_TOP_RIGHT, -20, 188);
+
     lv_obj_t* speed_cont = lv_obj_create(screen);
     lv_obj_set_size(speed_cont, SCREEN_WIDTH - 40, 36);
     lv_obj_align(speed_cont, LV_ALIGN_TOP_MID, 0, 205);

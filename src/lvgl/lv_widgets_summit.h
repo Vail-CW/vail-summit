@@ -582,7 +582,14 @@ lv_obj_t* createAlertDialog(const char* title, const char* message, lv_event_cb_
         }
     }, LV_EVENT_KEY, NULL);
 
-    // Focus the button matrix so keyboard works immediately
+    // Add button matrix to input group so keyboard works on CardKB
+    // Note: Use lv_group_add_obj directly (not addNavigableWidget) because
+    // the dialog has its own ESC handler above — adding global_esc_handler
+    // would cause a double-action (close dialog AND navigate back)
+    lv_group_t* group = getLVGLInputGroup();
+    if (group) {
+        lv_group_add_obj(group, btns_obj);
+    }
     lv_group_focus_obj(btns_obj);
 
     return mbox;
