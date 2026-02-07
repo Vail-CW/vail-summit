@@ -30,10 +30,12 @@ void onPracticeWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *clie
       Serial.printf("WebSocket client #%u disconnected\n", client->id());
       webPracticeModeActive = false;
 
-      // Exit web practice mode if active
-      extern MenuMode currentMode;
-      if (currentMode == MODE_WEB_PRACTICE) {
-        currentMode = MODE_MAIN_MENU;
+      {
+        extern volatile bool webModeDisconnectPending;
+        extern MenuMode currentMode;
+        if (currentMode == MODE_WEB_PRACTICE) {
+          webModeDisconnectPending = true;
+        }
       }
       break;
 
@@ -41,23 +43,22 @@ void onPracticeWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *clie
       AwsFrameInfo *info = (AwsFrameInfo*)arg;
       if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
         data[len] = 0;  // Null terminate
-        String message = (char*)data;
 
         // Parse JSON message
         JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, message);
+        DeserializationError error = deserializeJson(doc, (char*)data);
 
         if (!error) {
-          String type = doc["type"].as<String>();
+          const char* msgType = doc["type"] | "";
 
-          if (type == "timing") {
+          if (strcmp(msgType, "timing") == 0) {
             // Timing data from browser
             float duration = doc["duration"].as<float>();
             bool positive = doc["positive"].as<bool>();
-            String key = doc["key"].as<String>();
+            const char* key = doc["key"] | "";
 
             Serial.printf("Received timing: %s, duration: %.1f ms, positive: %d\n",
-                         key.c_str(), duration, positive);
+                         key, duration, positive);
 
             // Feed timing to decoder
             if (positive) {
@@ -66,7 +67,7 @@ void onPracticeWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *clie
               webPracticeDecoder.addTiming(-duration);  // Negative for silence
             }
           }
-          else if (type == "start") {
+          else if (strcmp(msgType, "start") == 0) {
             Serial.println("Practice mode start requested via WebSocket");
             webPracticeModeActive = true;
           }
@@ -88,16 +89,11 @@ void onPracticeWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *clie
 /*
  * Send decoded morse character to browser
  */
-void sendPracticeDecoded(String morse, String text) {
+void sendPracticeDecoded(const char* morse, const char* text) {
   if (webPracticeModeActive && practiceWebSocket && practiceWebSocket->count() > 0) {
-    JsonDocument doc;
-    doc["type"] = "decoded";
-    doc["morse"] = morse;
-    doc["text"] = text;
-
-    String output;
-    serializeJson(doc, output);
-    practiceWebSocket->textAll(output);
+    char buf[128];
+    snprintf(buf, sizeof(buf), "{\"type\":\"decoded\",\"morse\":\"%s\",\"text\":\"%s\"}", morse, text);
+    practiceWebSocket->textAll(buf);
   }
 }
 
@@ -106,13 +102,9 @@ void sendPracticeDecoded(String morse, String text) {
  */
 void sendPracticeWPM(float wpm) {
   if (webPracticeModeActive && practiceWebSocket && practiceWebSocket->count() > 0) {
-    JsonDocument doc;
-    doc["type"] = "wpm";
-    doc["value"] = wpm;
-
-    String output;
-    serializeJson(doc, output);
-    practiceWebSocket->textAll(output);
+    char buf[64];
+    snprintf(buf, sizeof(buf), "{\"type\":\"wpm\",\"value\":%.1f}", wpm);
+    practiceWebSocket->textAll(buf);
   }
 }
 

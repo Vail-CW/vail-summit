@@ -51,6 +51,14 @@ bool webPracticeModeActive = false;
 bool webFilesOnSD = false;  // True if web files exist on SD card
 bool webServerRestartPending = false;  // Flag to restart server (checked in main loop)
 
+// Deferred web mode start flags (set from API handlers, consumed in main loop)
+volatile bool webPracticeStartPending = false;
+volatile bool webHearItStartPending = false;
+volatile bool webMemoryChainStartPending = false;
+
+// Deferred web mode disconnect flag
+volatile bool webModeDisconnectPending = false;
+
 // Forward declarations
 void setupWebServer();
 void stopWebServer();
@@ -58,11 +66,8 @@ void restartWebServer();
 void requestWebServerRestart();
 bool checkWebAuth(AsyncWebServerRequest *request);
 void onPracticeWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
-void sendPracticeDecoded(String morse, String text);
+void sendPracticeDecoded(const char* morse, const char* text);
 void sendPracticeWPM(float wpm);
-void startWebPracticeMode(LGFX& tft);
-void startWebMemoryChainMode(LGFX& tft, int difficulty, int mode, int wpm, bool sound, bool hints);
-void startWebHearItMode(LGFX& tft);
 
 // WebSocket lifecycle management - allocate on-demand, cleanup when mode exits
 void initPracticeWebSocket();
@@ -310,17 +315,9 @@ void setupWebServer() {
   // Practice mode API endpoint
   webServer.on("/api/practice/start", HTTP_POST, [](AsyncWebServerRequest *request) {
     if (!checkWebAuth(request)) return;
-    extern MenuMode currentMode;
-    extern LGFX tft;
 
-    // Initialize WebSocket on-demand (saves memory when not used)
     initPracticeWebSocket();
-
-    // Switch device to web practice mode
-    currentMode = MODE_WEB_PRACTICE;
-
-    // Initialize the mode (this will draw the UI and set up decoder)
-    startWebPracticeMode(tft);
+    webPracticeStartPending = true;
 
     JsonDocument doc;
     doc["status"] = "active";
@@ -342,23 +339,8 @@ void setupWebServer() {
     [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
       if (!checkWebAuth(request)) return;
 
-      JsonDocument doc;
-      deserializeJson(doc, data, len);
-
-      extern MenuMode currentMode;
-      extern LGFX tft;
-
-      // Initialize WebSocket on-demand (saves memory when not used)
       initMemoryChainWebSocket();
-
-      int difficulty = doc["difficulty"].as<int>();
-      int mode = doc["mode"].as<int>();
-      int wpm = doc["wpm"].as<int>();
-      bool sound = doc["sound"].as<bool>();
-      bool hints = doc["hints"].as<bool>();
-
-      currentMode = MODE_WEB_MEMORY_CHAIN;
-      startWebMemoryChainMode(tft, difficulty, mode, wpm, sound, hints);
+      webMemoryChainStartPending = true;
 
       JsonDocument response;
       response["status"] = "active";
@@ -380,33 +362,8 @@ void setupWebServer() {
     [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
       if (!checkWebAuth(request)) return;
 
-      JsonDocument doc;
-      deserializeJson(doc, data, len);
-
-      extern MenuMode currentMode;
-      extern LGFX tft;
-
-      // Initialize WebSocket on-demand (saves memory when not used)
       initHearItWebSocket();
-
-      // Get settings from request
-      int mode = doc["mode"].as<int>();
-      int length = doc["length"].as<int>();
-      String customChars = doc["customChars"].as<String>();
-
-      // Update device settings
-      hearItSettings.mode = (HearItMode)mode;
-      hearItSettings.groupLength = length;
-      hearItSettings.customChars = customChars;
-
-      Serial.printf("Web Hear It settings: mode=%d, length=%d, custom=%s\n",
-                    mode, length, customChars.c_str());
-
-      // Switch device to web hear it mode
-      currentMode = MODE_WEB_HEAR_IT;
-
-      // Initialize the mode (this will draw the UI and start playing character groups)
-      startWebHearItMode(tft);
+      webHearItStartPending = true;
 
       JsonDocument response;
       response["status"] = "active";

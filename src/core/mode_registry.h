@@ -291,12 +291,12 @@ static const ModeFlags flagTable[] = {
     { MODE_CW_ACADEMY_COPY_PRACTICE,    MODE_FLAG_AUDIO_CRITICAL | MODE_FLAG_NO_STATUS },
     { MODE_CW_ACADEMY_QSO_PRACTICE,     MODE_FLAG_AUDIO_CRITICAL | MODE_FLAG_NO_STATUS },
 
-    // Web Hear It needs audio-critical for web-served audio
-    { MODE_WEB_HEAR_IT,                 MODE_FLAG_AUDIO_CRITICAL | MODE_FLAG_NO_STATUS },
+    // Web Memory Chain needs audio-critical for decoder fast polling
+    { MODE_WEB_MEMORY_CHAIN,            MODE_FLAG_AUDIO_CRITICAL | MODE_FLAG_NO_STATUS },
 
     // Non-audio modes that still skip status updates
     { MODE_HEAR_IT_TYPE_IT,             MODE_FLAG_NO_STATUS },
-    { MODE_WEB_MEMORY_CHAIN,            MODE_FLAG_NO_STATUS },
+    { MODE_WEB_HEAR_IT,                 MODE_FLAG_NO_STATUS },
 };
 
 static const int flagTableSize = sizeof(flagTable) / sizeof(flagTable[0]);

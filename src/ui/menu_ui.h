@@ -52,7 +52,6 @@ void drawQSOViewLogsUI(LGFX& tft);
 void drawQSOStatisticsUI(LGFX& tft);
 void drawRadioOutputUI(LGFX& tft);
 void drawCWMemoriesUI(LGFX& tft);
-void drawWebPracticeUI(LGFX& tft);
 void drawBTHIDUI(LGFX& tft);
 void drawBTMIDIUI(LGFX& tft);
 void drawBTKeyboardSettingsUI(LGFX& tft);

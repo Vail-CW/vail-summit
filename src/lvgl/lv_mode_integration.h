@@ -77,9 +77,12 @@ extern void startCWAQSOPractice(LGFX& tft);
 extern void initCWACopyPractice();
 extern void initCWASendingPractice();
 extern void initCWAQSOPractice();
-extern void startWebPracticeMode(LGFX& tft);
-extern void startWebMemoryChainMode(LGFX& tft, int difficulty, int mode, int wpm, bool sound, bool hints);
-extern void startWebHearItMode(LGFX& tft);
+extern void initWebPracticeMode();
+extern void initWebHearItMode();
+extern void initWebMemoryChainMode();
+extern void cleanupWebPracticeMode();
+extern void cleanupWebHearItMode();
+extern void cleanupWebMemoryChainMode();
 extern void startHearItTypeItMode(LGFX& tft);
 extern void startLicenseQuiz(LGFX& tft, int licenseType);
 extern void startLicenseStats(LGFX& tft);
@@ -511,11 +514,15 @@ void initializeModeInt(int mode) {
         // Web modes
         case MODE_WEB_PRACTICE:
             Serial.println("[ModeInit] Starting Web Practice Mode");
-            startWebPracticeMode(tft);
+            initWebPracticeMode();
             break;
         case MODE_WEB_HEAR_IT:
             Serial.println("[ModeInit] Starting Web Hear It Mode");
-            startWebHearItMode(tft);
+            initWebHearItMode();
+            break;
+        case MODE_WEB_MEMORY_CHAIN:
+            Serial.println("[ModeInit] Starting Web Memory Chain Mode");
+            initWebMemoryChainMode();
             break;
 
         // License study modes
@@ -781,6 +788,9 @@ static const ModeCallbackEntry cleanupTable[] = {
     { MODE_MORSE_MAILBOX_PLAYBACK,       cleanupMailboxPlayback },
     { MODE_MORSE_MAILBOX_COMPOSE,        cleanupMailboxCompose },
     { MODE_POTA_RECORDER,                cleanupPOTARecorderScreen },
+    { MODE_WEB_PRACTICE,                 cleanupWebPracticeMode },
+    { MODE_WEB_HEAR_IT,                  cleanupWebHearItMode },
+    { MODE_WEB_MEMORY_CHAIN,             cleanupWebMemoryChainMode },
 };
 static const int cleanupTableSize = sizeof(cleanupTable) / sizeof(cleanupTable[0]);
 

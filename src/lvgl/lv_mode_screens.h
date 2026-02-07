@@ -10,6 +10,7 @@
 #include "lv_theme_summit.h"
 #include "lv_widgets_summit.h"
 #include "lv_screen_manager.h"
+#include "lv_web_mode_screens.h"
 #include "../core/config.h"
 #include "../core/modes.h"
 
@@ -5171,6 +5172,12 @@ lv_obj_t* createModeScreenForMode(int mode) {
             return createQSOStatisticsScreen();
         case MODE_QSO_LOGGER_SETTINGS:
             return createQSOLoggerSettingsScreen();
+        case MODE_WEB_PRACTICE:
+            return createWebPracticeModeScreen();
+        case MODE_WEB_MEMORY_CHAIN:
+            return createWebMemoryChainModeScreen();
+        case MODE_WEB_HEAR_IT:
+            return createWebHearItModeScreen();
         default:
             Serial.printf("[ModeScreens] Unknown mode: %d\n", mode);
             return NULL;

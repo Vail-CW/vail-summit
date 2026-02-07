@@ -274,6 +274,44 @@
         let currentState = 'ready';
         let audioContext = null;
         let oscillator = null;
+        let timedModeInterval = null;
+
+        // Morse code lookup table
+        const MORSE_TABLE = {
+            'A': '.-', 'B': '-...', 'C': '-.-.', 'D': '-..', 'E': '.', 'F': '..-.',
+            'G': '--.', 'H': '....', 'I': '..', 'J': '.---', 'K': '-.-', 'L': '.-..',
+            'M': '--', 'N': '-.', 'O': '---', 'P': '.--.', 'Q': '--.-', 'R': '.-.',
+            'S': '...', 'T': '-', 'U': '..-', 'V': '...-', 'W': '.--', 'X': '-..-',
+            'Y': '-.--', 'Z': '--..',
+            '0': '-----', '1': '.----', '2': '..---', '3': '...--', '4': '....-',
+            '5': '.....', '6': '-....', '7': '--...', '8': '---..', '9': '----.'
+        };
+
+        function getMorsePattern(text) {
+            return text.split('').map(c => MORSE_TABLE[c.toUpperCase()] || '').filter(p => p).join(' ');
+        }
+
+        // Character sets by difficulty
+        const CHARSET_BEGINNER = 'ETIANMSURWDKGOHVFLPJBXCYZQ';
+        const CHARSET_INTERMEDIATE = 'ETIANMSURWDKGOHVFLPJBXCYZQ0123456789';
+        const CHARSET_ADVANCED = 'ETIANMSURWDKGOHVFLPJBXCYZQ0123456789';
+
+        // Browser-side game state
+        let gameState = {
+            sequence: '',
+            playerPosition: 0,
+            currentScore: 0,
+            highScore: 0,
+            lives: 1,
+            difficulty: 0,
+            mode: 0,      // 0=Standard, 1=Practice(3 lives), 2=Timed
+            wpm: 15,
+            soundEnabled: true,
+            showHints: false,
+            gameStartTime: 0,
+            playingSequence: false,
+            waitingForPlayer: false
+        };
 
         // Initialize Web Audio API
         function initAudio() {
@@ -343,55 +381,180 @@
             }
         }
 
+        // Game logic functions
+        function getCharset() {
+            switch (gameState.difficulty) {
+                case 1: return CHARSET_INTERMEDIATE;
+                case 2: return CHARSET_ADVANCED;
+                default: return CHARSET_BEGINNER;
+            }
+        }
+
+        function generateNextChar() {
+            const charset = getCharset();
+            return charset[Math.floor(Math.random() * charset.length)];
+        }
+
+        async function startNewRound() {
+            // Add one character to sequence
+            gameState.sequence += generateNextChar();
+            gameState.playerPosition = 0;
+            gameState.playingSequence = true;
+            gameState.waitingForPlayer = false;
+
+            // Update UI
+            updateGameState('playing', 'Listen carefully...');
+            updateSequence(gameState.sequence, gameState.showHints);
+            updateScoreDisplay();
+
+            // Play the sequence as morse
+            const morsePattern = getMorsePattern(gameState.sequence);
+            if (gameState.soundEnabled) {
+                await playMorsePattern(morsePattern, gameState.wpm, true);
+            }
+
+            // Now it's the player's turn
+            gameState.playingSequence = false;
+            gameState.waitingForPlayer = true;
+            updateGameState('listening', 'Your turn! Reproduce the sequence');
+        }
+
+        function handleDecodedChar(decodedChar) {
+            if (!gameState.waitingForPlayer) return;
+
+            const expected = gameState.sequence[gameState.playerPosition];
+
+            if (decodedChar.toUpperCase() === expected) {
+                gameState.playerPosition++;
+
+                if (gameState.playerPosition >= gameState.sequence.length) {
+                    // Round complete!
+                    gameState.currentScore = gameState.sequence.length;
+                    if (gameState.currentScore > gameState.highScore) {
+                        gameState.highScore = gameState.currentScore;
+                    }
+
+                    showFeedback(true);
+                    updateScoreDisplay();
+
+                    // Start next round after delay
+                    setTimeout(() => {
+                        if (gameActive) startNewRound();
+                    }, 1500);
+                }
+            } else {
+                // Wrong character
+                showFeedback(false);
+
+                if (gameState.mode === 1) {
+                    // Practice mode - lose a life
+                    gameState.lives--;
+                    if (gameState.lives > 0) {
+                        gameState.playerPosition = 0;
+                        setTimeout(() => {
+                            updateGameState('listening', `Wrong! ${gameState.lives} lives left. Try again`);
+                            gameState.waitingForPlayer = true;
+                        }, 1500);
+                    } else {
+                        endGame('Out of lives');
+                    }
+                } else {
+                    // Standard mode - game over
+                    endGame('Wrong character');
+                }
+            }
+        }
+
+        function endGame(reason) {
+            gameActive = false;
+            gameState.waitingForPlayer = false;
+            if (timedModeInterval) {
+                clearInterval(timedModeInterval);
+                timedModeInterval = null;
+            }
+            handleGameOver(gameState.currentScore, reason);
+        }
+
+        function updateScoreDisplay() {
+            document.getElementById('currentScore').textContent = gameState.currentScore;
+            document.getElementById('highScore').textContent = gameState.highScore;
+        }
+
         // Initialize page
         loadSettings();
 
         // Start game
         async function startGame() {
             try {
-                // Request device to enter Memory Chain mode
+                const difficulty = parseInt(document.getElementById('difficulty').value);
+                const mode = parseInt(document.getElementById('gameMode').value);
+                const wpm = parseInt(document.getElementById('wpm').value);
+                const sound = document.getElementById('sound').value === 'true';
+                const hints = document.getElementById('hints').value === 'true';
+
+                // Initialize game state
+                gameState = {
+                    sequence: '',
+                    playerPosition: 0,
+                    currentScore: 0,
+                    highScore: gameState.highScore, // Preserve high score across games
+                    lives: mode === 1 ? 3 : 1,
+                    difficulty, mode, wpm,
+                    soundEnabled: sound,
+                    showHints: hints,
+                    gameStartTime: Date.now(),
+                    playingSequence: false,
+                    waitingForPlayer: false
+                };
+
+                // Tell device to enter web mode
                 const response = await fetch('/api/memory-chain/start', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        difficulty: parseInt(document.getElementById('difficulty').value),
-                        mode: parseInt(document.getElementById('gameMode').value),
-                        wpm: parseInt(document.getElementById('wpm').value),
-                        sound: document.getElementById('sound').value === 'true',
-                        hints: document.getElementById('hints').value === 'true'
-                    })
+                    body: JSON.stringify({ difficulty, mode, wpm, sound, hints })
                 });
 
                 if (!response.ok) throw new Error('Failed to start game');
 
-                const data = await response.json();
-                console.log('Game start response:', data);
-
-                // Connect WebSocket using current host (works with both IP and mDNS)
+                // Connect WebSocket (for decoded characters from device)
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 const wsUrl = `${protocol}//${window.location.host}/ws/memory-chain`;
-                console.log('Connecting to WebSocket:', wsUrl);
                 ws = new WebSocket(wsUrl);
 
                 ws.onopen = () => {
-                    console.log('WebSocket connected');
                     document.getElementById('connectionStatus').textContent = '● Connected';
                     document.getElementById('connectionStatus').className = 'status-connected';
                     document.getElementById('startBtn').disabled = true;
                     gameActive = true;
+
+                    // Start timed mode timer if applicable
+                    if (gameState.mode === 2) {
+                        timedModeInterval = setInterval(() => {
+                            const elapsed = (Date.now() - gameState.gameStartTime) / 1000;
+                            if (elapsed >= 60) {
+                                clearInterval(timedModeInterval);
+                                timedModeInterval = null;
+                                endGame("Time's up!");
+                            }
+                        }, 1000);
+                    }
+
+                    // Start first round after brief delay
+                    setTimeout(() => startNewRound(), 500);
                 };
 
                 ws.onmessage = (event) => {
-                    console.log('WebSocket message received:', event.data);
                     const msg = JSON.parse(event.data);
-                    handleGameMessage(msg);
+                    if (msg.type === 'decoded' && msg.char) {
+                        handleDecodedChar(msg.char);
+                    }
                 };
 
                 ws.onclose = () => {
                     document.getElementById('connectionStatus').textContent = '● Disconnected';
                     document.getElementById('connectionStatus').className = 'status-disconnected';
                     document.getElementById('startBtn').disabled = false;
-                    gameActive = false;
+                    if (gameActive) endGame('Connection lost');
                 };
 
                 ws.onerror = (error) => {
@@ -402,34 +565,6 @@
             } catch (error) {
                 console.error('Failed to start game:', error);
                 alert('Failed to start game. Make sure device is connected.');
-            }
-        }
-
-        // Handle game state messages from device
-        function handleGameMessage(msg) {
-            console.log('Handling message type:', msg.type, msg);
-            switch (msg.type) {
-                case 'state':
-                    updateGameState(msg.state, msg.description);
-                    break;
-                case 'sequence':
-                    updateSequence(msg.characters, msg.show);
-                    break;
-                case 'play_morse':
-                    // Play morse code audio in browser
-                    console.log('Playing morse pattern:', msg.patterns, 'at', msg.wpm, 'WPM');
-                    playMorsePattern(msg.patterns, msg.wpm, msg.soundEnabled);
-                    break;
-                case 'score':
-                    document.getElementById('currentScore').textContent = msg.current;
-                    document.getElementById('highScore').textContent = msg.high;
-                    break;
-                case 'feedback':
-                    showFeedback(msg.correct);
-                    break;
-                case 'game_over':
-                    handleGameOver(msg.finalScore, msg.reason);
-                    break;
             }
         }
 
@@ -632,6 +767,10 @@
         }
 
         function goBack() {
+            if (timedModeInterval) {
+                clearInterval(timedModeInterval);
+                timedModeInterval = null;
+            }
             if (gameActive && ws) {
                 ws.close();
             }

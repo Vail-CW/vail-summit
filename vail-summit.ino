@@ -584,7 +584,7 @@ void pollWebMemoryChain() {
 }
 
 void pollWebHearIt() {
-    updateWebHearItMode();
+    // Browser handles all game logic - just clean up WebSocket clients
     extern AsyncWebSocket* hearItWebSocket;
     if (hearItWebSocket) hearItWebSocket->cleanupClients();
 }
@@ -649,6 +649,32 @@ void loop() {
   // Check for pending web server restart (after file upload)
   if (isWebServerRestartPending()) {
     restartWebServer();
+  }
+
+  // Check for deferred web mode starts (safe to call LVGL from main loop)
+  extern volatile bool webPracticeStartPending;
+  extern volatile bool webHearItStartPending;
+  extern volatile bool webMemoryChainStartPending;
+  extern volatile bool webModeDisconnectPending;
+
+  if (webPracticeStartPending) {
+      webPracticeStartPending = false;
+      onLVGLMenuSelect(MODE_WEB_PRACTICE);
+  }
+  if (webHearItStartPending) {
+      webHearItStartPending = false;
+      onLVGLMenuSelect(MODE_WEB_HEAR_IT);
+  }
+  if (webMemoryChainStartPending) {
+      webMemoryChainStartPending = false;
+      onLVGLMenuSelect(MODE_WEB_MEMORY_CHAIN);
+  }
+  if (webModeDisconnectPending) {
+      webModeDisconnectPending = false;
+      // Only trigger back-nav if we're actually in a web mode
+      if (currentMode == MODE_WEB_PRACTICE || currentMode == MODE_WEB_HEAR_IT || currentMode == MODE_WEB_MEMORY_CHAIN) {
+          onLVGLBackNavigation();
+      }
   }
 
   // Note: Automatic web files version check disabled due to SSL RAM constraints
