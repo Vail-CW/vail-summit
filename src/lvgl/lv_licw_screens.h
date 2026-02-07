@@ -65,6 +65,16 @@ static void licw_cancel_autoplay_timer() {
     }
 }
 
+// Cleanup all LICW timers on back-navigation
+void cleanupLICWPractice() {
+    if (licw_playback_timer) {
+        lv_timer_del(licw_playback_timer);
+        licw_playback_timer = NULL;
+    }
+    licw_cancel_autoplay_timer();
+    licw_on_playback_done = NULL;
+}
+
 // ============================================
 // Screen State Variables
 // ============================================

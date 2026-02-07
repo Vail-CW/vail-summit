@@ -580,60 +580,17 @@ extern void updateShooterScore(int score);
 extern void updateShooterLives(int lives);
 extern void updateShooterDecoded(const char* text);
 extern void updateShooterLetter(int index, char letter, int x, int y, bool visible);
+extern void updateShooterWord(int index, const char* word, int lettersTyped, int x, int y, bool visible);
 extern void updateShooterCombo(int combo, int multiplier);
 extern void showShooterHitEffect(int x, int y);
 extern void showShooterGameOver();
 
-/*
- * Initialize a falling letter (with collision avoidance)
- */
-void initFallingLetter(int index) {
-  const DifficultyParams& params = DIFF_PARAMS[shooterDifficulty];
-  fallingLetters[index].letter = params.charset[random(params.charsetSize)];
-
-  // Try to find a spawn position that doesn't overlap with existing letters
-  int attempts = 0;
-  bool positionOk = false;
-  int newX;
-
-  // Letters spawn at top of play area (just below HUD at y=40 in LVGL coords)
-  // Using game coords: y=5 + offset 40 = 45 on screen (just below HUD)
-  const int SPAWN_Y = 5;
-
-  while (!positionOk && attempts < 20) {
-    newX = random(20, SCREEN_WIDTH - 40);
-    positionOk = true;
-
-    // Check if this position is too close to any active letter
-    for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
-      if (i != index && fallingLetters[i].active) {
-        // Letters are about 20 pixels wide, so check for 30 pixel spacing
-        if (abs(newX - (int)fallingLetters[i].x) < 30 &&
-            abs(SPAWN_Y - (int)fallingLetters[i].y) < 40) {
-          positionOk = false;
-          break;
-        }
-      }
-    }
-    attempts++;
-  }
-
-  fallingLetters[index].x = newX;
-  fallingLetters[index].y = SPAWN_Y;  // Start at top of play area
-  fallingLetters[index].active = true;
-
-  // Update LVGL display (y+40 for header offset)
-  updateShooterLetter(index, fallingLetters[index].letter,
-                     (int)fallingLetters[index].x,
-                     (int)fallingLetters[index].y + 40, true);
-}
+// (initFallingLetter removed - spawnFallingLetter handles all spawning)
 
 /*
  * Reset game state
  */
 void resetGame() {
-  const DifficultyParams& params = DIFF_PARAMS[shooterDifficulty];
-
   // Clear all falling letters
   for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
     fallingLetters[i].active = false;
@@ -642,6 +599,7 @@ void resetGame() {
   // Clear falling words (for Word/Callsign modes)
   for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
     fallingWords[i].active = false;
+    memset(&fallingWords[i], 0, sizeof(FallingWord));
   }
 
   // Reset morse input
@@ -676,13 +634,15 @@ void resetGame() {
   progressiveLevelStartTime = millis();
   progressiveTimeSurvived = 0;
 
-  // Determine lives from settings or legacy difficulty
-  int startLives = params.startLives;
+  // Determine lives from settings/preset
+  int startLives = 3;  // safe default
   if (shooterSettings.preset != PRESET_CUSTOM) {
     startLives = PRESET_CONFIGS[shooterSettings.preset].startLives;
-  } else if (shooterSettings.startLives >= 1 && shooterSettings.startLives <= 5) {
+  } else {
     startLives = shooterSettings.startLives;
   }
+  if (startLives < 1) startLives = 1;
+  if (startLives > 5) startLives = 5;
 
   // Reset game variables
   gameScore = 0;
@@ -1048,7 +1008,178 @@ void spawnFallingLetter() {
 }
 
 /*
- * Check decoded text and try to shoot matching letter
+ * Get word list based on current preset difficulty
+ */
+void getWordList(const char**& words, int& count) {
+  uint8_t preset = shooterSettings.preset;
+  if (preset <= PRESET_EASY) {
+    words = WORDS_EASY;
+    count = WORDS_EASY_COUNT;
+  } else if (preset <= PRESET_HARD) {
+    words = WORDS_MEDIUM;
+    count = WORDS_MEDIUM_COUNT;
+  } else {
+    words = WORDS_HARD;
+    count = WORDS_HARD_COUNT;
+  }
+}
+
+/*
+ * Spawn a falling word (Word mode)
+ */
+void spawnFallingWord() {
+  uint32_t spawnInterval = getCurrentSpawnInterval();
+  int maxLetters = getCurrentMaxLetters();
+
+  // Words fall slower, so allow fewer concurrent
+  int maxWords = max(1, maxLetters / 2);
+
+  if (millis() - lastSpawnTime < spawnInterval) return;
+
+  int activeCount = 0;
+  int emptySlot = -1;
+  for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
+    if (fallingWords[i].active) {
+      activeCount++;
+    } else if (emptySlot < 0) {
+      emptySlot = i;
+    }
+  }
+
+  if (activeCount >= maxWords || emptySlot < 0) return;
+
+  // Pick a word from the appropriate difficulty list
+  const char** words;
+  int wordCount;
+  getWordList(words, wordCount);
+  const char* chosen = words[random(wordCount)];
+
+  // Populate FallingWord
+  strncpy(fallingWords[emptySlot].word, chosen, sizeof(fallingWords[emptySlot].word) - 1);
+  fallingWords[emptySlot].word[sizeof(fallingWords[emptySlot].word) - 1] = '\0';
+  fallingWords[emptySlot].length = strlen(fallingWords[emptySlot].word);
+  fallingWords[emptySlot].lettersTyped = 0;
+  fallingWords[emptySlot].y = 5;
+  fallingWords[emptySlot].active = true;
+  fallingWords[emptySlot].spawnTime = millis();
+
+  // Spawn position with collision avoidance (words are wider)
+  int attempts = 0;
+  bool positionOk = false;
+  int newX;
+  while (!positionOk && attempts < 20) {
+    newX = random(10, SCREEN_WIDTH - 100);
+    positionOk = true;
+    for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
+      if (i != emptySlot && fallingWords[i].active) {
+        if (abs(newX - (int)fallingWords[i].x) < 80 &&
+            abs(5 - (int)fallingWords[i].y) < 40) {
+          positionOk = false;
+          break;
+        }
+      }
+    }
+    attempts++;
+  }
+  fallingWords[emptySlot].x = newX;
+
+  updateShooterWord(emptySlot, fallingWords[emptySlot].word, 0,
+                    newX, 5 + 40, true);
+  lastSpawnTime = millis();
+}
+
+/*
+ * Spawn a falling callsign (Callsign mode)
+ */
+void spawnFallingCallsign() {
+  uint32_t spawnInterval = getCurrentSpawnInterval();
+  int maxLetters = getCurrentMaxLetters();
+  int maxWords = max(1, maxLetters / 2);
+
+  if (millis() - lastSpawnTime < spawnInterval) return;
+
+  int activeCount = 0;
+  int emptySlot = -1;
+  for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
+    if (fallingWords[i].active) {
+      activeCount++;
+    } else if (emptySlot < 0) {
+      emptySlot = i;
+    }
+  }
+
+  if (activeCount >= maxWords || emptySlot < 0) return;
+
+  // Generate random callsign
+  char callbuf[12];
+  memset(callbuf, 0, sizeof(callbuf));
+  generateCallsign(callbuf, true);
+
+  strncpy(fallingWords[emptySlot].word, callbuf, sizeof(fallingWords[emptySlot].word) - 1);
+  fallingWords[emptySlot].word[sizeof(fallingWords[emptySlot].word) - 1] = '\0';
+  fallingWords[emptySlot].length = strlen(fallingWords[emptySlot].word);
+  fallingWords[emptySlot].lettersTyped = 0;
+  fallingWords[emptySlot].y = 5;
+  fallingWords[emptySlot].active = true;
+  fallingWords[emptySlot].spawnTime = millis();
+
+  int attempts = 0;
+  bool positionOk = false;
+  int newX;
+  while (!positionOk && attempts < 20) {
+    newX = random(10, SCREEN_WIDTH - 100);
+    positionOk = true;
+    for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
+      if (i != emptySlot && fallingWords[i].active) {
+        if (abs(newX - (int)fallingWords[i].x) < 80 &&
+            abs(5 - (int)fallingWords[i].y) < 40) {
+          positionOk = false;
+          break;
+        }
+      }
+    }
+    attempts++;
+  }
+  fallingWords[emptySlot].x = newX;
+
+  updateShooterWord(emptySlot, fallingWords[emptySlot].word, 0,
+                    newX, 5 + 40, true);
+  lastSpawnTime = millis();
+}
+
+/*
+ * Update falling words physics (Word/Callsign modes)
+ */
+void updateFallingWords() {
+  float fallSpeed = getCurrentFallSpeed() * 0.6f;  // Words fall slower
+
+  for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
+    if (fallingWords[i].active) {
+      fallingWords[i].y += fallSpeed;
+
+      updateShooterWord(i, fallingWords[i].word, fallingWords[i].lettersTyped,
+                        (int)fallingWords[i].x, (int)fallingWords[i].y + 40, true);
+
+      if (fallingWords[i].y >= GAME_GROUND_Y) {
+        fallingWords[i].active = false;
+        updateShooterWord(i, NULL, 0, 0, 0, false);
+        gameLives--;
+        resetCombo();
+        updateShooterLives(gameLives);
+        updateShooterCombo(0, 1);
+        beep(TONE_ERROR, 200);
+
+        if (gameLives <= 0) {
+          gameOver = true;
+          showShooterGameOver();
+        }
+      }
+    }
+  }
+}
+
+/*
+ * Check decoded text and try to shoot matching letter/word
  */
 bool checkMorseShoot(LGFX& tft) {
   if (shooterDecodedText.length() == 0) {
@@ -1063,22 +1194,87 @@ bool checkMorseShoot(LGFX& tft) {
     decodedChar = decodedChar - 'a' + 'A';
   }
 
-  // Find matching falling letter
+  // Word/Callsign modes: match character against next expected letter in words
+  if (shooterSettings.gameMode == SHOOTER_MODE_WORD ||
+      shooterSettings.gameMode == SHOOTER_MODE_CALLSIGN) {
+
+    // Find a word where the next expected character matches
+    for (int j = 0; j < MAX_FALLING_LETTERS; j++) {
+      if (!fallingWords[j].active) continue;
+
+      char expected = fallingWords[j].word[fallingWords[j].lettersTyped];
+      // Convert to uppercase for comparison
+      if (expected >= 'a' && expected <= 'z') expected = expected - 'a' + 'A';
+
+      if (decodedChar == expected) {
+        fallingWords[j].lettersTyped++;
+        beep(1200, 30);  // Partial hit beep
+
+        // Update display to show progress
+        updateShooterWord(j, fallingWords[j].word, fallingWords[j].lettersTyped,
+                          (int)fallingWords[j].x, (int)fallingWords[j].y + 40, true);
+
+        // Check if word is complete
+        if (fallingWords[j].lettersTyped >= fallingWords[j].length) {
+          // WORD COMPLETE!
+          int targetX = (int)fallingWords[j].x;
+          int targetY = (int)fallingWords[j].y;
+          float wordY = fallingWords[j].y;
+
+          fallingWords[j].active = false;
+          updateShooterWord(j, NULL, 0, 0, 0, false);
+
+          beep(1200, 80);  // Completion sound
+          showShooterHitEffect(targetX, targetY + 40);
+
+          // Score: base 10 * word length * combo multiplier
+          int pointsEarned = recordHit(wordY);
+          pointsEarned = pointsEarned * fallingWords[j].length;
+          gameScore += pointsEarned;
+          updateShooterScore(gameScore);
+
+          int currentMultiplier = getComboMultiplier();
+          updateShooterCombo(comboCount, currentMultiplier);
+
+          updateCurrentModeHighScore(gameScore);
+        }
+
+        shooterDecodedText = "";
+        return true;
+      }
+    }
+
+    // No match found - reset progress on all partially typed words
+    bool hadProgress = false;
+    for (int j = 0; j < MAX_FALLING_LETTERS; j++) {
+      if (fallingWords[j].active && fallingWords[j].lettersTyped > 0) {
+        fallingWords[j].lettersTyped = 0;
+        updateShooterWord(j, fallingWords[j].word, 0,
+                          (int)fallingWords[j].x, (int)fallingWords[j].y + 40, true);
+        hadProgress = true;
+      }
+    }
+
+    beep(600, 100);  // Miss sound
+    resetCombo();
+    updateShooterCombo(0, 1);
+    shooterDecodedText = "";
+    return false;
+  }
+
+  // Classic/Progressive modes: match single character against falling letters
   for (int j = 0; j < MAX_FALLING_LETTERS; j++) {
     if (fallingLetters[j].active && fallingLetters[j].letter == decodedChar) {
       // HIT!
       int targetX = (int)fallingLetters[j].x;
       int targetY = (int)fallingLetters[j].y;
-      float letterY = fallingLetters[j].y;  // Save for speed bonus calc
+      float letterY = fallingLetters[j].y;
 
-      // Remove letter FIRST (before any redraw)
       fallingLetters[j].active = false;
-      updateShooterLetter(j, ' ', 0, 0, false);  // Hide letter in LVGL
+      updateShooterLetter(j, ' ', 0, 0, false);
 
-      // Play hit sounds (no delays for smoother LVGL updates)
       beep(1200, 50);  // Laser sound
 
-      // Show hit effect in LVGL (y+40 for header offset)
       showShooterHitEffect(targetX, targetY + 40);
 
       // Legacy drawing (will no-op when using LVGL)
@@ -1087,27 +1283,14 @@ bool checkMorseShoot(LGFX& tft) {
       drawGroundScenery(tft);
       drawFallingLetters(tft);
 
-      // Calculate score using combo system
+      // Calculate score
       int pointsEarned = recordHit(letterY);
-
-      // Also apply legacy difficulty multiplier for backward compatibility
-      const DifficultyParams& params = DIFF_PARAMS[shooterDifficulty];
-      pointsEarned = pointsEarned * params.scoreMultiplier;
-
       gameScore += pointsEarned;
-      updateShooterScore(gameScore);  // Update LVGL
+      updateShooterScore(gameScore);
 
-      // Update combo display
       int currentMultiplier = getComboMultiplier();
       updateShooterCombo(comboCount, currentMultiplier);
 
-      // Update high score for current difficulty (legacy)
-      if (gameScore > shooterHighScores[shooterDifficulty]) {
-        shooterHighScores[shooterDifficulty] = gameScore;
-        saveShooterHighScore();
-      }
-
-      // Update high score for current mode
       updateCurrentModeHighScore(gameScore);
 
       // Progressive mode: track hits for level advancement
@@ -1117,20 +1300,18 @@ bool checkMorseShoot(LGFX& tft) {
           progressiveHits = 0;
           progressiveLevel++;
           Serial.printf("[Shooter] Progressive level up! Now level %d\n", progressiveLevel);
-          // TODO: Update UI to show level change
+          beep(1000, 100);  // Level up beep
         }
       }
 
-      // Keep decoded text visible until next input starts
-      // (cleared in updateMorseInputFast when paddle is pressed)
       return true;
     }
   }
 
   // Decoded character but no matching letter falling - MISS
   beep(600, 100);  // Miss sound
-  resetCombo();    // Reset combo streak
-  updateShooterCombo(0, 1);  // Clear combo display
+  resetCombo();
+  updateShooterCombo(0, 1);
   shooterDecodedText = "";
   return false;
 }
@@ -1503,9 +1684,18 @@ void updateMorseShooterVisuals(LGFX& tft) {
   if (now - lastGameUpdate >= GAME_UPDATE_INTERVAL) {
     lastGameUpdate = now;
 
-    // Update game logic
-    updateFallingLetters();
-    spawnFallingLetter();
+    // Update and spawn based on game mode
+    if (shooterSettings.gameMode == SHOOTER_MODE_WORD) {
+      updateFallingWords();
+      spawnFallingWord();
+    } else if (shooterSettings.gameMode == SHOOTER_MODE_CALLSIGN) {
+      updateFallingWords();
+      spawnFallingCallsign();
+    } else {
+      // Classic and Progressive modes
+      updateFallingLetters();
+      spawnFallingLetter();
+    }
 
     // Redraw only changed elements (no full screen clear)
     drawFallingLetters(tft, true);  // Clear old positions, draw new
@@ -1559,6 +1749,23 @@ int handleMorseShooterInput(char key, LGFX& tft) {
   }
 
   return 0;
+}
+
+/*
+ * Cleanup on exit - save settings, stop audio, reset state
+ */
+void cleanupMorseShooter() {
+  // Save current settings so they persist
+  saveShooterPrefs();
+  saveCWSettings();
+
+  stopTone();
+  if (shooterKeyer) {
+    shooterKeyer->reset();
+  }
+  shooterDecoder.reset();
+  gameOver = true;
+  gamePaused = true;
 }
 
 #endif // GAME_MORSE_SHOOTER_H

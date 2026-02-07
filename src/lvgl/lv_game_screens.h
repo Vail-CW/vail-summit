@@ -64,20 +64,16 @@ static lv_obj_t* shooter_mode_row = NULL;
 static lv_obj_t* shooter_mode_value = NULL;
 static lv_obj_t* shooter_preset_row = NULL;
 static lv_obj_t* shooter_preset_value = NULL;
-static lv_obj_t* shooter_diff_value = NULL;
+static lv_obj_t* shooter_speed_row = NULL;
 static lv_obj_t* shooter_speed_value = NULL;
+static lv_obj_t* shooter_tone_row = NULL;
 static lv_obj_t* shooter_tone_value = NULL;
+static lv_obj_t* shooter_key_row = NULL;
 static lv_obj_t* shooter_key_value = NULL;
 static lv_obj_t* shooter_lives_row = NULL;
 static lv_obj_t* shooter_lives_value = NULL;
 static lv_obj_t* shooter_highscore_value = NULL;
 static lv_obj_t* shooter_start_btn = NULL;
-static lv_obj_t* shooter_diff_row = NULL;
-static lv_obj_t* shooter_speed_row = NULL;
-static lv_obj_t* shooter_tone_row = NULL;
-static lv_obj_t* shooter_key_row = NULL;
-static int shooter_settings_focus = 0;
-static int shooter_settings_page = 0;
 
 // Reset all shooter screen static pointers (called before creating new screen)
 // This prevents crashes from stale pointers after screen deletion
@@ -112,20 +108,16 @@ static void cleanupShooterSettingsPointers() {
     shooter_mode_value = NULL;
     shooter_preset_row = NULL;
     shooter_preset_value = NULL;
-    shooter_diff_value = NULL;
+    shooter_speed_row = NULL;
     shooter_speed_value = NULL;
+    shooter_tone_row = NULL;
     shooter_tone_value = NULL;
+    shooter_key_row = NULL;
     shooter_key_value = NULL;
     shooter_lives_row = NULL;
     shooter_lives_value = NULL;
     shooter_highscore_value = NULL;
     shooter_start_btn = NULL;
-    shooter_diff_row = NULL;
-    shooter_speed_row = NULL;
-    shooter_tone_row = NULL;
-    shooter_key_row = NULL;
-    shooter_settings_focus = 0;
-    shooter_settings_page = 0;
 }
 
 lv_obj_t* createMorseShooterScreen() {
@@ -804,9 +796,8 @@ static void shooter_gameover_key_cb(lv_event_t* e) {
 void showShooterGameOver() {
     if (shooter_screen == NULL) return;
 
-    extern int shooterHighScores[3];
-    extern ShooterDifficulty shooterDifficulty;
-    bool isHighScore = (gameScore == shooterHighScores[shooterDifficulty] && gameScore > 0);
+    extern int getCurrentModeHighScore();
+    bool isHighScore = (gameScore >= getCurrentModeHighScore() && gameScore > 0);
 
     // Create overlay using the existing helper
     shooter_game_over_overlay = createGameOverOverlay(shooter_screen, gameScore, isHighScore);
@@ -853,55 +844,126 @@ extern int shooterHighScoreWord;
 extern int shooterHighScoreCallsign;
 extern void applyShooterPreset(ShooterPreset preset);
 
-// Difficulty names for display (legacy)
-static const char* shooter_diff_names[] = {"Easy", "Medium", "Hard"};
-
 // Key type names
 static const char* shooter_key_names[] = {"Straight", "Iambic A", "Iambic B"};
 
 // Forward declarations
-static void shooter_settings_update_focus();
-static void shooter_settings_update_values();
+static void shooter_settings_update_all();
 void startShooterFromSettings();
 
-// Update focus styling on settings rows
-static void shooter_settings_update_focus() {
-    // All possible focusable rows
-    lv_obj_t* rows[] = {
-        shooter_mode_row, shooter_preset_row, shooter_diff_row,
-        shooter_speed_row, shooter_tone_row, shooter_key_row,
-        shooter_lives_row, shooter_start_btn
-    };
-    const int num_rows = 8;
-
-    for (int i = 0; i < num_rows; i++) {
-        if (rows[i] == NULL) continue;
-
-        if (i == shooter_settings_focus) {
-            // Focused row - highlight border
-            lv_obj_set_style_border_color(rows[i], LV_COLOR_ACCENT_CYAN, 0);
-            lv_obj_set_style_border_width(rows[i], 2, 0);
-        } else {
-            // Not focused - subtle border
-            lv_obj_set_style_border_color(rows[i], LV_COLOR_BORDER_SUBTLE, 0);
-            lv_obj_set_style_border_width(rows[i], 1, 0);
-        }
-    }
-}
+// Row indices for settings screen
+// 0=Mode, 1=Preset, 2=Speed, 3=Tone, 4=Key Type, 5=Lives, 6=START
+#define SHOOTER_ROW_MODE    0
+#define SHOOTER_ROW_PRESET  1
+#define SHOOTER_ROW_SPEED   2
+#define SHOOTER_ROW_TONE    3
+#define SHOOTER_ROW_KEY     4
+#define SHOOTER_ROW_LIVES   5
+#define SHOOTER_ROW_START   6
 
 // Get high score for current mode
 static int getShooterHighScoreForMode() {
     switch (shooterSettings.gameMode) {
-        case 0: return shooterHighScoreClassic;      // SHOOTER_MODE_CLASSIC
-        case 1: return shooterHighScoreProgressive;  // SHOOTER_MODE_PROGRESSIVE
-        case 2: return shooterHighScoreWord;         // SHOOTER_MODE_WORD
-        case 3: return shooterHighScoreCallsign;     // SHOOTER_MODE_CALLSIGN
-        default: return shooterHighScores[shooterDifficulty];
+        case 0: return shooterHighScoreClassic;
+        case 1: return shooterHighScoreProgressive;
+        case 2: return shooterHighScoreWord;
+        case 3: return shooterHighScoreCallsign;
+        default: return 0;
     }
 }
 
-// Update value labels to reflect current settings
-static void shooter_settings_update_values() {
+// Adjust a setting value by direction (-1 or +1)
+static void shooterAdjustValue(int row, int direction) {
+    extern const PresetConfig PRESET_CONFIGS[];
+
+    switch (row) {
+        case SHOOTER_ROW_MODE: {
+            int newMode = (int)shooterSettings.gameMode + direction;
+            if (newMode >= 0 && newMode <= 3) {
+                shooterSettings.gameMode = newMode;
+            }
+            break;
+        }
+        case SHOOTER_ROW_PRESET: {
+            int newPreset = (int)shooterSettings.preset + direction;
+            if (newPreset >= 0 && newPreset <= 6) {
+                shooterSettings.preset = newPreset;
+                applyShooterPreset((ShooterPreset)shooterSettings.preset);
+            }
+            break;
+        }
+        case SHOOTER_ROW_SPEED:
+            // Only editable in Custom preset
+            if (shooterSettings.preset != 0) return;
+            if (direction < 0 && cwSpeed > 5) cwSpeed--;
+            else if (direction > 0 && cwSpeed < 40) cwSpeed++;
+            else return;
+            break;
+        case SHOOTER_ROW_TONE:
+            if (direction < 0 && cwTone > 400) cwTone -= 50;
+            else if (direction > 0 && cwTone < 1200) cwTone += 50;
+            else return;
+            break;
+        case SHOOTER_ROW_KEY:
+            if (direction > 0) {
+                if (cwKeyType == KEY_STRAIGHT) cwKeyType = KEY_IAMBIC_A;
+                else if (cwKeyType == KEY_IAMBIC_A) cwKeyType = KEY_IAMBIC_B;
+                else return;
+            } else {
+                if (cwKeyType == KEY_IAMBIC_B) cwKeyType = KEY_IAMBIC_A;
+                else if (cwKeyType == KEY_IAMBIC_A) cwKeyType = KEY_STRAIGHT;
+                else return;
+            }
+            break;
+        case SHOOTER_ROW_LIVES:
+            // Only editable in Custom preset
+            if (shooterSettings.preset != 0) return;
+            if (direction < 0 && shooterSettings.startLives > 1) shooterSettings.startLives--;
+            else if (direction > 0 && shooterSettings.startLives < 5) shooterSettings.startLives++;
+            else return;
+            break;
+        default:
+            return;
+    }
+    beep(TONE_MENU_NAV, BEEP_SHORT);
+    shooter_settings_update_all();
+}
+
+// Value handler: processes LEFT/RIGHT for value adjustment on settings rows.
+// Registered BEFORE linear_nav_handler so it runs first.
+static void shooter_value_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
+
+    // Only handle LEFT/RIGHT - let linear_nav_handler handle UP/DOWN/TAB
+    if (key != LV_KEY_LEFT && key != LV_KEY_RIGHT) return;
+
+    int row = (int)(intptr_t)lv_event_get_user_data(e);
+    int direction = (key == LV_KEY_RIGHT) ? 1 : -1;
+    shooterAdjustValue(row, direction);
+    lv_event_stop_processing(e);
+}
+
+// Click handler for settings rows: ENTER cycles value forward
+static void shooter_row_click_handler(lv_event_t* e) {
+    int row = (int)(intptr_t)lv_event_get_user_data(e);
+    if (row == SHOOTER_ROW_START) {
+        // Start game
+        saveShooterPrefs();
+        saveCWSettings();
+        beep(TONE_SELECT, BEEP_MEDIUM);
+        startShooterFromSettings();
+    } else {
+        // Cycle value forward on ENTER
+        shooterAdjustValue(row, 1);
+    }
+}
+
+// Update all value labels to reflect current settings
+static void shooter_settings_update_all() {
+    extern const PresetConfig PRESET_CONFIGS[];
+    bool isCustom = (shooterSettings.preset == 0);
+
     // Mode
     if (shooter_mode_value != NULL) {
         const char* modeNames[] = {"Classic", "Progressive", "Word", "Callsign"};
@@ -914,14 +976,11 @@ static void shooter_settings_update_values() {
         lv_label_set_text(shooter_preset_value, presetNames[shooterSettings.preset]);
     }
 
-    // Legacy difficulty (still used for backward compat)
-    if (shooter_diff_value != NULL) {
-        lv_label_set_text(shooter_diff_value, shooter_diff_names[shooterDifficulty]);
-    }
-
-    // Speed (WPM)
+    // Speed (WPM) - dimmed when locked by preset
     if (shooter_speed_value != NULL) {
         lv_label_set_text_fmt(shooter_speed_value, "%d WPM", cwSpeed);
+        lv_obj_set_style_text_color(shooter_speed_value,
+            isCustom ? LV_COLOR_ACCENT_CYAN : LV_COLOR_TEXT_DISABLED, 0);
     }
 
     // Tone
@@ -934,181 +993,20 @@ static void shooter_settings_update_values() {
         lv_label_set_text(shooter_key_value, shooter_key_names[cwKeyType]);
     }
 
-    // Lives
+    // Lives - dimmed when locked by preset
     if (shooter_lives_value != NULL) {
-        // Show lives based on preset or custom setting
         int lives = shooterSettings.startLives;
-        if (shooterSettings.preset != 0) {  // PRESET_CUSTOM
-            // Get lives from preset config
-            extern const PresetConfig PRESET_CONFIGS[];
+        if (!isCustom) {
             lives = PRESET_CONFIGS[shooterSettings.preset].startLives;
         }
         lv_label_set_text_fmt(shooter_lives_value, "%d", lives);
+        lv_obj_set_style_text_color(shooter_lives_value,
+            isCustom ? LV_COLOR_ACCENT_CYAN : LV_COLOR_TEXT_DISABLED, 0);
     }
 
     // High score for current mode
     if (shooter_highscore_value != NULL) {
         lv_label_set_text_fmt(shooter_highscore_value, "%d", getShooterHighScoreForMode());
-    }
-}
-
-// Key event callback for settings screen (expanded for new options)
-static void shooter_settings_key_cb(lv_event_t* e) {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code != LV_EVENT_KEY) return;
-
-    uint32_t key = lv_event_get_key(e);
-    Serial.printf("[Shooter Settings] Key: %lu (0x%02lX), focus=%d\n", key, key, shooter_settings_focus);
-
-    // Row mapping: 0=mode, 1=preset, 2=difficulty, 3=speed, 4=tone, 5=keytype, 6=lives, 7=start
-    const int MAX_FOCUS = 7;
-
-    switch(key) {
-        case LV_KEY_UP:
-            shooter_settings_focus--;
-            if (shooter_settings_focus < 0) shooter_settings_focus = MAX_FOCUS;
-            shooter_settings_update_focus();
-            beep(TONE_MENU_NAV, BEEP_SHORT);
-            break;
-
-        case LV_KEY_DOWN:
-            shooter_settings_focus++;
-            if (shooter_settings_focus > MAX_FOCUS) shooter_settings_focus = 0;
-            shooter_settings_update_focus();
-            beep(TONE_MENU_NAV, BEEP_SHORT);
-            break;
-
-        case LV_KEY_LEFT:
-            switch (shooter_settings_focus) {
-                case 0:  // Game Mode
-                    if (shooterSettings.gameMode > 0) {
-                        shooterSettings.gameMode--;
-                        shooter_settings_update_values();
-                        beep(TONE_MENU_NAV, BEEP_SHORT);
-                    }
-                    break;
-                case 1:  // Preset
-                    if (shooterSettings.preset > 0) {
-                        shooterSettings.preset--;
-                        applyShooterPreset((ShooterPreset)shooterSettings.preset);
-                        shooter_settings_update_values();
-                        beep(TONE_MENU_NAV, BEEP_SHORT);
-                    }
-                    break;
-                case 2:  // Difficulty (legacy)
-                    if (shooterDifficulty > SHOOTER_EASY) {
-                        shooterDifficulty = (ShooterDifficulty)(shooterDifficulty - 1);
-                        shooter_settings_update_values();
-                        beep(TONE_MENU_NAV, BEEP_SHORT);
-                    }
-                    break;
-                case 3:  // Speed (WPM)
-                    if (cwSpeed > 5) {
-                        cwSpeed--;
-                        shooter_settings_update_values();
-                        beep(TONE_MENU_NAV, BEEP_SHORT);
-                    }
-                    break;
-                case 4:  // Tone
-                    if (cwTone > 400) {
-                        cwTone -= 50;
-                        shooter_settings_update_values();
-                        beep(TONE_MENU_NAV, BEEP_SHORT);
-                    }
-                    break;
-                case 5:  // Key Type
-                    if (cwKeyType == KEY_IAMBIC_B) {
-                        cwKeyType = KEY_IAMBIC_A;
-                    } else if (cwKeyType == KEY_IAMBIC_A) {
-                        cwKeyType = KEY_STRAIGHT;
-                    }
-                    shooter_settings_update_values();
-                    beep(TONE_MENU_NAV, BEEP_SHORT);
-                    break;
-                case 6:  // Lives (custom only)
-                    if (shooterSettings.preset == 0 && shooterSettings.startLives > 1) {
-                        shooterSettings.startLives--;
-                        shooter_settings_update_values();
-                        beep(TONE_MENU_NAV, BEEP_SHORT);
-                    }
-                    break;
-            }
-            break;
-
-        case LV_KEY_RIGHT:
-            switch (shooter_settings_focus) {
-                case 0:  // Game Mode
-                    if (shooterSettings.gameMode < 3) {  // SHOOTER_MODE_CALLSIGN
-                        shooterSettings.gameMode++;
-                        shooter_settings_update_values();
-                        beep(TONE_MENU_NAV, BEEP_SHORT);
-                    }
-                    break;
-                case 1:  // Preset
-                    if (shooterSettings.preset < 6) {  // PRESET_INSANE
-                        shooterSettings.preset++;
-                        applyShooterPreset((ShooterPreset)shooterSettings.preset);
-                        shooter_settings_update_values();
-                        beep(TONE_MENU_NAV, BEEP_SHORT);
-                    }
-                    break;
-                case 2:  // Difficulty (legacy)
-                    if (shooterDifficulty < SHOOTER_HARD) {
-                        shooterDifficulty = (ShooterDifficulty)(shooterDifficulty + 1);
-                        shooter_settings_update_values();
-                        beep(TONE_MENU_NAV, BEEP_SHORT);
-                    }
-                    break;
-                case 3:  // Speed (WPM)
-                    if (cwSpeed < 40) {
-                        cwSpeed++;
-                        shooter_settings_update_values();
-                        beep(TONE_MENU_NAV, BEEP_SHORT);
-                    }
-                    break;
-                case 4:  // Tone
-                    if (cwTone < 1200) {
-                        cwTone += 50;
-                        shooter_settings_update_values();
-                        beep(TONE_MENU_NAV, BEEP_SHORT);
-                    }
-                    break;
-                case 5:  // Key Type
-                    if (cwKeyType == KEY_STRAIGHT) {
-                        cwKeyType = KEY_IAMBIC_A;
-                    } else if (cwKeyType == KEY_IAMBIC_A) {
-                        cwKeyType = KEY_IAMBIC_B;
-                    }
-                    shooter_settings_update_values();
-                    beep(TONE_MENU_NAV, BEEP_SHORT);
-                    break;
-                case 6:  // Lives (custom only)
-                    if (shooterSettings.preset == 0 && shooterSettings.startLives < 5) {
-                        shooterSettings.startLives++;
-                        shooter_settings_update_values();
-                        beep(TONE_MENU_NAV, BEEP_SHORT);
-                    }
-                    break;
-            }
-            break;
-
-        case LV_KEY_ENTER:
-            if (shooter_settings_focus == MAX_FOCUS) {  // Start button
-                // Save settings and start game
-                saveShooterPrefs();
-                saveCWSettings();
-                beep(TONE_SELECT, BEEP_MEDIUM);
-                startShooterFromSettings();
-            }
-            break;
-
-        case LV_KEY_ESC:
-            // Save and exit to games menu
-            saveShooterPrefs();
-            saveCWSettings();
-            onLVGLBackNavigation();
-            lv_event_stop_processing(e);
-            break;
     }
 }
 
@@ -1118,6 +1016,7 @@ lv_obj_t* createMorseShooterSettingsScreen() {
     cleanupShooterScreenPointers();
     cleanupShooterSettingsPointers();
 
+    clearNavigationGroup();
     lv_obj_t* screen = createScreen();
     applyScreenStyle(screen);
 
@@ -1151,12 +1050,12 @@ lv_obj_t* createMorseShooterSettingsScreen() {
     lv_obj_align(hs_label, LV_ALIGN_TOP_MID, 0, 0);
 
     shooter_highscore_value = lv_label_create(hs_container);
-    lv_label_set_text_fmt(shooter_highscore_value, "%d", shooterHighScores[shooterDifficulty]);
+    lv_label_set_text_fmt(shooter_highscore_value, "%d", getShooterHighScoreForMode());
     lv_obj_set_style_text_color(shooter_highscore_value, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(shooter_highscore_value, getThemeFonts()->font_title, 0);
     lv_obj_align(shooter_highscore_value, LV_ALIGN_BOTTOM_MID, 0, 0);
 
-    // Settings container - scrollable to fit all options
+    // Settings container
     lv_obj_t* settings_card = lv_obj_create(screen);
     lv_obj_set_size(settings_card, SCREEN_WIDTH - 40, SCREEN_HEIGHT - HEADER_HEIGHT - FOOTER_HEIGHT - 80);
     lv_obj_set_pos(settings_card, 20, HEADER_HEIGHT + 10);
@@ -1165,59 +1064,75 @@ lv_obj_t* createMorseShooterSettingsScreen() {
     lv_obj_set_style_pad_row(settings_card, 2, 0);
     lv_obj_set_style_pad_all(settings_card, 6, 0);
     applyCardStyle(settings_card);
-    lv_obj_set_scroll_dir(settings_card, LV_DIR_VER);  // Vertical scroll if needed
+    lv_obj_set_scroll_dir(settings_card, LV_DIR_VER);
 
-    // Helper to create a compact settings row
-    auto createSettingsRow = [&](const char* label_text, lv_obj_t** row_out, lv_obj_t** value_out) {
-        lv_obj_t* row = lv_obj_create(settings_card);
-        lv_obj_set_size(row, SCREEN_WIDTH - 80, 22);  // Compact height
-        lv_obj_set_layout(row, LV_LAYOUT_FLEX);
-        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        lv_obj_set_style_bg_color(row, LV_COLOR_BG_LAYER2, 0);
-        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(row, 4, 0);
-        lv_obj_set_style_border_width(row, 1, 0);
-        lv_obj_set_style_border_color(row, LV_COLOR_BORDER_SUBTLE, 0);
-        lv_obj_set_style_pad_hor(row, 10, 0);
-        lv_obj_set_style_pad_ver(row, 2, 0);
-        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    // Helper: create a navigable settings row button
+    auto createSettingsRow = [&](const char* label_text, int row_index, lv_obj_t** row_out, lv_obj_t** value_out) {
+        lv_obj_t* btn = lv_btn_create(settings_card);
+        lv_obj_set_size(btn, SCREEN_WIDTH - 80, 26);
+        lv_obj_set_layout(btn, LV_LAYOUT_FLEX);
+        lv_obj_set_flex_flow(btn, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(btn, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_bg_color(btn, LV_COLOR_BG_LAYER2, 0);
+        lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(btn, 4, 0);
+        lv_obj_set_style_border_width(btn, 1, 0);
+        lv_obj_set_style_border_color(btn, LV_COLOR_BORDER_SUBTLE, 0);
+        lv_obj_set_style_pad_hor(btn, 10, 0);
+        lv_obj_set_style_pad_ver(btn, 2, 0);
+        // Focus style: cyan border when selected
+        lv_obj_set_style_border_color(btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+        lv_obj_set_style_border_width(btn, 2, LV_STATE_FOCUSED);
+        lv_obj_set_style_bg_color(btn, LV_COLOR_BG_LAYER2, LV_STATE_FOCUSED);
 
-        lv_obj_t* lbl = lv_label_create(row);
+        lv_obj_t* lbl = lv_label_create(btn);
         lv_label_set_text(lbl, label_text);
         lv_obj_set_style_text_color(lbl, LV_COLOR_TEXT_PRIMARY, 0);
         lv_obj_set_style_text_font(lbl, getThemeFonts()->font_small, 0);
 
-        lv_obj_t* val = lv_label_create(row);
+        lv_obj_t* val = lv_label_create(btn);
         lv_obj_set_style_text_color(val, LV_COLOR_ACCENT_CYAN, 0);
         lv_obj_set_style_text_font(val, getThemeFonts()->font_small, 0);
 
-        *row_out = row;
+        // Value handler FIRST (handles LEFT/RIGHT), then linear_nav_handler (UP/DOWN)
+        lv_obj_add_event_cb(btn, shooter_value_handler, LV_EVENT_KEY, (void*)(intptr_t)row_index);
+        lv_obj_add_event_cb(btn, shooter_row_click_handler, LV_EVENT_CLICKED, (void*)(intptr_t)row_index);
+        lv_obj_add_event_cb(btn, linear_nav_handler, LV_EVENT_KEY, NULL);
+        addNavigableWidget(btn);
+
+        *row_out = btn;
         *value_out = val;
     };
 
-    // Create settings rows - expanded options
-    createSettingsRow("Mode", &shooter_mode_row, &shooter_mode_value);
-    createSettingsRow("Preset", &shooter_preset_row, &shooter_preset_value);
-    createSettingsRow("Difficulty", &shooter_diff_row, &shooter_diff_value);
-    createSettingsRow("Speed", &shooter_speed_row, &shooter_speed_value);
-    createSettingsRow("Tone", &shooter_tone_row, &shooter_tone_value);
-    createSettingsRow("Key Type", &shooter_key_row, &shooter_key_value);
-    createSettingsRow("Lives", &shooter_lives_row, &shooter_lives_value);
+    // Create settings rows (no legacy Difficulty row)
+    createSettingsRow("Mode", SHOOTER_ROW_MODE, &shooter_mode_row, &shooter_mode_value);
+    createSettingsRow("Preset", SHOOTER_ROW_PRESET, &shooter_preset_row, &shooter_preset_value);
+    createSettingsRow("Speed", SHOOTER_ROW_SPEED, &shooter_speed_row, &shooter_speed_value);
+    createSettingsRow("Tone", SHOOTER_ROW_TONE, &shooter_tone_row, &shooter_tone_value);
+    createSettingsRow("Key Type", SHOOTER_ROW_KEY, &shooter_key_row, &shooter_key_value);
+    createSettingsRow("Lives", SHOOTER_ROW_LIVES, &shooter_lives_row, &shooter_lives_value);
 
     // Start button
     shooter_start_btn = lv_btn_create(screen);
     lv_obj_set_size(shooter_start_btn, 200, 50);
     lv_obj_set_pos(shooter_start_btn, (SCREEN_WIDTH - 200) / 2, SCREEN_HEIGHT - FOOTER_HEIGHT - 70);
     lv_obj_set_style_bg_color(shooter_start_btn, LV_COLOR_SUCCESS, 0);
+    lv_obj_set_style_bg_color(shooter_start_btn, lv_color_hex(0x00CC44), LV_STATE_FOCUSED);
     lv_obj_set_style_radius(shooter_start_btn, 8, 0);
     lv_obj_set_style_border_width(shooter_start_btn, 1, 0);
     lv_obj_set_style_border_color(shooter_start_btn, LV_COLOR_BORDER_SUBTLE, 0);
+    lv_obj_set_style_border_color(shooter_start_btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(shooter_start_btn, 2, LV_STATE_FOCUSED);
 
     lv_obj_t* btn_label = lv_label_create(shooter_start_btn);
     lv_label_set_text(btn_label, "START GAME");
     lv_obj_set_style_text_font(btn_label, getThemeFonts()->font_subtitle, 0);
     lv_obj_center(btn_label);
+
+    // Standard navigation for START button
+    lv_obj_add_event_cb(shooter_start_btn, shooter_row_click_handler, LV_EVENT_CLICKED, (void*)(intptr_t)SHOOTER_ROW_START);
+    lv_obj_add_event_cb(shooter_start_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
+    addNavigableWidget(shooter_start_btn);
 
     // Footer
     lv_obj_t* footer = lv_obj_create(screen);
@@ -1233,29 +1148,15 @@ lv_obj_t* createMorseShooterSettingsScreen() {
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
 
-    // Invisible focus container for keyboard input
-    lv_obj_t* focus_container = lv_obj_create(screen);
-    lv_obj_set_size(focus_container, 1, 1);
-    lv_obj_set_pos(focus_container, -10, -10);
-    lv_obj_set_style_bg_opa(focus_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(focus_container, 0, 0);
-    lv_obj_set_style_outline_width(focus_container, 0, 0);
-    lv_obj_set_style_outline_width(focus_container, 0, LV_STATE_FOCUSED);
-    lv_obj_clear_flag(focus_container, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(focus_container, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(focus_container, shooter_settings_key_cb, LV_EVENT_KEY, NULL);
-    addNavigableWidget(focus_container);
-
+    // Focus on START button by default (quick-start for returning users)
     lv_group_t* group = getLVGLInputGroup();
     if (group != NULL) {
         lv_group_set_editing(group, true);
     }
-    lv_group_focus_obj(focus_container);
+    lv_group_focus_obj(shooter_start_btn);
 
-    // Initialize values and focus
-    shooter_settings_focus = 7;  // Start on START button (index 7 with new rows)
-    shooter_settings_update_values();
-    shooter_settings_update_focus();
+    // Initialize values
+    shooter_settings_update_all();
 
     shooterScreenState = SHOOTER_STATE_SETTINGS;
     shooter_settings_screen = screen;

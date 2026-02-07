@@ -314,6 +314,14 @@ void playCurrentCharacter();
 void checkVailCourseLessonAnswer(char answer);
 void advanceVailCourseLessonItem();
 
+// Cleanup Vail Course timers on back-navigation
+void cleanupVailCourseLesson() {
+    if (vail_course_autoplay_timer) {
+        lv_timer_del(vail_course_autoplay_timer);
+        vail_course_autoplay_timer = NULL;
+    }
+}
+
 // Cancel any pending auto-play timer
 static void cancelVailCourseAutoplayTimer() {
     if (vail_course_autoplay_timer) {

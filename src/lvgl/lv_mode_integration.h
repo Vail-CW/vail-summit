@@ -765,6 +765,22 @@ static const ModeCallbackEntry cleanupTable[] = {
     { MODE_MORSE_NOTES_RECORD,           cleanupMorseNotesRecordScreen },
     { MODE_MORSE_NOTES_PLAYBACK,         cleanupMorseNotesPlaybackScreen },
     { MODE_VAIL_MASTER_CHARSET,          cleanupVailMasterCharset },
+    { MODE_MORSE_SHOOTER,                cleanupMorseShooter },
+    // Timer cleanup entries - prevent zombie timers on back-navigation
+    { MODE_LICW_COPY_PRACTICE,           cleanupLICWPractice },
+    { MODE_LICW_SEND_PRACTICE,           cleanupLICWPractice },
+    { MODE_LICW_TTR_PRACTICE,            cleanupLICWPractice },
+    { MODE_LICW_IFR_PRACTICE,            cleanupLICWPractice },
+    { MODE_LICW_CFP_PRACTICE,            cleanupLICWPractice },
+    { MODE_LICW_WORD_DISCOVERY,          cleanupLICWPractice },
+    { MODE_LICW_QSO_PRACTICE,            cleanupLICWPractice },
+    { MODE_LICW_ADVERSE_COPY,            cleanupLICWPractice },
+    { MODE_VAIL_COURSE_LESSON,           cleanupVailCourseLesson },
+    { MODE_CWSCHOOL_LINK,                cleanupCWSchoolLinkScreen },
+    { MODE_MORSE_MAILBOX_LINK,           cleanupMailboxLinkScreen },
+    { MODE_MORSE_MAILBOX_PLAYBACK,       cleanupMailboxPlayback },
+    { MODE_MORSE_MAILBOX_COMPOSE,        cleanupMailboxCompose },
+    { MODE_POTA_RECORDER,                cleanupPOTARecorderScreen },
 };
 static const int cleanupTableSize = sizeof(cleanupTable) / sizeof(cleanupTable[0]);
 

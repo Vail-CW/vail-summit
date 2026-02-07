@@ -152,8 +152,8 @@ using namespace lgfx::v1::fonts;
 #include "src/lvgl/lv_training_screens.h"
 #include "src/lvgl/lv_game_screens.h"
 #include "src/lvgl/lv_mode_screens.h"
-#include "src/lvgl/lv_mode_integration.h"
 #include "src/lvgl/lv_pota_recorder.h"
+#include "src/lvgl/lv_mode_integration.h"
 
 // ============================================
 // cwKeyType accessor functions for LVGL (needed because cwKeyType is KeyType enum)
