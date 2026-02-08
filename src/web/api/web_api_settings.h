@@ -33,6 +33,7 @@ extern void setVolume(int volume);
 extern int getVolume();
 extern void saveCallsign(const char* callsign);
 extern bool checkWebAuth(AsyncWebServerRequest *request);
+String getWebFilesVersion();  // Forward declaration (defined in web_file_downloader.h)
 
 // ============================================
 // Setup Function - Register All Settings API Endpoints
@@ -371,6 +372,13 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
     doc["spiffsUsed"] = SPIFFS.usedBytes();
     doc["spiffsTotal"] = SPIFFS.totalBytes();
     doc["qsoCount"] = storageStats.totalLogs;
+
+    // Web files
+    doc["webFilesExpected"] = WEB_FILES_VERSION;
+    String installedWebVer = getWebFilesVersion();
+    installedWebVer.trim();
+    doc["webFilesInstalled"] = installedWebVer.isEmpty() ? "Not installed" : installedWebVer.c_str();
+    doc["webFilesMatch"] = (!installedWebVer.isEmpty() && installedWebVer == WEB_FILES_VERSION);
 
     // WiFi
     doc["wifiConnected"] = WiFi.isConnected();

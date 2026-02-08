@@ -105,6 +105,22 @@
             </div>
 
             <div class="card">
+                <h2>🌐 Web Interface</h2>
+                <div class="info-row">
+                    <span class="info-label">Expected</span>
+                    <span class="info-value" id="webExpected">Loading...</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Installed</span>
+                    <span class="info-value" id="webInstalled">Loading...</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Status</span>
+                    <span class="info-value" id="webStatus">Loading...</span>
+                </div>
+            </div>
+
+            <div class="card">
                 <h2>⏱️ System</h2>
                 <div class="info-row">
                     <span class="info-label">Uptime</span>
@@ -241,6 +257,17 @@
 
                 document.getElementById('firmware').textContent = data.firmware || 'Unknown';
                 document.getElementById('firmwareDate').textContent = data.firmwareDate || 'Unknown';
+
+                document.getElementById('webExpected').textContent = 'v' + (data.webFilesExpected || 'Unknown');
+                const webInst = data.webFilesInstalled || 'Not installed';
+                document.getElementById('webInstalled').textContent = webInst === 'Not installed' ? webInst : 'v' + webInst;
+                if (data.webFilesMatch) {
+                    document.getElementById('webStatus').innerHTML = '<span class="signal-good">Up to date</span>';
+                } else if (webInst === 'Not installed') {
+                    document.getElementById('webStatus').innerHTML = '<span class="signal-poor">Not installed</span>';
+                } else {
+                    document.getElementById('webStatus').innerHTML = '<span class="signal-ok">Update available</span>';
+                }
 
                 document.getElementById('uptime').textContent = formatUptime(data.uptime || 0);
                 document.getElementById('cpuSpeed').textContent = (data.cpuFreq || '?') + ' MHz';

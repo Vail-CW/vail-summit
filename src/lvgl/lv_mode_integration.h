@@ -626,7 +626,7 @@ bool handleGlobalHotkey(char key) {
 void onLVGLMenuSelect(int target_mode) {
     Serial.printf("[ModeIntegration] Menu selected mode: %d\n", target_mode);
 
-    // Web Files update mode - uses reboot-based download (SSL requires early boot RAM)
+    // Web Files management screen - shows version info and allows force download
     if (target_mode == MODE_WEB_FILES_UPDATE) {
         // Play selection beep
         beep(TONE_SELECT, BEEP_MEDIUM);
@@ -650,22 +650,8 @@ void onLVGLMenuSelect(int target_mode) {
             return;
         }
 
-        // Note: Version checking requires SSL which fails due to RAM constraints
-        // when LVGL is running. We skip version check and just offer to download.
-        // The download itself happens at early boot via reboot.
-
-        // Check if web files exist to determine prompt text
-        if (webFilesExist()) {
-            String localVersion = getWebFilesVersion();
-            Serial.printf("[ModeIntegration] Web files exist (v%s), offering update\n", localVersion.c_str());
-            webFilesUpdateAvailable = true;
-        } else {
-            Serial.println("[ModeIntegration] No web files found, offering download");
-            webFilesUpdateAvailable = false;
-        }
-
-        // Show the download screen (for update or fresh install)
-        // User will press Y to trigger reboot-based download
+        // Show the download/management screen with version info
+        // Download always available regardless of version match
         showWebFilesDownloadScreen();
         return;
     }

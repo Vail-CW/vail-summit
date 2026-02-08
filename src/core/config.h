@@ -9,9 +9,10 @@
 // ============================================
 // Firmware Version Information
 // ============================================
-#define FIRMWARE_VERSION "0.522"
-#define FIRMWARE_DATE "2026-02-07"  // Update this date each time you build new firmware
+#define FIRMWARE_VERSION "0.523"
+#define FIRMWARE_DATE "2026-02-08"  // Update this date each time you build new firmware
 #define FIRMWARE_NAME "VAIL SUMMIT"
+#define WEB_FILES_VERSION "1.6.0"   // Expected web interface version for this firmware
 
 // ============================================
 // LCD Display (ST7796S 4.0") - SPI Interface

@@ -1595,6 +1595,24 @@ lv_obj_t* createSystemInfoScreen() {
     lv_obj_set_width(date_label, lv_pct(100));
     lv_obj_set_style_text_align(date_label, LV_TEXT_ALIGN_CENTER, 0);
 
+    // Web files version
+    lv_obj_t* web_ver_label = lv_label_create(content);
+    String webVer = getWebFilesVersion();
+    webVer.trim();
+    if (webVer.isEmpty()) {
+        lv_label_set_text(web_ver_label, "Web: Not installed");
+        lv_obj_set_style_text_color(web_ver_label, LV_COLOR_WARNING, 0);
+    } else if (webVer == WEB_FILES_VERSION) {
+        lv_label_set_text_fmt(web_ver_label, "Web: v%s", webVer.c_str());
+        lv_obj_set_style_text_color(web_ver_label, LV_COLOR_TEXT_SECONDARY, 0);
+    } else {
+        lv_label_set_text_fmt(web_ver_label, "Web: v%s (expected v%s)", webVer.c_str(), WEB_FILES_VERSION);
+        lv_obj_set_style_text_color(web_ver_label, LV_COLOR_WARNING, 0);
+    }
+    lv_obj_set_style_text_font(web_ver_label, getThemeFonts()->font_small, 0);
+    lv_obj_set_width(web_ver_label, lv_pct(100));
+    lv_obj_set_style_text_align(web_ver_label, LV_TEXT_ALIGN_CENTER, 0);
+
     // Spacer
     lv_obj_t* spacer = lv_obj_create(content);
     lv_obj_set_size(spacer, lv_pct(100), 10);

@@ -104,11 +104,36 @@ static lv_obj_t* createWebDownloadFooter(lv_obj_t* parent, const char* text) {
 // ============================================
 
 /**
- * Show the web files download prompt screen
- * Called when SD card present, WiFi connected, and web files missing
+ * Create an info row with label and value for the download screen
+ */
+static void createWebDownloadInfoRow(lv_obj_t* parent, const char* label, const char* value, lv_color_t valueColor) {
+    lv_obj_t* row = lv_obj_create(parent);
+    lv_obj_set_size(row, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_layout(row, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(row, 0, 0);
+    lv_obj_set_style_pad_all(row, 0, 0);
+    lv_obj_set_style_pad_ver(row, 3, 0);
+
+    lv_obj_t* lbl = lv_label_create(row);
+    lv_label_set_text(lbl, label);
+    lv_obj_set_style_text_color(lbl, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_style_text_font(lbl, getThemeFonts()->font_body, 0);
+
+    lv_obj_t* val = lv_label_create(row);
+    lv_label_set_text(val, value);
+    lv_obj_set_style_text_color(val, valueColor, 0);
+    lv_obj_set_style_text_font(val, getThemeFonts()->font_body, 0);
+}
+
+/**
+ * Show the web files download/management screen
+ * Shows version info and allows force download regardless of version
  */
 void showWebFilesDownloadScreen() {
-    Serial.println("[WebDownload] Showing download prompt screen");
+    Serial.println("[WebDownload] Showing download screen");
 
     // Store reference to return later
     previous_screen = lv_scr_act();
@@ -120,50 +145,69 @@ void showWebFilesDownloadScreen() {
     // Clear navigation group for this screen
     clearNavigationGroup();
 
-    // Check if this is an update or fresh install
-    bool isUpdate = isWebFilesUpdatePrompt();
-
     // Title bar
-    createWebDownloadTitleBar(web_download_screen, isUpdate ? "Web Interface Update" : "Web Interface Setup");
+    createWebDownloadTitleBar(web_download_screen, "WEB INTERFACE FILES");
+
+    // Get version info
+    String installedVer = getWebFilesVersion();
+    installedVer.trim();
+    bool hasFiles = !installedVer.isEmpty();
+    bool versionsMatch = hasFiles && (installedVer == WEB_FILES_VERSION);
 
     // Main content card
     lv_obj_t* card = lv_obj_create(web_download_screen);
-    lv_obj_set_size(card, 420, 160);
-    lv_obj_align(card, LV_ALIGN_CENTER, 0, -10);
+    lv_obj_set_size(card, 420, 170);
+    lv_obj_align(card, LV_ALIGN_TOP_MID, 0, HEADER_HEIGHT + 10);
     applyCardStyle(card);
+    lv_obj_set_layout(card, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(card, 15, 0);
+    lv_obj_set_style_pad_row(card, 2, 0);
     lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Info icon
-    lv_obj_t* icon = lv_label_create(card);
-    lv_label_set_text(icon, isUpdate ? LV_SYMBOL_REFRESH : LV_SYMBOL_DOWNLOAD);
-    lv_obj_set_style_text_font(icon, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(icon, LV_COLOR_ACCENT_CYAN, 0);
-    lv_obj_align(icon, LV_ALIGN_TOP_LEFT, 10, 10);
+    // Version info rows
+    char expectedBuf[24];
+    snprintf(expectedBuf, sizeof(expectedBuf), "v%s", WEB_FILES_VERSION);
+    createWebDownloadInfoRow(card, "Expected:", expectedBuf, LV_COLOR_TEXT_PRIMARY);
 
-    // Message text - different for update vs fresh install
-    // Note: Device will reboot to perform download (RAM constraints)
-    lv_obj_t* msg = lv_label_create(card);
-    if (isUpdate) {
-        lv_label_set_text(msg,
-            "A new version of the web interface\n"
-            "is available.\n\n"
-            "Device will reboot to download.\n"
-            "Update now?");
+    char installedBuf[24];
+    if (hasFiles) {
+        snprintf(installedBuf, sizeof(installedBuf), "v%s", installedVer.c_str());
     } else {
-        lv_label_set_text(msg,
-            "SD card detected but web interface\n"
-            "files are missing.\n\n"
-            "Device will reboot to download.\n"
-            "Download now?");
+        snprintf(installedBuf, sizeof(installedBuf), "Not installed");
     }
-    lv_obj_add_style(msg, getStyleLabelBody(), 0);
-    lv_obj_set_style_text_line_space(msg, 4, 0);
-    lv_obj_align(msg, LV_ALIGN_TOP_LEFT, 50, 10);
+    lv_color_t installedColor = versionsMatch ? LV_COLOR_TEXT_PRIMARY :
+                                hasFiles ? LV_COLOR_WARNING : lv_color_hex(0xFF6666);
+    createWebDownloadInfoRow(card, "Installed:", installedBuf, installedColor);
+
+    // Status row
+    const char* statusText;
+    lv_color_t statusColor;
+    if (versionsMatch) {
+        statusText = "Up to date";
+        statusColor = lv_color_hex(0x4CAF50);  // green
+    } else if (hasFiles) {
+        statusText = "Update available";
+        statusColor = LV_COLOR_WARNING;
+    } else {
+        statusText = "Not installed";
+        statusColor = lv_color_hex(0xFF6666);  // red
+    }
+    createWebDownloadInfoRow(card, "Status:", statusText, statusColor);
+
+    // Description text
+    lv_obj_t* desc = lv_label_create(card);
+    lv_label_set_text(desc,
+        "\nDevice will reboot to download\n"
+        "the latest web interface files.");
+    lv_obj_add_style(desc, getStyleLabelBody(), 0);
+    lv_obj_set_style_text_color(desc, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_style_text_line_space(desc, 4, 0);
 
     // Button container
     lv_obj_t* btn_container = lv_obj_create(web_download_screen);
     lv_obj_set_size(btn_container, 420, 50);
-    lv_obj_align(btn_container, LV_ALIGN_CENTER, 0, 90);
+    lv_obj_align(btn_container, LV_ALIGN_BOTTOM_MID, 0, -(FOOTER_HEIGHT + 10));
     lv_obj_set_style_bg_opa(btn_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(btn_container, 0, 0);
     lv_obj_set_layout(btn_container, LV_LAYOUT_FLEX);
@@ -178,22 +222,27 @@ void showWebFilesDownloadScreen() {
     lv_obj_t* btn_download_label = lv_label_create(btn_download);
     lv_label_set_text(btn_download_label, "Download (Y)");
     lv_obj_center(btn_download_label);
+    lv_obj_add_event_cb(btn_download, [](lv_event_t* e) {
+        handleWebDownloadInput('Y');
+    }, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(btn_download, linear_nav_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(btn_download);
 
-    // Skip button
-    lv_obj_t* btn_skip = lv_btn_create(btn_container);
-    lv_obj_set_size(btn_skip, 160, 45);
-    applyButtonStyle(btn_skip);
-    lv_obj_t* btn_skip_label = lv_label_create(btn_skip);
-    lv_label_set_text(btn_skip_label, "Skip (N)");
-    lv_obj_center(btn_skip_label);
-    addNavigableWidget(btn_skip);
+    // Back button
+    lv_obj_t* btn_back = lv_btn_create(btn_container);
+    lv_obj_set_size(btn_back, 160, 45);
+    applyButtonStyle(btn_back);
+    lv_obj_t* btn_back_label = lv_label_create(btn_back);
+    lv_label_set_text(btn_back_label, "Back (N)");
+    lv_obj_center(btn_back_label);
+    lv_obj_add_event_cb(btn_back, [](lv_event_t* e) {
+        handleWebDownloadInput('N');
+    }, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(btn_back, linear_nav_handler, LV_EVENT_KEY, NULL);
+    addNavigableWidget(btn_back);
 
-    // Footer - different text for update vs fresh install
-    const char* footerText = isUpdate
-        ? "Y: Update Now   N: Skip this version"
-        : "Y: Download Now   N: Skip (don't ask again)";
-    web_download_footer = createWebDownloadFooter(web_download_screen, footerText);
+    // Footer
+    web_download_footer = createWebDownloadFooter(web_download_screen, "Y: Download    N/ESC: Back");
 
     // Load screen
     loadScreen(web_download_screen, SCREEN_ANIM_FADE);
@@ -519,7 +568,6 @@ bool handleWebDownloadInput(char key) {
             }
             else if (key == 'n' || key == 'N' || key == KEY_ESC) {
                 beep(TONE_MENU_NAV, BEEP_SHORT);
-                declineWebFilesDownload();
                 exitWebDownloadScreen();
                 return true;
             }
