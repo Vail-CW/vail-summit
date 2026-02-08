@@ -220,7 +220,7 @@ void showWebFilesDownloadScreen() {
     lv_obj_set_size(btn_download, 160, 45);
     applyButtonStyle(btn_download);
     lv_obj_t* btn_download_label = lv_label_create(btn_download);
-    lv_label_set_text(btn_download_label, "Download (Y)");
+    lv_label_set_text(btn_download_label, LV_SYMBOL_DOWNLOAD " Download");
     lv_obj_center(btn_download_label);
     lv_obj_add_event_cb(btn_download, [](lv_event_t* e) {
         handleWebDownloadInput('Y');
@@ -233,7 +233,7 @@ void showWebFilesDownloadScreen() {
     lv_obj_set_size(btn_back, 160, 45);
     applyButtonStyle(btn_back);
     lv_obj_t* btn_back_label = lv_label_create(btn_back);
-    lv_label_set_text(btn_back_label, "Back (N)");
+    lv_label_set_text(btn_back_label, LV_SYMBOL_LEFT " Back");
     lv_obj_center(btn_back_label);
     lv_obj_add_event_cb(btn_back, [](lv_event_t* e) {
         handleWebDownloadInput('N');
@@ -242,7 +242,7 @@ void showWebFilesDownloadScreen() {
     addNavigableWidget(btn_back);
 
     // Footer
-    web_download_footer = createWebDownloadFooter(web_download_screen, "Y: Download    N/ESC: Back");
+    web_download_footer = createWebDownloadFooter(web_download_screen, "ENTER: Download    ESC: Back");
 
     // Load screen
     loadScreen(web_download_screen, SCREEN_ANIM_FADE);

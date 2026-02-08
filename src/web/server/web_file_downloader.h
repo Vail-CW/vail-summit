@@ -26,6 +26,10 @@
 // 3. Download files with plenty of RAM
 // 4. Clear flag and reboot to normal mode
 
+// Progress callback for early boot download display updates
+// Parameters: status message, current file number, total file count
+typedef void (*EarlyBootProgressCallback)(const char* status, int currentFile, int totalFiles);
+
 #define WEB_DOWNLOAD_PREF_NAMESPACE "webdl"
 #define WEB_DOWNLOAD_PREF_PENDING "pending"
 
@@ -71,7 +75,8 @@ void clearWebDownloadPending() {
  * @param password WiFi password
  * @return true if download successful
  */
-bool performEarlyBootWebDownload(const char* ssid, const char* password) {
+bool performEarlyBootWebDownload(const char* ssid, const char* password,
+                                  EarlyBootProgressCallback progressCb = nullptr) {
   Serial.println("\n========================================");
   Serial.println("EARLY BOOT WEB DOWNLOAD MODE");
   Serial.println("========================================\n");
@@ -81,6 +86,7 @@ bool performEarlyBootWebDownload(const char* ssid, const char* password) {
 
   // Connect to WiFi
   Serial.printf("Connecting to WiFi: %s\n", ssid);
+  if (progressCb) progressCb("Connecting to WiFi...", 0, 0);
   WiFi.begin(ssid, password);
 
   int attempts = 0;
@@ -93,14 +99,20 @@ bool performEarlyBootWebDownload(const char* ssid, const char* password) {
 
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi connection failed!");
+    if (progressCb) progressCb("WiFi connection failed!", 0, 0);
+    delay(2000);
     return false;
   }
   Serial.printf("Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+  if (progressCb) progressCb("WiFi connected!", 0, 0);
 
   // Initialize SD card
   Serial.println("Initializing SD card...");
+  if (progressCb) progressCb("Initializing SD card...", 0, 0);
   if (!SD.begin(SD_CS)) {
     Serial.println("SD card init failed!");
+    if (progressCb) progressCb("SD card init failed!", 0, 0);
+    delay(2000);
     return false;
   }
 
@@ -108,6 +120,7 @@ bool performEarlyBootWebDownload(const char* ssid, const char* password) {
     ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
   // Now do the SSL download
+  if (progressCb) progressCb("Fetching file manifest...", 0, 0);
   String manifestUrl = String(WEB_FILES_BASE_URL) + WEB_FILES_MANIFEST;
   Serial.printf("Fetching: %s\n", manifestUrl.c_str());
 
@@ -118,6 +131,8 @@ bool performEarlyBootWebDownload(const char* ssid, const char* password) {
   Serial.println("Connecting to GitHub (SSL)...");
   if (!secureClient.connect("raw.githubusercontent.com", 443)) {
     Serial.println("SSL connection failed!");
+    if (progressCb) progressCb("SSL connection failed!", 0, 0);
+    delay(2000);
     return false;
   }
   Serial.println("SSL connected!");
@@ -155,6 +170,8 @@ bool performEarlyBootWebDownload(const char* ssid, const char* password) {
   DeserializationError error = deserializeJson(doc, manifestJson);
   if (error) {
     Serial.printf("JSON parse error: %s\n", error.c_str());
+    if (progressCb) progressCb("Failed to parse manifest!", 0, 0);
+    delay(2000);
     return false;
   }
 
@@ -179,6 +196,7 @@ bool performEarlyBootWebDownload(const char* ssid, const char* password) {
     String sdPath = String("/www/") + fileName;
 
     Serial.printf("Downloading %d/%d: %s\n", downloaded + 1, fileCount, fileName);
+    if (progressCb) progressCb(fileName, downloaded + 1, fileCount);
 
     WiFiClientSecure fileClient;
     fileClient.setInsecure();
@@ -238,6 +256,11 @@ bool performEarlyBootWebDownload(const char* ssid, const char* password) {
   }
 
   Serial.printf("\nDownload complete! %d/%d files\n", downloaded, fileCount);
+  if (progressCb) {
+    char doneBuf[48];
+    snprintf(doneBuf, sizeof(doneBuf), "Done! %d/%d files downloaded", downloaded, fileCount);
+    progressCb(doneBuf, fileCount, fileCount);
+  }
   return downloaded > 0;
 }
 

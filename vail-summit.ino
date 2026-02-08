@@ -188,6 +188,78 @@ int getCurrentModeAsInt() { return (int)currentMode; }
 void setCurrentModeFromInt(int mode) { currentMode = (MenuMode)mode; }
 
 // ============================================
+// Early Boot Download Screen (direct TFT, no LVGL)
+// ============================================
+// Used during web file downloads that happen before LVGL init.
+// Draws directly to the display using LovyanGFX.
+
+#define DL_BAR_X      60
+#define DL_BAR_Y      160
+#define DL_BAR_W      360
+#define DL_BAR_H      22
+#define DL_STATUS_Y   210
+#define DL_FILE_Y     245
+
+void drawEarlyBootDownloadScreen() {
+  tft.fillScreen(COLOR_BACKGROUND);
+
+  // Title
+  tft.setFont(&FreeSansBold18pt7b);
+  tft.setTextColor(COLOR_TITLE);
+  tft.setTextDatum(lgfx::top_center);
+  tft.drawString("VAIL SUMMIT", SCREEN_WIDTH / 2, 30);
+
+  // Subtitle
+  tft.setFont(&FreeSansBold12pt7b);
+  tft.setTextColor(COLOR_TEXT_PRIMARY);
+  tft.drawString("Downloading Web Files", SCREEN_WIDTH / 2, 90);
+
+  // "Please wait" note
+  tft.setFont(&FreeSansBold9pt7b);
+  tft.setTextColor(0x8C71);  // dim gray
+  tft.drawString("Device will reboot when complete", SCREEN_WIDTH / 2, 125);
+
+  // Progress bar outline
+  tft.drawRect(DL_BAR_X, DL_BAR_Y, DL_BAR_W, DL_BAR_H, COLOR_TEXT_PRIMARY);
+
+  // Initial status
+  tft.setFont(nullptr);
+  tft.setTextSize(2);
+  tft.setTextColor(COLOR_ACCENT_CYAN);
+  tft.setTextDatum(lgfx::top_center);
+  tft.drawString("Initializing...", SCREEN_WIDTH / 2, DL_STATUS_Y);
+  tft.setTextSize(1);
+}
+
+void earlyBootProgressCallback(const char* status, int currentFile, int totalFiles) {
+  // Update progress bar fill
+  if (totalFiles > 0) {
+    int fillW = ((DL_BAR_W - 4) * currentFile) / totalFiles;
+    tft.fillRect(DL_BAR_X + 2, DL_BAR_Y + 2, fillW, DL_BAR_H - 4, COLOR_ACCENT_CYAN);
+  }
+
+  // Clear text areas
+  tft.fillRect(0, DL_STATUS_Y, SCREEN_WIDTH, 80, COLOR_BACKGROUND);
+
+  // File counter
+  tft.setFont(nullptr);
+  tft.setTextSize(2);
+  tft.setTextDatum(lgfx::top_center);
+
+  if (totalFiles > 0) {
+    char countBuf[32];
+    snprintf(countBuf, sizeof(countBuf), "File %d / %d", currentFile, totalFiles);
+    tft.setTextColor(COLOR_TEXT_PRIMARY);
+    tft.drawString(countBuf, SCREEN_WIDTH / 2, DL_STATUS_Y);
+  }
+
+  // Status / filename
+  tft.setTextColor(COLOR_ACCENT_CYAN);
+  tft.drawString(status, SCREEN_WIDTH / 2, DL_FILE_Y);
+  tft.setTextSize(1);
+}
+
+// ============================================
 // Setup - Hardware Initialization
 // ============================================
 
@@ -259,6 +331,13 @@ void setup() {
     Serial.printf("Free heap: %d bytes, max block: %d bytes\n",
       ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
+    // Initialize display + backlight early so user sees progress
+    setupBrightnessPWM();
+    loadBrightnessSettings();
+    applyBrightness(brightnessValue);
+    initDisplay();
+    drawEarlyBootDownloadScreen();
+
     // Load saved WiFi credentials from Preferences
     // WiFi credentials are stored as ssid1/pass1, ssid2/pass2, ssid3/pass3
     Preferences wifiPrefs;
@@ -273,21 +352,39 @@ void setup() {
     if (savedSSID.length() > 0) {
       Serial.printf("Using saved WiFi: %s\n", savedSSID.c_str());
 
-      // Perform the download
-      bool success = performEarlyBootWebDownload(savedSSID.c_str(), savedPassword.c_str());
+      // Perform the download with progress callback for display updates
+      bool success = performEarlyBootWebDownload(savedSSID.c_str(), savedPassword.c_str(),
+                                                  earlyBootProgressCallback);
 
       // Clear the pending flag
       clearWebDownloadPending();
+
+      // Show result on screen before rebooting
+      tft.fillRect(0, DL_STATUS_Y, SCREEN_WIDTH, 80, COLOR_BACKGROUND);
+      tft.setFont(nullptr);
+      tft.setTextSize(2);
+      tft.setTextDatum(lgfx::top_center);
 
       if (success) {
         Serial.println("\n========================================");
         Serial.println("DOWNLOAD COMPLETE - REBOOTING TO NORMAL");
         Serial.println("========================================\n");
+        // Fill progress bar completely
+        tft.fillRect(DL_BAR_X + 2, DL_BAR_Y + 2, DL_BAR_W - 4, DL_BAR_H - 4, COLOR_ACCENT_CYAN);
+        tft.setTextColor(0x07E0);  // green
+        tft.drawString("Download complete!", SCREEN_WIDTH / 2, DL_STATUS_Y);
+        tft.setTextColor(COLOR_TEXT_PRIMARY);
+        tft.drawString("Rebooting...", SCREEN_WIDTH / 2, DL_FILE_Y);
       } else {
         Serial.println("\n========================================");
         Serial.println("DOWNLOAD FAILED - REBOOTING TO NORMAL");
         Serial.println("========================================\n");
+        tft.setTextColor(0xF800);  // red
+        tft.drawString("Download failed!", SCREEN_WIDTH / 2, DL_STATUS_Y);
+        tft.setTextColor(COLOR_TEXT_PRIMARY);
+        tft.drawString("Rebooting...", SCREEN_WIDTH / 2, DL_FILE_Y);
       }
+      tft.setTextSize(1);
 
       // Clean up before reboot
       Serial.println("Disconnecting WiFi before reboot...");
@@ -295,11 +392,15 @@ void setup() {
       WiFi.mode(WIFI_OFF);
       delay(100);
 
-      delay(500);
+      delay(1500);  // Show result message briefly
       ESP.restart();
     } else {
       Serial.println("No saved WiFi credentials - clearing flag and continuing");
       clearWebDownloadPending();
+      // Show error on screen
+      earlyBootProgressCallback("No WiFi credentials saved!", 0, 0);
+      delay(2000);
+      ESP.restart();
     }
   }
 
