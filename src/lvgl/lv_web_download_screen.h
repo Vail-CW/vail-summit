@@ -226,17 +226,14 @@ void showWebFilesDownloadScreen() {
         if (lv_event_get_code(e) != LV_EVENT_KEY) return;
         uint32_t key = lv_event_get_key(e);
 
-        // Intercept ESC and stop propagation to prevent global handler
+        // ONLY intercept ESC - all other keys pass through to grid_nav_handler
         if (key == LV_KEY_ESC) {
-            lv_event_stop_processing(e);  // Prevents global_esc_handler from running
-            lv_event_stop_bubbling(e);
-            handleWebDownloadInput(KEY_ESC);  // Handle locally
+            Serial.println("[WebDownload] Screen-specific ESC handler - stopping propagation");
+            lv_event_stop_processing(e);  // Stop other handlers on this object
+            lv_event_stop_bubbling(e);     // Stop parent handlers
+            exitWebDownloadScreen();       // Handle locally (bypass main loop)
         }
-        // ENTER triggers the currently focused button
-        else if (key == LV_KEY_ENTER) {
-            lv_event_stop_processing(e);
-            // Let LVGL's default click handling work
-        }
+        // All other keys (ENTER, arrows, etc.) continue to other handlers
     };
 
     // Download button
@@ -358,8 +355,9 @@ void showWebFilesUpdateNotification() {
     lv_obj_add_event_cb(btn_ok, [](lv_event_t* e) {
         if (lv_event_get_code(e) != LV_EVENT_KEY) return;
         uint32_t key = lv_event_get_key(e);
-        // Intercept ESC/ENTER and let main loop handle via handleWebDownloadInput
-        if (key == LV_KEY_ESC || key == LV_KEY_ENTER) {
+        // ONLY intercept ESC - ENTER will trigger button click naturally
+        if (key == LV_KEY_ESC) {
+            Serial.println("[WebDownload] Notification screen ESC - stopping propagation");
             lv_event_stop_processing(e);
             lv_event_stop_bubbling(e);
             exitWebDownloadScreen();
@@ -521,7 +519,9 @@ void showWebFilesDownloadComplete(bool success, const char* message) {
         lv_obj_add_event_cb(retry_btn, [](lv_event_t* e) {
             if (lv_event_get_code(e) != LV_EVENT_KEY) return;
             uint32_t key = lv_event_get_key(e);
+            // ONLY intercept ESC - ENTER will trigger button click naturally
             if (key == LV_KEY_ESC) {
+                Serial.println("[WebDownload] Error screen ESC - stopping propagation");
                 lv_event_stop_processing(e);
                 lv_event_stop_bubbling(e);
                 exitWebDownloadScreen();
@@ -668,7 +668,15 @@ bool isWebDownloadScreenActive() {
  * Exit the web download screen and return to previous screen
  */
 void exitWebDownloadScreen() {
+    // Prevent double-exit
+    if (webDownloadUIState == WD_UI_IDLE) {
+        Serial.println("[WebDownload] Already exited, ignoring duplicate call");
+        return;
+    }
+
     Serial.println("[WebDownload] Exiting web download screen");
+    Serial.printf("[WebDownload] Current state: %d, screen ptr: %p, previous: %p\n",
+                  webDownloadUIState, web_download_screen, previous_screen);
 
     webDownloadUIState = WD_UI_IDLE;
 
@@ -681,15 +689,21 @@ void exitWebDownloadScreen() {
 
     // Delete the screen
     if (web_download_screen != NULL) {
+        Serial.println("[WebDownload] Deleting screen object");
         lv_obj_del(web_download_screen);
         web_download_screen = NULL;
     }
 
     // Return to previous screen if available
     if (previous_screen != NULL && lv_obj_is_valid(previous_screen)) {
+        Serial.printf("[WebDownload] Loading previous screen: %p\n", previous_screen);
         lv_scr_load(previous_screen);
         previous_screen = NULL;
+    } else {
+        Serial.println("[WebDownload] WARNING: No valid previous screen to return to!");
     }
+
+    Serial.println("[WebDownload] Exit complete");
 }
 
 #endif // LV_WEB_DOWNLOAD_SCREEN_H
