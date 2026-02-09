@@ -171,14 +171,8 @@ lv_obj_t* createLICWCarouselSelectScreen() {
         lv_label_set_text(name, carousel->shortName);
         lv_obj_set_style_text_font(name, getThemeFonts()->font_title, 0);
 
-        // Color code by level
-        if (i < 3) {
-            lv_obj_set_style_text_color(name, LV_COLOR_SUCCESS, 0);  // Green for BC
-        } else if (i < 6) {
-            lv_obj_set_style_text_color(name, LV_COLOR_WARNING, 0);  // Orange for INT
-        } else {
-            lv_obj_set_style_text_color(name, LV_COLOR_ACCENT_CYAN, 0);  // Cyan for ADV
-        }
+        // Color code by level - don't set explicit colors, inherit from button style
+        // This allows proper contrast in both normal and focused states
 
         // Speed info
         char speed_text[24];
@@ -302,7 +296,7 @@ lv_obj_t* createLICWLessonSelectScreen() {
             lv_obj_t* chars = lv_label_create(col);
             lv_label_set_text(chars, lesson->newChars);
             lv_obj_set_style_text_font(chars, getThemeFonts()->font_title, 0);
-            lv_obj_set_style_text_color(chars, LV_COLOR_ACCENT_CYAN, 0);
+            // Don't set explicit color - inherit from button style for proper focus state
         }
 
         // Speed info
@@ -530,7 +524,7 @@ lv_obj_t* createLICWPracticeTypeScreen() {
         lv_obj_t* icon = lv_label_create(col);
         lv_label_set_text(icon, licw_practice_icons[i]);
         lv_obj_set_style_text_font(icon, &lv_font_montserrat_20, 0);
-        lv_obj_set_style_text_color(icon, available ? LV_COLOR_ACCENT_CYAN : LV_COLOR_TEXT_SECONDARY, 0);
+        // Don't set explicit color - inherit from button style for proper focus state
 
         // Name
         lv_obj_t* name = lv_label_create(col);
@@ -786,7 +780,7 @@ lv_obj_t* createLICWCopyPracticeScreen() {
     licw_copy_char_label = lv_label_create(content);
     lv_label_set_text(licw_copy_char_label, "?");
     lv_obj_set_style_text_font(licw_copy_char_label, getThemeFonts()->font_title, 0);
-    lv_obj_set_style_text_color(licw_copy_char_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(licw_copy_char_label, LV_COLOR_TEXT_PRIMARY, 0);
 
     // User input display
     licw_copy_input_label = lv_label_create(content);
@@ -892,15 +886,13 @@ void licwSendStartRound() {
 
     // Update UI
     if (licw_send_target_label) {
-        char display[48];
-        snprintf(display, sizeof(display), "Send: %s", licw_send_target);
-        lv_label_set_text(licw_send_target_label, display);
+        lv_label_set_text(licw_send_target_label, licw_send_target);
     }
     if (licw_send_decoded_label) {
         lv_label_set_text(licw_send_decoded_label, "...");
     }
     if (licw_send_feedback_label) {
-        lv_label_set_text(licw_send_feedback_label, "Use paddle to send");
+        lv_label_set_text(licw_send_feedback_label, "Press P to hear target, then use paddle to send");
         lv_obj_set_style_text_color(licw_send_feedback_label, LV_COLOR_TEXT_SECONDARY, 0);
     }
 
@@ -1185,35 +1177,45 @@ lv_obj_t* createLICWSendPracticeScreen() {
 
     // Main display card - target to send
     lv_obj_t* content = lv_obj_create(screen);
-    lv_obj_set_size(content, LV_PCT(90), 70);
+    lv_obj_set_size(content, LV_PCT(90), 80);
     lv_obj_align(content, LV_ALIGN_TOP_MID, 0, 80);
-    applyCardStyle(content);
+    lv_obj_set_style_bg_color(content, LV_COLOR_BG_LAYER2, 0);
+    lv_obj_set_style_border_color(content, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_border_width(content, 2, 0);
+    lv_obj_set_style_radius(content, 12, 0);
+    lv_obj_set_style_pad_all(content, 15, 0);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(content, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Target display
+    // Instruction label
+    lv_obj_t* instruction_label = lv_label_create(content);
+    lv_label_set_text(instruction_label, "Send this with paddle:");
+    lv_obj_set_style_text_font(instruction_label, getThemeFonts()->font_body, 0);
+    lv_obj_set_style_text_color(instruction_label, LV_COLOR_TEXT_SECONDARY, 0);
+
+    // Target display - large white text
     licw_send_target_label = lv_label_create(content);
-    lv_label_set_text(licw_send_target_label, "Send: ---");
+    lv_label_set_text(licw_send_target_label, "---");
     lv_obj_set_style_text_font(licw_send_target_label, getThemeFonts()->font_title, 0);
-    lv_obj_set_style_text_color(licw_send_target_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(licw_send_target_label, LV_COLOR_TEXT_PRIMARY, 0);
 
     // Decoded display using decoder box
     lv_obj_t* decoder_box = createDecoderBox(screen, 400, 60);
-    lv_obj_align(decoder_box, LV_ALIGN_TOP_MID, 0, 160);
+    lv_obj_align(decoder_box, LV_ALIGN_TOP_MID, 0, 170);
     licw_send_decoded_label = lv_obj_get_child(decoder_box, 0);
     lv_label_set_text(licw_send_decoded_label, "...");
 
     // Feedback
     licw_send_feedback_label = lv_label_create(screen);
-    lv_label_set_text(licw_send_feedback_label, "Use paddle to send");
+    lv_label_set_text(licw_send_feedback_label, "Press P to hear target, then use paddle to send");
     lv_obj_set_style_text_font(licw_send_feedback_label, getThemeFonts()->font_input, 0);
     lv_obj_set_style_text_color(licw_send_feedback_label, LV_COLOR_TEXT_SECONDARY, 0);
     lv_obj_align(licw_send_feedback_label, LV_ALIGN_TOP_MID, 0, 230);
 
     // Footer
     lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, "Paddle Send   P Hear   ENTER Submit   ESC Exit");
+    lv_label_set_text(footer, "P=Play Audio   ENTER=Submit   ESC=Exit");
     lv_obj_set_style_text_font(footer, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);
@@ -1460,7 +1462,7 @@ lv_obj_t* createLICWIFRPracticeScreen() {
     licw_ifr_input_label = lv_label_create(content);
     lv_label_set_text(licw_ifr_input_label, "_");
     lv_obj_set_style_text_font(licw_ifr_input_label, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(licw_ifr_input_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(licw_ifr_input_label, LV_COLOR_TEXT_PRIMARY, 0);
 
     // Feedback (below card)
     licw_ifr_feedback_label = lv_label_create(screen);
@@ -1678,7 +1680,7 @@ lv_obj_t* createLICWCFPPracticeScreen() {
     licw_cfp_input_label = lv_label_create(content);
     lv_label_set_text(licw_cfp_input_label, "_");
     lv_obj_set_style_text_font(licw_cfp_input_label, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(licw_cfp_input_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(licw_cfp_input_label, LV_COLOR_TEXT_PRIMARY, 0);
 
     // Rate display (below card)
     licw_cfp_rate_label = lv_label_create(screen);
@@ -1896,7 +1898,7 @@ lv_obj_t* createLICWWordDiscoveryScreen() {
     licw_word_input_label = lv_label_create(content);
     lv_label_set_text(licw_word_input_label, "_");
     lv_obj_set_style_text_font(licw_word_input_label, getThemeFonts()->font_title, 0);
-    lv_obj_set_style_text_color(licw_word_input_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(licw_word_input_label, LV_COLOR_TEXT_PRIMARY, 0);
 
     // Feedback (below card)
     licw_word_feedback_label = lv_label_create(screen);
@@ -2038,7 +2040,7 @@ lv_obj_t* createLICWQSOPracticeScreen() {
     licw_qso_input_label = lv_label_create(screen);
     lv_label_set_text(licw_qso_input_label, "_");
     lv_obj_set_style_text_font(licw_qso_input_label, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(licw_qso_input_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(licw_qso_input_label, LV_COLOR_TEXT_PRIMARY, 0);
     lv_obj_align(licw_qso_input_label, LV_ALIGN_TOP_MID, 0, 180);
 
     // Feedback (below input)
@@ -2228,7 +2230,7 @@ lv_obj_t* createLICWAdverseCopyScreen() {
     licw_adverse_char_label = lv_label_create(content);
     lv_label_set_text(licw_adverse_char_label, "?");
     lv_obj_set_style_text_font(licw_adverse_char_label, getThemeFonts()->font_title, 0);
-    lv_obj_set_style_text_color(licw_adverse_char_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(licw_adverse_char_label, LV_COLOR_TEXT_PRIMARY, 0);
 
     // Input display
     licw_adverse_input_label = lv_label_create(content);
