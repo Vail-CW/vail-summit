@@ -89,7 +89,7 @@ static void cleanupVailMasterScreenPointers() {
 // ============================================
 
 // Grid navigation constants for Vail Master menu
-static const int VM_MENU_COLUMNS = 3;  // 3 columns for 5 mode cards
+static const int VM_MENU_COLUMNS = 2;  // 2 columns for 5 mode cards (actual visual layout)
 
 static void vm_mode_card_click_handler(lv_event_t* e) {
     lv_obj_t* card = lv_event_get_target(e);
@@ -184,7 +184,7 @@ lv_obj_t* createVailMasterMenuScreen() {
         lv_obj_set_size(col, LV_PCT(100), LV_PCT(100));
         lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(col, 0, 0);
-        lv_obj_set_style_pad_all(col, 2, 0);
+        lv_obj_set_style_pad_all(col, 8, 0);
         lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_clear_flag(col, LV_OBJ_FLAG_CLICKABLE);
