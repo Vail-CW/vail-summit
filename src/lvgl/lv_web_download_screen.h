@@ -215,6 +215,30 @@ void showWebFilesDownloadScreen() {
     lv_obj_set_flex_align(btn_container, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(btn_container, LV_OBJ_FLAG_SCROLLABLE);
 
+    // Grid navigation context for 2-column horizontal layout
+    static lv_obj_t* download_buttons[2];
+    static int download_button_count = 0;
+    static NavGridContext download_grid_ctx = { download_buttons, &download_button_count, 2 };
+
+    // Screen-specific KEY handler to intercept ESC before global handler
+    // This prevents conflict with main loop's handleWebDownloadInput()
+    auto screen_key_handler = [](lv_event_t* e) {
+        if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+        uint32_t key = lv_event_get_key(e);
+
+        // Intercept ESC and stop propagation to prevent global handler
+        if (key == LV_KEY_ESC) {
+            lv_event_stop_processing(e);  // Prevents global_esc_handler from running
+            lv_event_stop_bubbling(e);
+            handleWebDownloadInput(KEY_ESC);  // Handle locally
+        }
+        // ENTER triggers the currently focused button
+        else if (key == LV_KEY_ENTER) {
+            lv_event_stop_processing(e);
+            // Let LVGL's default click handling work
+        }
+    };
+
     // Download button
     lv_obj_t* btn_download = lv_btn_create(btn_container);
     lv_obj_set_size(btn_download, 160, 45);
@@ -225,7 +249,9 @@ void showWebFilesDownloadScreen() {
     lv_obj_add_event_cb(btn_download, [](lv_event_t* e) {
         handleWebDownloadInput('Y');
     }, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(btn_download, linear_nav_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(btn_download, screen_key_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(btn_download, grid_nav_handler, LV_EVENT_KEY, &download_grid_ctx);
+    download_buttons[download_button_count++] = btn_download;
     addNavigableWidget(btn_download);
 
     // Back button
@@ -238,7 +264,9 @@ void showWebFilesDownloadScreen() {
     lv_obj_add_event_cb(btn_back, [](lv_event_t* e) {
         handleWebDownloadInput('N');
     }, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(btn_back, linear_nav_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(btn_back, screen_key_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(btn_back, grid_nav_handler, LV_EVENT_KEY, &download_grid_ctx);
+    download_buttons[download_button_count++] = btn_back;
     addNavigableWidget(btn_back);
 
     // Footer
@@ -325,6 +353,19 @@ void showWebFilesUpdateNotification() {
     lv_obj_t* btn_ok_label = lv_label_create(btn_ok);
     lv_label_set_text(btn_ok_label, "OK");
     lv_obj_center(btn_ok_label);
+
+    // Screen-specific KEY handler to prevent global ESC handler conflict
+    lv_obj_add_event_cb(btn_ok, [](lv_event_t* e) {
+        if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+        uint32_t key = lv_event_get_key(e);
+        // Intercept ESC/ENTER and let main loop handle via handleWebDownloadInput
+        if (key == LV_KEY_ESC || key == LV_KEY_ENTER) {
+            lv_event_stop_processing(e);
+            lv_event_stop_bubbling(e);
+            exitWebDownloadScreen();
+        }
+    }, LV_EVENT_KEY, NULL);
+
     addNavigableWidget(btn_ok);
 
     // Footer
@@ -475,6 +516,18 @@ void showWebFilesDownloadComplete(bool success, const char* message) {
         lv_obj_add_event_cb(retry_btn, [](lv_event_t* e) {
             showWebFilesDownloadScreen();
         }, LV_EVENT_CLICKED, NULL);
+
+        // Screen-specific KEY handler to prevent global ESC handler conflict
+        lv_obj_add_event_cb(retry_btn, [](lv_event_t* e) {
+            if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+            uint32_t key = lv_event_get_key(e);
+            if (key == LV_KEY_ESC) {
+                lv_event_stop_processing(e);
+                lv_event_stop_bubbling(e);
+                exitWebDownloadScreen();
+            }
+        }, LV_EVENT_KEY, NULL);
+
         addNavigableWidget(retry_btn);
     }
 
