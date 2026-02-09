@@ -155,7 +155,7 @@ lv_obj_t* createVailMasterMenuScreen() {
     lv_obj_set_pos(card_container, 10, HEADER_HEIGHT + 5);
     lv_obj_set_style_bg_opa(card_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(card_container, 0, 0);
-    lv_obj_set_style_pad_all(card_container, 5, 0);  // Minimal container padding
+    lv_obj_set_style_pad_all(card_container, 0, 0);  // No container padding for max space
     lv_obj_set_layout(card_container, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(card_container, LV_FLEX_FLOW_ROW_WRAP);
     lv_obj_set_flex_align(card_container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
@@ -163,7 +163,7 @@ lv_obj_t* createVailMasterMenuScreen() {
     lv_obj_set_style_pad_column(card_container, 8, 0);
     lv_obj_clear_flag(card_container, LV_OBJ_FLAG_SCROLLABLE);
 
-    const int cardW = 145;
+    const int cardW = 144;  // 144 + 4 (border) = 148px, 148*3 + 8*2 = 460px exact fit
     const int cardH = 95;
 
     const char* mode_names[] = {"Sprint", "Sweepstakes", "Mixed", "Uniform", "Free Practice"};
