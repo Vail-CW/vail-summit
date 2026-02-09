@@ -244,7 +244,20 @@ void showWebFilesDownloadScreen() {
     lv_label_set_text(btn_download_label, LV_SYMBOL_DOWNLOAD " Download");
     lv_obj_center(btn_download_label);
     lv_obj_add_event_cb(btn_download, [](lv_event_t* e) {
-        handleWebDownloadInput('Y');
+        Serial.println("[WebDownload] Download button clicked");
+        beep(TONE_SELECT, BEEP_MEDIUM);
+
+        // Show brief reboot message
+        lv_obj_clean(web_download_screen);
+        lv_obj_t* msg = lv_label_create(web_download_screen);
+        lv_label_set_text(msg, "Rebooting to download...\n\nPlease wait.");
+        lv_obj_add_style(msg, getStyleLabelSubtitle(), 0);
+        lv_obj_set_style_text_align(msg, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_center(msg);
+        lv_timer_handler();
+
+        delay(500);
+        requestWebDownloadAndReboot();
     }, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(btn_download, screen_key_handler, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(btn_download, grid_nav_handler, LV_EVENT_KEY, &download_grid_ctx);
@@ -259,7 +272,9 @@ void showWebFilesDownloadScreen() {
     lv_label_set_text(btn_back_label, LV_SYMBOL_LEFT " Back");
     lv_obj_center(btn_back_label);
     lv_obj_add_event_cb(btn_back, [](lv_event_t* e) {
-        handleWebDownloadInput('N');
+        Serial.println("[WebDownload] Back button clicked");
+        beep(TONE_MENU_NAV, BEEP_SHORT);
+        exitWebDownloadScreen();
     }, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(btn_back, screen_key_handler, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(btn_back, grid_nav_handler, LV_EVENT_KEY, &download_grid_ctx);
@@ -662,6 +677,13 @@ bool handleWebDownloadInput(char key) {
  */
 bool isWebDownloadScreenActive() {
     return webDownloadUIState != WD_UI_IDLE && web_download_screen != NULL;
+}
+
+/**
+ * Get the current web download UI state
+ */
+WebDownloadUIState getWebDownloadUIState() {
+    return webDownloadUIState;
 }
 
 /**

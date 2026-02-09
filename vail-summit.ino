@@ -791,10 +791,13 @@ void loop() {
   if (isWebDownloadScreenActive()) {
     updateWebDownloadProgressUI();
 
-    // Get keyboard input for download screens
-    char key = readKeyboardNonBlocking();
-    if (key != 0) {
-      handleWebDownloadInput(key);
+    // ONLY poll keyboard during download progress (no buttons on that screen)
+    // Other screens (prompting, complete, error) handle input via LVGL events
+    if (getWebDownloadUIState() == WD_UI_DOWNLOADING) {
+      char key = readKeyboardNonBlocking();
+      if (key != 0) {
+        handleWebDownloadInput(key);
+      }
     }
   }
 
