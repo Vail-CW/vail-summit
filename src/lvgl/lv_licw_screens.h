@@ -151,7 +151,7 @@ lv_obj_t* createLICWCarouselSelectScreen() {
         const LICWCarouselDef* carousel = getLICWCarousel((LICWCarousel)i);
 
         lv_obj_t* btn = lv_btn_create(content);
-        lv_obj_set_size(btn, 145, 75);
+        lv_obj_set_size(btn, 145, 85);  // Increased from 75 to 85 for text clearance
         lv_obj_add_style(btn, getStyleMenuCard(), 0);
         lv_obj_add_style(btn, getStyleMenuCardFocused(), LV_STATE_FOCUSED);
 
@@ -160,7 +160,7 @@ lv_obj_t* createLICWCarouselSelectScreen() {
         lv_obj_set_size(col, LV_PCT(100), LV_PCT(100));
         lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(col, 0, 0);
-        lv_obj_set_style_pad_all(col, 2, 0);
+        lv_obj_set_style_pad_all(col, 6, 0);  // Increased from 2 to 6 for better spacing
         lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_clear_flag(col, LV_OBJ_FLAG_CLICKABLE);
@@ -181,7 +181,7 @@ lv_obj_t* createLICWCarouselSelectScreen() {
         lv_obj_t* speed = lv_label_create(col);
         lv_label_set_text(speed, speed_text);
         lv_obj_set_style_text_font(speed, getThemeFonts()->font_body, 0);
-        lv_obj_set_style_text_color(speed, LV_COLOR_TEXT_SECONDARY, 0);
+        // Don't set explicit color - inherit from button style for proper focus state
 
         // Store carousel index and add click handler
         lv_obj_set_user_data(btn, (void*)(intptr_t)i);
@@ -268,7 +268,7 @@ lv_obj_t* createLICWLessonSelectScreen() {
         const LICWLesson* lesson = getLICWLesson(licwSelectedCarousel, i);
 
         lv_obj_t* btn = lv_btn_create(content);
-        lv_obj_set_size(btn, 145, 80);
+        lv_obj_set_size(btn, 145, 90);  // Increased from 80 to 90 for text clearance
         lv_obj_add_style(btn, getStyleMenuCard(), 0);
         lv_obj_add_style(btn, getStyleMenuCardFocused(), LV_STATE_FOCUSED);
 
@@ -277,7 +277,7 @@ lv_obj_t* createLICWLessonSelectScreen() {
         lv_obj_set_size(col, LV_PCT(100), LV_PCT(100));
         lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(col, 0, 0);
-        lv_obj_set_style_pad_all(col, 2, 0);
+        lv_obj_set_style_pad_all(col, 6, 0);  // Increased from 2 to 6 for better spacing
         lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_clear_flag(col, LV_OBJ_FLAG_CLICKABLE);
@@ -289,7 +289,7 @@ lv_obj_t* createLICWLessonSelectScreen() {
         lv_obj_t* num = lv_label_create(col);
         lv_label_set_text(num, num_text);
         lv_obj_set_style_text_font(num, getThemeFonts()->font_input, 0);
-        lv_obj_set_style_text_color(num, LV_COLOR_TEXT_PRIMARY, 0);
+        // Don't set explicit color - inherit from button style for proper focus state
 
         // New characters (if any) - show the characters themselves, NOT morse patterns
         if (lesson->newChars != NULL && strlen(lesson->newChars) > 0) {
@@ -306,7 +306,7 @@ lv_obj_t* createLICWLessonSelectScreen() {
         lv_obj_t* speed = lv_label_create(col);
         lv_label_set_text(speed, speed_text);
         lv_obj_set_style_text_font(speed, getThemeFonts()->font_body, 0);
-        lv_obj_set_style_text_color(speed, LV_COLOR_TEXT_SECONDARY, 0);
+        // Don't set explicit color - inherit from button style for proper focus state
 
         // Store lesson number and add click handler
         lv_obj_set_user_data(btn, (void*)(intptr_t)i);
@@ -500,7 +500,7 @@ lv_obj_t* createLICWPracticeTypeScreen() {
         bool available = isLICWPracticeAvailable(licwSelectedCarousel, licwSelectedLesson, (LICWPracticeType)i);
 
         lv_obj_t* btn = lv_btn_create(content);
-        lv_obj_set_size(btn, 145, 70);
+        lv_obj_set_size(btn, 145, 80);  // Increased from 70 to 80 for text clearance
         lv_obj_add_style(btn, getStyleMenuCard(), 0);
         lv_obj_add_style(btn, getStyleMenuCardFocused(), LV_STATE_FOCUSED);
 
@@ -514,7 +514,7 @@ lv_obj_t* createLICWPracticeTypeScreen() {
         lv_obj_set_size(col, LV_PCT(100), LV_PCT(100));
         lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(col, 0, 0);
-        lv_obj_set_style_pad_all(col, 2, 0);
+        lv_obj_set_style_pad_all(col, 6, 0);  // Increased from 2 to 6 for better spacing
         lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_clear_flag(col, LV_OBJ_FLAG_CLICKABLE);
@@ -530,7 +530,7 @@ lv_obj_t* createLICWPracticeTypeScreen() {
         lv_obj_t* name = lv_label_create(col);
         lv_label_set_text(name, licwPracticeTypeNames[i]);
         lv_obj_set_style_text_font(name, getThemeFonts()->font_body, 0);
-        lv_obj_set_style_text_color(name, available ? LV_COLOR_TEXT_PRIMARY : LV_COLOR_TEXT_SECONDARY, 0);
+        // Don't set explicit color - inherit from button style for proper focus state
 
         // Store practice type and add click handler (only if available)
         lv_obj_set_user_data(btn, (void*)(intptr_t)i);
