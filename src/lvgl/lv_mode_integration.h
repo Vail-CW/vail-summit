@@ -778,6 +778,7 @@ static const ModeCallbackEntry cleanupTable[] = {
     { MODE_WEB_PRACTICE,                 cleanupWebPracticeMode },
     { MODE_WEB_HEAR_IT,                  cleanupWebHearItMode },
     { MODE_WEB_MEMORY_CHAIN,             cleanupWebMemoryChainMode },
+    { MODE_WEB_FILES_UPDATE,             cleanupWebDownloadScreen },
 };
 static const int cleanupTableSize = sizeof(cleanupTable) / sizeof(cleanupTable[0]);
 

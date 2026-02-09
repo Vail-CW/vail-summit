@@ -696,36 +696,32 @@ void exitWebDownloadScreen() {
         return;
     }
 
-    Serial.println("[WebDownload] Exiting web download screen");
-    Serial.printf("[WebDownload] Current state: %d, screen ptr: %p, previous: %p\n",
-                  webDownloadUIState, web_download_screen, previous_screen);
-
+    Serial.println("[WebDownload] Exiting web download screen via mode navigation");
     webDownloadUIState = WD_UI_IDLE;
 
-    // Clean up widget references
+    // Use the proper mode navigation system instead of manually deleting screens
+    // This safely handles cleanup and navigation through the mode registry
+    onLVGLBackNavigation();
+}
+
+/**
+ * Cleanup function called by mode system when navigating away
+ * Resets all state variables without touching LVGL objects (already cleaned up by mode system)
+ */
+void cleanupWebDownloadScreen() {
+    Serial.println("[WebDownload] Cleanup called by mode system");
+
+    // Reset state
+    webDownloadUIState = WD_UI_IDLE;
+
+    // Clear widget references (LVGL objects already deleted by screen transition)
+    web_download_screen = NULL;
     web_download_progress_bar = NULL;
     web_download_file_label = NULL;
     web_download_pct_label = NULL;
     web_download_status_label = NULL;
     web_download_footer = NULL;
-
-    // Delete the screen
-    if (web_download_screen != NULL) {
-        Serial.println("[WebDownload] Deleting screen object");
-        lv_obj_del(web_download_screen);
-        web_download_screen = NULL;
-    }
-
-    // Return to previous screen if available
-    if (previous_screen != NULL && lv_obj_is_valid(previous_screen)) {
-        Serial.printf("[WebDownload] Loading previous screen: %p\n", previous_screen);
-        lv_scr_load(previous_screen);
-        previous_screen = NULL;
-    } else {
-        Serial.println("[WebDownload] WARNING: No valid previous screen to return to!");
-    }
-
-    Serial.println("[WebDownload] Exit complete");
+    previous_screen = NULL;
 }
 
 #endif // LV_WEB_DOWNLOAD_SCREEN_H
