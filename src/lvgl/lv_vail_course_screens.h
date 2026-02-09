@@ -134,10 +134,10 @@ lv_obj_t* createVailCourseModuleSelectScreen() {
             lv_obj_add_event_cb(btn, vail_course_module_click_handler, LV_EVENT_CLICKED, (void*)(intptr_t)i);
             lv_obj_add_event_cb(btn, grid_nav_handler, LV_EVENT_KEY, &vail_course_module_nav_ctx);
             addNavigableWidget(btn);
+            // Store button at sequential index for proper grid navigation
+            vail_course_module_buttons[vail_course_module_button_count] = btn;
+            vail_course_module_button_count++;
         }
-
-        vail_course_module_buttons[i] = btn;
-        if (unlocked) vail_course_module_button_count++;
     }
 
     // Footer

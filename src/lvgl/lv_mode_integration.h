@@ -757,6 +757,7 @@ static const ModeCallbackEntry cleanupTable[] = {
     { MODE_CW_ACADEMY_SENDING_PRACTICE,  resetCWASendingPracticeState },
     { MODE_MORSE_NOTES_RECORD,           cleanupMorseNotesRecordScreen },
     { MODE_MORSE_NOTES_PLAYBACK,         cleanupMorseNotesPlaybackScreen },
+    { MODE_VAIL_MASTER_PRACTICE,         cleanupVailMasterPractice },
     { MODE_VAIL_MASTER_CHARSET,          cleanupVailMasterCharset },
     { MODE_MORSE_SHOOTER,                cleanupMorseShooter },
     // Timer cleanup entries - prevent zombie timers on back-navigation

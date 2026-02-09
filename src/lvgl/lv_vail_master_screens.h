@@ -157,7 +157,7 @@ lv_obj_t* createVailMasterMenuScreen() {
     lv_obj_set_style_border_width(card_container, 0, 0);
     lv_obj_set_layout(card_container, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(card_container, LV_FLEX_FLOW_ROW_WRAP);
-    lv_obj_set_flex_align(card_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(card_container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(card_container, 10, 0);
     lv_obj_set_style_pad_column(card_container, 10, 0);
     lv_obj_clear_flag(card_container, LV_OBJ_FLAG_SCROLLABLE);
@@ -1067,7 +1067,7 @@ lv_obj_t* createVailMasterCharsetScreen() {
     lv_obj_set_pos(grid_container, 10, HEADER_HEIGHT + 5);
     lv_obj_set_layout(grid_container, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(grid_container, LV_FLEX_FLOW_ROW_WRAP);
-    lv_obj_set_flex_align(grid_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(grid_container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_gap(grid_container, 5, 0);
     lv_obj_set_style_pad_all(grid_container, 10, 0);
     lv_obj_set_style_bg_opa(grid_container, LV_OPA_TRANSP, 0);
@@ -1119,6 +1119,21 @@ lv_obj_t* createVailMasterCharsetScreen() {
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -8);
 
     return screen;
+}
+
+// ============================================
+// Cleanup Functions
+// ============================================
+
+/*
+ * Cleanup Vail Master Practice screen - stops update timer
+ * Called on back navigation from practice screen
+ */
+static void cleanupVailMasterPractice() {
+    if (vm_update_timer) {
+        lv_timer_del(vm_update_timer);
+        vm_update_timer = NULL;
+    }
 }
 
 // ============================================

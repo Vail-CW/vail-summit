@@ -1969,7 +1969,7 @@ lv_obj_t* createCWAcademyTrackSelectScreen() {
             lv_obj_set_style_text_color(track_label, LV_COLOR_TEXT_SECONDARY, 0);
         }
         lv_obj_set_width(track_label, lv_pct(100));
-        lv_label_set_long_mode(track_label, LV_LABEL_LONG_CLIP);
+        lv_label_set_long_mode(track_label, LV_LABEL_LONG_WRAP);
         lv_obj_center(track_label);
     }
 
@@ -2075,7 +2075,7 @@ lv_obj_t* createCWAcademySessionSelectScreen() {
         lv_label_set_text(session_label, session_text);
         lv_obj_set_style_text_font(session_label, getThemeFonts()->font_body, 0);
         lv_obj_set_width(session_label, lv_pct(100));
-        lv_label_set_long_mode(session_label, LV_LABEL_LONG_CLIP);
+        lv_label_set_long_mode(session_label, LV_LABEL_LONG_WRAP);
         lv_obj_center(session_label);
     }
 
@@ -2179,7 +2179,7 @@ lv_obj_t* createCWAcademyPracticeTypeSelectScreen() {
             lv_obj_set_style_text_color(type_label, LV_COLOR_TEXT_SECONDARY, 0);
         }
         lv_obj_set_width(type_label, lv_pct(100));
-        lv_label_set_long_mode(type_label, LV_LABEL_LONG_CLIP);
+        lv_label_set_long_mode(type_label, LV_LABEL_LONG_WRAP);
         lv_obj_center(type_label);
     }
 
@@ -2300,7 +2300,7 @@ lv_obj_t* createCWAcademyMessageTypeSelectScreen() {
         lv_label_set_text(msg_label, msg_text);
         lv_obj_set_style_text_font(msg_label, getThemeFonts()->font_body, 0);
         lv_obj_set_width(msg_label, lv_pct(100));
-        lv_label_set_long_mode(msg_label, LV_LABEL_LONG_CLIP);
+        lv_label_set_long_mode(msg_label, LV_LABEL_LONG_WRAP);
         lv_obj_center(msg_label);
     }
 

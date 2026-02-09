@@ -143,7 +143,7 @@ lv_obj_t* createLICWCarouselSelectScreen() {
     lv_obj_set_style_pad_row(content, 8, 0);
     lv_obj_set_style_pad_column(content, 12, 0);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_ROW_WRAP);
-    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
 
     // Create carousel buttons (3 columns x 3 rows)
@@ -265,7 +265,7 @@ lv_obj_t* createLICWLessonSelectScreen() {
     lv_obj_set_style_pad_row(content, 8, 0);
     lv_obj_set_style_pad_column(content, 12, 0);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_ROW_WRAP);
-    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
 
     // Create lesson buttons
@@ -497,7 +497,7 @@ lv_obj_t* createLICWPracticeTypeScreen() {
     lv_obj_set_style_pad_row(content, 8, 0);
     lv_obj_set_style_pad_column(content, 12, 0);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_ROW_WRAP);
-    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
 
     // Create practice type buttons
