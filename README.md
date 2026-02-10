@@ -2,7 +2,7 @@
 
 A portable Morse code training device for ham radio operators, built on the ESP32-S3 platform with a modern UI.
 
-![Version](https://img.shields.io/badge/version-0.524-blue)
+![Version](https://img.shields.io/badge/version-0.525-blue)
 ![Platform](https://img.shields.io/badge/platform-ESP32--S3-green)
 
 > **Hardware Release:** Planned for March/April 2026. Beta test units available now for $75 — contact Brett at [ke9bos@pigletradio.org](mailto:ke9bos@pigletradio.org)

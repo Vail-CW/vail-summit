@@ -261,7 +261,7 @@ lv_obj_t* createPracticeScreen() {
     lv_obj_set_style_text_color(practice_decoder_text, LV_COLOR_ACCENT_GREEN, 0);
     lv_obj_set_style_text_font(practice_decoder_text, getThemeFonts()->font_title, 0);
     lv_label_set_long_mode(practice_decoder_text, LV_LABEL_LONG_WRAP);  // Wrap with newlines
-    lv_obj_set_width(practice_decoder_text, SCREEN_WIDTH - 40);  // Wider text area (was -80)
+    lv_obj_set_width(practice_decoder_text, lv_pct(100));  // Use full width of parent content area
     lv_obj_align(practice_decoder_text, LV_ALIGN_TOP_LEFT, 0, 18);  // Below "Decoded:" label
 
     // Footer with keyboard shortcuts
