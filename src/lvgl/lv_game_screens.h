@@ -844,8 +844,8 @@ extern int shooterHighScoreWord;
 extern int shooterHighScoreCallsign;
 extern void applyShooterPreset(ShooterPreset preset);
 
-// Key type names
-static const char* shooter_key_names[] = {"Straight", "Iambic A", "Iambic B"};
+// Key type names (must match KeyType enum order: STRAIGHT=0, IAMBIC_A=1, IAMBIC_B=2, ULTIMATIC=3)
+static const char* shooter_key_names[] = {"Straight", "Iambic A", "Iambic B", "Ultimatic"};
 
 // Forward declarations
 static void shooter_settings_update_all();
@@ -908,9 +908,11 @@ static void shooterAdjustValue(int row, int direction) {
             if (direction > 0) {
                 if (cwKeyType == KEY_STRAIGHT) cwKeyType = KEY_IAMBIC_A;
                 else if (cwKeyType == KEY_IAMBIC_A) cwKeyType = KEY_IAMBIC_B;
+                else if (cwKeyType == KEY_IAMBIC_B) cwKeyType = KEY_ULTIMATIC;
                 else return;
             } else {
-                if (cwKeyType == KEY_IAMBIC_B) cwKeyType = KEY_IAMBIC_A;
+                if (cwKeyType == KEY_ULTIMATIC) cwKeyType = KEY_IAMBIC_B;
+                else if (cwKeyType == KEY_IAMBIC_B) cwKeyType = KEY_IAMBIC_A;
                 else if (cwKeyType == KEY_IAMBIC_A) cwKeyType = KEY_STRAIGHT;
                 else return;
             }
