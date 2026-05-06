@@ -6,6 +6,9 @@
  *
  * For local development: Create secrets_local.h (gitignored) with your keys.
  * For production builds: GitHub Actions injects values via build flags.
+ *
+ * UI entry points for Firebase-backed flows consult firebase_availability.h so
+ * fork/open builds (placeholder keys only) omit those menus instead of failing at runtime.
  */
 
 #ifndef SECRETS_H
