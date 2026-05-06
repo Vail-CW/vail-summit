@@ -9,7 +9,8 @@
 #include "../core/config.h"
 #include "../core/morse_code.h"
 #include "../audio/i2s_audio.h"
-#include "../audio/morse_decoder_adaptive.h"
+#include "../audio/morse_decoder_direct.h"
+#include "../settings/settings_decoder.h"
 #include "../keyer/keyer.h"
 #include <Preferences.h>
 
@@ -337,7 +338,7 @@ bool gamePaused = false;
 // Note: highScore moved to shooterHighScores[] array per difficulty
 
 // Decoder state
-MorseDecoderAdaptive shooterDecoder(20, 20, 30);  // Initial 20 WPM, buffer size 30
+MorseDecoder* shooterDecoder = nullptr;
 String shooterDecodedText = "";
 unsigned long shooterLastStateChangeTime = 0;
 bool shooterLastToneState = false;
@@ -370,7 +371,7 @@ void shooterKeyerCallback(bool txOn, int element) {
       if (shooterLastStateChangeTime > 0) {
         float silenceDuration = now - shooterLastStateChangeTime;
         if (silenceDuration > 0) {
-          shooterDecoder.addTiming(-silenceDuration);
+          shooterDecoder->addTiming(-silenceDuration);
         }
       }
       shooterLastStateChangeTime = now;
@@ -382,7 +383,7 @@ void shooterKeyerCallback(bool txOn, int element) {
     if (shooterLastToneState) {
       float toneDuration = now - shooterLastStateChangeTime;
       if (toneDuration > 0) {
-        shooterDecoder.addTiming(toneDuration);
+        shooterDecoder->addTiming(toneDuration);
         shooterLastElementTime = now;
       }
       shooterLastStateChangeTime = now;
@@ -614,10 +615,14 @@ void resetGame() {
   shooterKeyer->setDitDuration(DIT_DURATION(cwSpeed));
   shooterKeyer->setTxCallback(shooterKeyerCallback);
 
-  // Reset decoder state
-  shooterDecoder.reset();
-  shooterDecoder.flush();
-  shooterDecoder.setWPM(cwSpeed);
+  // Initialize decoder
+  delete shooterDecoder;
+  shooterDecoder = (decoderType == DECODER_DIRECT)
+      ? (MorseDecoder*) new MorseDecoderDirect(cwSpeed, cwSpeed, 30)
+      : (MorseDecoder*) new MorseDecoderAdaptive(cwSpeed, cwSpeed, 30);
+  shooterDecoder->reset();
+  shooterDecoder->flush();
+  shooterDecoder->setWPM(cwSpeed);
   shooterDecodedText = "";
   shooterLastStateChangeTime = 0;
   shooterLastToneState = false;
@@ -1346,10 +1351,10 @@ void updateMorseInputFast(LGFX& tft) {
   // Check for decoder timeout (flush if no activity for word gap duration)
   if (shooterLastElementTime > 0 && !newDitPressed && !newDahPressed && !shooterKeyer->isTxActive()) {
     unsigned long timeSinceLastElement = now - shooterLastElementTime;
-    float wordGapDuration = MorseWPM::wordGap(shooterDecoder.getWPM());
+    float wordGapDuration = MorseWPM::wordGap(shooterDecoder->getWPM());
 
     if (timeSinceLastElement > wordGapDuration) {
-      shooterDecoder.flush();
+      shooterDecoder->flush();
       shooterLastElementTime = 0;
 
       if (shooterDecodedText.length() > 0) {
@@ -1370,6 +1375,9 @@ void updateMorseInputFast(LGFX& tft) {
 
   // Tick the keyer state machine
   shooterKeyer->tick(now);
+
+  // Tick the decoder (Direct mode: proactive character-gap flush)
+  shooterDecoder->tick();
 
   // Keep tone playing if keyer is active (for audio buffer continuity)
   if (shooterKeyer->isTxActive()) {
@@ -1599,7 +1607,7 @@ void startMorseShooter(LGFX& tft) {
   resetGame();
 
   // Setup decoder callback to capture decoded text
-  shooterDecoder.messageCallback = [](String morse, String text) {
+  shooterDecoder->messageCallback = [](String morse, String text) {
     // Append decoded characters
     for (int i = 0; i < text.length(); i++) {
       shooterDecodedText += text[i];
@@ -1763,7 +1771,7 @@ void cleanupMorseShooter() {
   if (shooterKeyer) {
     shooterKeyer->reset();
   }
-  shooterDecoder.reset();
+  shooterDecoder->reset();
   gameOver = true;
   gamePaused = true;
 }

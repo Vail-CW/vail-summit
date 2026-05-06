@@ -1,4 +1,4 @@
-/*
+﻿/*
  * VAIL SUMMIT - LVGL Spark Watch Screens
  * Provides LVGL UI for the Spark Watch maritime morse training game
  */
@@ -255,7 +255,7 @@ static void spark_speed_button_cb(lv_event_t* e) {
 
         if (i == speedIndex) {
             // Selected - cyan background, black text
-            lv_obj_set_style_bg_color(btn, LV_COLOR_ACCENT_CYAN, 0);
+            lv_obj_set_style_bg_color(btn, LV_COLOR_ACCENT_PRIMARY, 0);
             lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
             if (label) lv_obj_set_style_text_color(label, lv_color_black(), 0);
         } else {
@@ -283,7 +283,7 @@ lv_obj_t* createSparkWatchMenuScreen() {
     lv_obj_t* title = lv_label_create(screen);
     lv_label_set_text(title, "Spark Watch");
     lv_obj_set_style_text_font(title, getThemeFonts()->font_title, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
 
     // Subtitle
@@ -348,7 +348,7 @@ lv_obj_t* createSparkWatchDifficultyScreen() {
     lv_obj_t* title = lv_label_create(screen);
     lv_label_set_text(title, "Select Difficulty");
     lv_obj_set_style_text_font(title, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
 
     // Difficulty buttons container
@@ -414,7 +414,7 @@ lv_obj_t* createSparkWatchChallengeScreen() {
              SPARK_DIFFICULTY_NAMES[spark_selected_difficulty]);
     lv_label_set_text(title, title_text);
     lv_obj_set_style_text_font(title, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
 
     // Scrollable challenge list
@@ -485,7 +485,7 @@ lv_obj_t* createSparkWatchCampaignScreen() {
     lv_obj_t* title = lv_label_create(screen);
     lv_label_set_text(title, "Campaigns");
     lv_obj_set_style_text_font(title, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
 
     // Campaign list
@@ -569,7 +569,7 @@ lv_obj_t* createSparkWatchBriefingScreen() {
     lv_obj_t* title = lv_label_create(screen);
     lv_label_set_text(title, ch->title);
     lv_obj_set_style_text_font(title, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
 
     // Difficulty badge
@@ -638,7 +638,7 @@ lv_obj_t* createSparkWatchBriefingScreen() {
 
             if (i == sparkSession.speedIndex) {
                 // Currently selected - show with cyan background
-                lv_obj_set_style_bg_color(btn, LV_COLOR_ACCENT_CYAN, 0);
+                lv_obj_set_style_bg_color(btn, LV_COLOR_ACCENT_PRIMARY, 0);
                 lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
             } else {
                 // Not selected - normal dark background
@@ -648,7 +648,7 @@ lv_obj_t* createSparkWatchBriefingScreen() {
             // Focused style - only add border glow, not background change
             // This allows selected (cyan) and focused (glow) to be independent
             lv_obj_set_style_outline_width(btn, 2, LV_STATE_FOCUSED);
-            lv_obj_set_style_outline_color(btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+            lv_obj_set_style_outline_color(btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
             lv_obj_set_style_outline_opa(btn, LV_OPA_COVER, LV_STATE_FOCUSED);
             // Add click handler to select this speed (works with ENTER key too)
             lv_obj_add_event_cb(btn, spark_speed_button_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
@@ -731,32 +731,32 @@ static void spark_gameplay_update_focus() {
     // Update button highlighting
     if (spark_play_btn) {
         lv_obj_set_style_bg_color(spark_play_btn,
-            (spark_gameplay_focus == 0) ? LV_COLOR_ACCENT_CYAN : LV_COLOR_SUCCESS, 0);
+            (spark_gameplay_focus == 0) ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_SUCCESS, 0);
     }
     if (spark_pause_btn) {
         lv_obj_set_style_bg_color(spark_pause_btn,
-            (spark_gameplay_focus == 1) ? LV_COLOR_ACCENT_CYAN : LV_COLOR_BG_LAYER2, 0);
+            (spark_gameplay_focus == 1) ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_BG_LAYER2, 0);
     }
     if (spark_replay_btn) {
         lv_obj_set_style_bg_color(spark_replay_btn,
-            (spark_gameplay_focus == 2) ? LV_COLOR_ACCENT_CYAN : LV_COLOR_BG_LAYER2, 0);
+            (spark_gameplay_focus == 2) ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_BG_LAYER2, 0);
     }
 
     // Update textarea borders based on focus
     int fieldStart = getSparkFieldOffset();
     if (spark_signal_input) {
         lv_obj_set_style_border_color(spark_signal_input,
-            (spark_gameplay_focus == fieldStart) ? LV_COLOR_ACCENT_CYAN : LV_COLOR_BORDER_SUBTLE, 0);
+            (spark_gameplay_focus == fieldStart) ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_BORDER_SUBTLE, 0);
         lv_obj_set_style_border_width(spark_signal_input, (spark_gameplay_focus == fieldStart) ? 2 : 1, 0);
     }
     if (spark_ship_input) {
         lv_obj_set_style_border_color(spark_ship_input,
-            (spark_gameplay_focus == fieldStart + 1) ? LV_COLOR_ACCENT_CYAN : LV_COLOR_BORDER_SUBTLE, 0);
+            (spark_gameplay_focus == fieldStart + 1) ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_BORDER_SUBTLE, 0);
         lv_obj_set_style_border_width(spark_ship_input, (spark_gameplay_focus == fieldStart + 1) ? 2 : 1, 0);
     }
     if (spark_distress_input) {
         lv_obj_set_style_border_color(spark_distress_input,
-            (spark_gameplay_focus == fieldStart + 2) ? LV_COLOR_ACCENT_CYAN : LV_COLOR_BORDER_SUBTLE, 0);
+            (spark_gameplay_focus == fieldStart + 2) ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_BORDER_SUBTLE, 0);
         lv_obj_set_style_border_width(spark_distress_input, (spark_gameplay_focus == fieldStart + 2) ? 2 : 1, 0);
     }
 
@@ -765,31 +765,31 @@ static void spark_gameplay_update_focus() {
         int posStart = fieldStart + 3;
         if (spark_lat_deg_input) {
             lv_obj_set_style_border_color(spark_lat_deg_input,
-                (spark_gameplay_focus == posStart) ? LV_COLOR_ACCENT_CYAN : LV_COLOR_BORDER_SUBTLE, 0);
+                (spark_gameplay_focus == posStart) ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_BORDER_SUBTLE, 0);
             lv_obj_set_style_border_width(spark_lat_deg_input, (spark_gameplay_focus == posStart) ? 2 : 1, 0);
         }
         if (spark_lat_min_input) {
             lv_obj_set_style_border_color(spark_lat_min_input,
-                (spark_gameplay_focus == posStart + 1) ? LV_COLOR_ACCENT_CYAN : LV_COLOR_BORDER_SUBTLE, 0);
+                (spark_gameplay_focus == posStart + 1) ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_BORDER_SUBTLE, 0);
             lv_obj_set_style_border_width(spark_lat_min_input, (spark_gameplay_focus == posStart + 1) ? 2 : 1, 0);
         }
         if (spark_lat_dir_btn) {
             lv_obj_set_style_bg_color(spark_lat_dir_btn,
-                (spark_gameplay_focus == posStart + 2) ? LV_COLOR_ACCENT_CYAN : LV_COLOR_BG_LAYER2, 0);
+                (spark_gameplay_focus == posStart + 2) ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_BG_LAYER2, 0);
         }
         if (spark_lon_deg_input) {
             lv_obj_set_style_border_color(spark_lon_deg_input,
-                (spark_gameplay_focus == posStart + 3) ? LV_COLOR_ACCENT_CYAN : LV_COLOR_BORDER_SUBTLE, 0);
+                (spark_gameplay_focus == posStart + 3) ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_BORDER_SUBTLE, 0);
             lv_obj_set_style_border_width(spark_lon_deg_input, (spark_gameplay_focus == posStart + 3) ? 2 : 1, 0);
         }
         if (spark_lon_min_input) {
             lv_obj_set_style_border_color(spark_lon_min_input,
-                (spark_gameplay_focus == posStart + 4) ? LV_COLOR_ACCENT_CYAN : LV_COLOR_BORDER_SUBTLE, 0);
+                (spark_gameplay_focus == posStart + 4) ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_BORDER_SUBTLE, 0);
             lv_obj_set_style_border_width(spark_lon_min_input, (spark_gameplay_focus == posStart + 4) ? 2 : 1, 0);
         }
         if (spark_lon_dir_btn) {
             lv_obj_set_style_bg_color(spark_lon_dir_btn,
-                (spark_gameplay_focus == posStart + 5) ? LV_COLOR_ACCENT_CYAN : LV_COLOR_BG_LAYER2, 0);
+                (spark_gameplay_focus == posStart + 5) ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_BG_LAYER2, 0);
         }
     }
 
@@ -797,15 +797,15 @@ static void spark_gameplay_update_focus() {
     int submitIdx = getSparkSubmitIndex();
     if (spark_submit_btn) {
         lv_obj_set_style_bg_color(spark_submit_btn,
-            (spark_gameplay_focus == submitIdx) ? LV_COLOR_ACCENT_CYAN : LV_COLOR_SUCCESS, 0);
+            (spark_gameplay_focus == submitIdx) ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_SUCCESS, 0);
     }
     if (spark_ref_btn) {
         lv_obj_set_style_bg_color(spark_ref_btn,
-            (spark_gameplay_focus == submitIdx + 1) ? LV_COLOR_ACCENT_CYAN : LV_COLOR_BG_LAYER2, 0);
+            (spark_gameplay_focus == submitIdx + 1) ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_BG_LAYER2, 0);
     }
     if (spark_hint_btn) {
         lv_obj_set_style_bg_color(spark_hint_btn,
-            (spark_gameplay_focus == submitIdx + 2) ? LV_COLOR_ACCENT_CYAN : LV_COLOR_BG_LAYER2, 0);
+            (spark_gameplay_focus == submitIdx + 2) ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_BG_LAYER2, 0);
     }
 }
 
@@ -1097,7 +1097,7 @@ lv_obj_t* createSparkWatchGameplayScreen() {
     lv_obj_t* title = lv_label_create(screen);
     lv_label_set_text(title, ch->title);
     lv_obj_set_style_text_font(title, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 10, 5);
 
     // Score display
@@ -1403,7 +1403,7 @@ static int spark_results_focus = 0;
 static void spark_results_update_focus(bool hasRetry) {
     if (hasRetry && spark_retry_btn) {
         lv_obj_set_style_bg_color(spark_retry_btn,
-            (spark_results_focus == 0) ? LV_COLOR_ACCENT_CYAN : LV_COLOR_WARNING, 0);
+            (spark_results_focus == 0) ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_WARNING, 0);
     }
     if (spark_continue_btn) {
         int contIdx = hasRetry ? 1 : 0;
@@ -1411,10 +1411,10 @@ static void spark_results_update_focus(bool hasRetry) {
         // Keep green if success, otherwise layer2
         if (sparkSession.challengeCompleted) {
             lv_obj_set_style_bg_color(spark_continue_btn,
-                isFocused ? LV_COLOR_ACCENT_CYAN : LV_COLOR_SUCCESS, 0);
+                isFocused ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_SUCCESS, 0);
         } else {
             lv_obj_set_style_bg_color(spark_continue_btn,
-                isFocused ? LV_COLOR_ACCENT_CYAN : LV_COLOR_BG_LAYER2, 0);
+                isFocused ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_BG_LAYER2, 0);
         }
     }
 }
@@ -1503,7 +1503,7 @@ lv_obj_t* createSparkWatchResultsScreen() {
         lv_obj_t* score_label = lv_label_create(screen);
         lv_label_set_text_fmt(score_label, "+%d points", score);
         lv_obj_set_style_text_font(score_label, getThemeFonts()->font_title, 0);
-        lv_obj_set_style_text_color(score_label, LV_COLOR_ACCENT_CYAN, 0);
+        lv_obj_set_style_text_color(score_label, LV_COLOR_ACCENT_PRIMARY, 0);
         lv_obj_align(score_label, LV_ALIGN_TOP_MID, 0, 35);
     }
 
@@ -1696,7 +1696,7 @@ lv_obj_t* createSparkWatchDebriefingScreen() {
     lv_obj_t* title = lv_label_create(screen);
     lv_label_set_text(title, "Historical Context");
     lv_obj_set_style_text_font(title, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 15);
 
     if (ch) {
@@ -1734,7 +1734,7 @@ lv_obj_t* createSparkWatchDebriefingScreen() {
             lv_label_set_long_mode(trans_text, LV_LABEL_LONG_WRAP);
             lv_obj_set_width(trans_text, SCREEN_WIDTH - 50);
             lv_obj_set_style_text_font(trans_text, getThemeFonts()->font_small, 0);
-            lv_obj_set_style_text_color(trans_text, LV_COLOR_ACCENT_CYAN, 0);
+            lv_obj_set_style_text_color(trans_text, LV_COLOR_ACCENT_PRIMARY, 0);
         }
     }
 
@@ -1822,7 +1822,7 @@ lv_obj_t* createSparkWatchMissionScreen() {
     lv_obj_t* title = lv_label_create(screen);
     lv_label_set_text(title, camp->name);
     lv_obj_set_style_text_font(title, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
 
     // Campaign description
@@ -1885,7 +1885,7 @@ lv_obj_t* createSparkWatchMissionScreen() {
             lv_obj_set_style_text_color(num_label, LV_COLOR_SUCCESS, 0);
         } else if (unlocked) {
             snprintf(num_text, sizeof(num_text), "%d", m);
-            lv_obj_set_style_text_color(num_label, LV_COLOR_ACCENT_CYAN, 0);
+            lv_obj_set_style_text_color(num_label, LV_COLOR_ACCENT_PRIMARY, 0);
         } else {
             snprintf(num_text, sizeof(num_text), LV_SYMBOL_CLOSE " %d", m);
             lv_obj_set_style_text_color(num_label, LV_COLOR_TEXT_SECONDARY, 0);
@@ -1934,7 +1934,7 @@ lv_obj_t* createSparkWatchSettingsScreen() {
     lv_obj_t* title = lv_label_create(screen);
     lv_label_set_text(title, "Spark Watch Settings");
     lv_obj_set_style_text_font(title, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
 
     lv_obj_t* placeholder = lv_label_create(screen);
@@ -1973,7 +1973,7 @@ lv_obj_t* createSparkWatchStatsScreen() {
     lv_obj_t* title = lv_label_create(screen);
     lv_label_set_text(title, "Statistics");
     lv_obj_set_style_text_font(title, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
 
     // Stats container

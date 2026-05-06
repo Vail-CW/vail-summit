@@ -1,4 +1,4 @@
-/*
+﻿/*
  * VAIL SUMMIT - Band Conditions Screen
  * Displays solar/propagation data from hamqsl.com in a tabbed UI
  */
@@ -96,7 +96,7 @@ void updateTabStyles() {
 
     // HF Tab
     if (band_cond_selected_tab == 0) {
-        lv_obj_set_style_bg_color(band_cond_tab_hf, LV_COLOR_ACCENT_CYAN, 0);
+        lv_obj_set_style_bg_color(band_cond_tab_hf, LV_COLOR_ACCENT_PRIMARY, 0);
         lv_obj_set_style_text_color(lv_obj_get_child(band_cond_tab_hf, 0), getThemeColors()->text_on_accent, 0);
     } else {
         lv_obj_set_style_bg_color(band_cond_tab_hf, getThemeColors()->bg_layer2, 0);
@@ -105,7 +105,7 @@ void updateTabStyles() {
 
     // VHF Tab
     if (band_cond_selected_tab == 1) {
-        lv_obj_set_style_bg_color(band_cond_tab_vhf, LV_COLOR_ACCENT_CYAN, 0);
+        lv_obj_set_style_bg_color(band_cond_tab_vhf, LV_COLOR_ACCENT_PRIMARY, 0);
         lv_obj_set_style_text_color(lv_obj_get_child(band_cond_tab_vhf, 0), getThemeColors()->text_on_accent, 0);
     } else {
         lv_obj_set_style_bg_color(band_cond_tab_vhf, getThemeColors()->bg_layer2, 0);
@@ -218,7 +218,7 @@ void createHFTabContent(lv_obj_t* parent) {
     lv_obj_t* solar_title = lv_label_create(solar_card);
     lv_label_set_text(solar_title, "Solar Data");
     lv_obj_set_style_text_font(solar_title, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(solar_title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(solar_title, LV_COLOR_ACCENT_PRIMARY, 0);
 
     // Solar Flux
     char buf[32];
@@ -275,7 +275,7 @@ void createHFTabContent(lv_obj_t* parent) {
     lv_obj_t* band_title = lv_label_create(band_card);
     lv_label_set_text(band_title, "HF Band Conditions");
     lv_obj_set_style_text_font(band_title, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(band_title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(band_title, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_pos(band_title, 0, 0);
 
     // Column headers
@@ -387,7 +387,7 @@ void createVHFTabContent(lv_obj_t* parent) {
     lv_obj_t* title = lv_label_create(vhf_card);
     lv_label_set_text(title, "VHF Conditions");
     lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_pos(title, 0, 0);
 
     // Column headers
@@ -597,7 +597,7 @@ lv_obj_t* createBandConditionsScreen() {
     lv_obj_align(band_cond_tab_hf, LV_ALIGN_CENTER, 40, 0);
     lv_obj_set_style_radius(band_cond_tab_hf, 6, 0);
     lv_obj_set_style_border_width(band_cond_tab_hf, 1, 0);
-    lv_obj_set_style_border_color(band_cond_tab_hf, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_border_color(band_cond_tab_hf, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_pad_all(band_cond_tab_hf, 0, 0);
     lv_obj_clear_flag(band_cond_tab_hf, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(band_cond_tab_hf, LV_OBJ_FLAG_CLICKABLE);
@@ -614,7 +614,7 @@ lv_obj_t* createBandConditionsScreen() {
     lv_obj_align(band_cond_tab_vhf, LV_ALIGN_CENTER, 95, 0);
     lv_obj_set_style_radius(band_cond_tab_vhf, 6, 0);
     lv_obj_set_style_border_width(band_cond_tab_vhf, 1, 0);
-    lv_obj_set_style_border_color(band_cond_tab_vhf, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_border_color(band_cond_tab_vhf, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_pad_all(band_cond_tab_vhf, 0, 0);
     lv_obj_clear_flag(band_cond_tab_vhf, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(band_cond_tab_vhf, LV_OBJ_FLAG_CLICKABLE);
@@ -648,7 +648,7 @@ lv_obj_t* createBandConditionsScreen() {
     lv_bar_set_range(band_cond_loading_bar, 0, 100);
     lv_bar_set_value(band_cond_loading_bar, 0, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(band_cond_loading_bar, getThemeColors()->bg_layer2, 0);
-    lv_obj_set_style_bg_color(band_cond_loading_bar, LV_COLOR_ACCENT_CYAN, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(band_cond_loading_bar, LV_COLOR_ACCENT_PRIMARY, LV_PART_INDICATOR);
     lv_obj_add_flag(band_cond_loading_bar, LV_OBJ_FLAG_HIDDEN);
 
     // Loading label (hidden initially)

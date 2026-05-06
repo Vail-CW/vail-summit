@@ -1,4 +1,4 @@
-/*
+﻿/*
  * VAIL SUMMIT - POTA Recorder Screens
  * Setup and recording screens for POTA QSO logging
  */
@@ -64,26 +64,6 @@ static void pota_rec_update_cb(lv_timer_t* timer);
 // Helper Functions
 // ============================================
 
-static void pota_rec_keyboard_cb(lv_event_t* e) {
-    lv_event_code_t code = lv_event_get_code(e);
-    lv_obj_t* kb = (lv_obj_t*)lv_event_get_user_data(e);
-    lv_obj_t* ta = lv_keyboard_get_textarea(kb);
-
-    if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
-        lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_state(ta, LV_STATE_FOCUSED);
-    }
-}
-
-static void pota_rec_ta_focus_cb(lv_event_t* e) {
-    lv_obj_t* ta = lv_event_get_target(e);
-    lv_obj_t* kb = (lv_obj_t*)lv_event_get_user_data(e);
-
-    if (lv_event_get_code(e) == LV_EVENT_FOCUSED) {
-        lv_keyboard_set_textarea(kb, ta);
-        lv_obj_clear_flag(kb, LV_OBJ_FLAG_HIDDEN);
-    }
-}
 
 // ============================================
 // Setup Screen
@@ -255,25 +235,13 @@ lv_obj_t* createPOTARecorderSetupScreen() {
     // Start button
     pota_rec_start_btn = lv_btn_create(content);
     lv_obj_set_size(pota_rec_start_btn, 180, 50);
-    lv_obj_set_style_bg_color(pota_rec_start_btn, LV_COLOR_ACCENT_GREEN, 0);
-    lv_obj_set_style_bg_color(pota_rec_start_btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(pota_rec_start_btn, LV_COLOR_SUCCESS, 0);
+    lv_obj_set_style_bg_color(pota_rec_start_btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
 
     lv_obj_t* btn_label = lv_label_create(pota_rec_start_btn);
     lv_label_set_text(btn_label, LV_SYMBOL_PLAY " Start Recording");
     lv_obj_set_style_text_font(btn_label, &lv_font_montserrat_16, 0);
     lv_obj_center(btn_label);
-
-    // Create on-screen keyboard (hidden initially)
-    lv_obj_t* kb = lv_keyboard_create(screen);
-    lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_size(kb, SCREEN_WIDTH, 140);
-    lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
-
-    // Connect keyboard to text areas
-    lv_obj_add_event_cb(pota_rec_callsign_input, pota_rec_ta_focus_cb, LV_EVENT_FOCUSED, kb);
-    lv_obj_add_event_cb(pota_rec_park_input, pota_rec_ta_focus_cb, LV_EVENT_FOCUSED, kb);
-    lv_obj_add_event_cb(kb, pota_rec_keyboard_cb, LV_EVENT_READY, NULL);
-    lv_obj_add_event_cb(kb, pota_rec_keyboard_cb, LV_EVENT_CANCEL, NULL);
 
     // Add text areas to navigation FIRST (order: callsign -> park -> start button)
     lv_obj_add_event_cb(pota_rec_callsign_input, pota_rec_setup_key_handler, LV_EVENT_KEY, NULL);
@@ -379,11 +347,11 @@ static void pota_rec_update_cb(lv_timer_t* timer) {
             // Color based on state
             POTAQSOState state = parser->getState();
             if (state == POTAQSOState::QSO_COMPLETE) {
-                lv_obj_set_style_text_color(pota_rec_state_label, LV_COLOR_ACCENT_GREEN, 0);
+                lv_obj_set_style_text_color(pota_rec_state_label, LV_COLOR_SUCCESS, 0);
             } else if (state == POTAQSOState::IDLE) {
                 lv_obj_set_style_text_color(pota_rec_state_label, LV_COLOR_TEXT_TERTIARY, 0);
             } else {
-                lv_obj_set_style_text_color(pota_rec_state_label, LV_COLOR_ACCENT_CYAN, 0);
+                lv_obj_set_style_text_color(pota_rec_state_label, LV_COLOR_ACCENT_PRIMARY, 0);
             }
         }
     }
@@ -466,7 +434,7 @@ lv_obj_t* createPOTARecorderScreen() {
     pota_rec_qth_label = lv_label_create(qso_panel);
     lv_label_set_text(pota_rec_qth_label, "QTH: ---");
     lv_obj_set_style_text_font(pota_rec_qth_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(pota_rec_qth_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(pota_rec_qth_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(pota_rec_qth_label, LV_ALIGN_RIGHT_MID, -15, 20);
 
     // Parser state

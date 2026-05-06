@@ -1,4 +1,4 @@
-/*
+﻿/*
  * CW Speeder Game
  *
  * A speed-typing game where players send Morse code matching a displayed
@@ -698,7 +698,7 @@ lv_obj_t* createCWSpeedGameScreen() {
     cs_timer_label = lv_label_create(screen);
     lv_label_set_text(cs_timer_label, "00:00.000");
     lv_obj_set_style_text_font(cs_timer_label, getThemeFonts()->font_large, 0);
-    lv_obj_set_style_text_color(cs_timer_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(cs_timer_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(cs_timer_label, LV_ALIGN_CENTER, 0, -60);
 
     // Letters container
@@ -739,7 +739,7 @@ lv_obj_t* createCWSpeedGameScreen() {
     cs_status_label = lv_label_create(screen);
     lv_label_set_text(cs_status_label, "GET READY");
     lv_obj_set_style_text_font(cs_status_label, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(cs_status_label, LV_COLOR_ACCENT_GREEN, 0);
+    lv_obj_set_style_text_color(cs_status_label, LV_COLOR_SUCCESS, 0);
     lv_obj_align(cs_status_label, LV_ALIGN_CENTER, 0, 50);
 
     // Best time label
