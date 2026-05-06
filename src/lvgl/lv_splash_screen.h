@@ -1,4 +1,4 @@
-/*
+﻿/*
  * VAIL SUMMIT - LVGL Splash Screen
  * Boot splash with mountain logo, title, and progress bar
  * Uses lv_canvas to render the 1-bit bitmap logo
@@ -113,7 +113,7 @@ lv_obj_t* createSplashScreen() {
     splash_title = lv_label_create(splash_screen);
     lv_label_set_text(splash_title, "VAIL SUMMIT");
     lv_obj_set_style_text_font(splash_title, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(splash_title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(splash_title, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(splash_title, LV_ALIGN_TOP_MID, 0, SPLASH_TITLE_Y);
 
     // Subtitle
@@ -144,7 +144,7 @@ lv_obj_t* createSplashScreen() {
     lv_obj_set_style_border_color(splash_bar, LV_COLOR_BORDER_SUBTLE, LV_PART_MAIN);
     lv_obj_set_style_border_width(splash_bar, 1, LV_PART_MAIN);
 
-    lv_obj_set_style_bg_color(splash_bar, LV_COLOR_ACCENT_CYAN, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(splash_bar, LV_COLOR_ACCENT_PRIMARY, LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(splash_bar, LV_OPA_COVER, LV_PART_INDICATOR);
     lv_obj_set_style_radius(splash_bar, 4, LV_PART_INDICATOR);
 

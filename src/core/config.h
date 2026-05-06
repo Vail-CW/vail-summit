@@ -238,6 +238,10 @@
 #define STATUS_ICON_SIZE    36    // Status bar icon size (battery, WiFi)
 #define GROUND_Y            300   // Ground position for Morse Shooter game
 
+// Right-side reservation for compact status bar icons (WiFi at -50, battery at -10)
+// Title labels must not extend into this zone.
+#define TITLE_SAFE_RIGHT_MARGIN 95
+
 // ============================================
 // Menu Configuration
 // ============================================
