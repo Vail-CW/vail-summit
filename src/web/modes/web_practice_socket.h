@@ -18,7 +18,7 @@ extern AsyncWebSocket* practiceWebSocket;
  * WebSocket Event Handler for Practice Mode
  */
 void onPracticeWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
-  extern MorseDecoderAdaptive webPracticeDecoder;  // Decoder instance for web practice mode
+  extern MorseDecoder* webPracticeDecoder;
 
   switch(type) {
     case WS_EVT_CONNECT:
@@ -62,9 +62,9 @@ void onPracticeWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *clie
 
             // Feed timing to decoder
             if (positive) {
-              webPracticeDecoder.addTiming(duration);
+              webPracticeDecoder->addTiming(duration);
             } else {
-              webPracticeDecoder.addTiming(-duration);  // Negative for silence
+              webPracticeDecoder->addTiming(-duration);  // Negative for silence
             }
           }
           else if (strcmp(msgType, "start") == 0) {
