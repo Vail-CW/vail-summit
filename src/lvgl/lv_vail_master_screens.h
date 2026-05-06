@@ -1,4 +1,4 @@
-/*
+﻿/*
  * VAIL SUMMIT - LVGL Vail Master Screens
  * Provides LVGL UI for the Vail Master CW sending trainer
  */
@@ -361,7 +361,7 @@ static void vm_practice_key_handler(lv_event_t* e) {
             // Pause and go to settings - full cleanup to prevent delay
             vmActive = false;
             stopTone();
-            vmDecoder.flush();
+            vmDecoder->flush();
             onLVGLMenuSelect(MODE_VAIL_MASTER_SETTINGS);
             break;
     }
@@ -386,10 +386,7 @@ lv_obj_t* createVailMasterPracticeScreen() {
     lv_obj_add_style(title_bar, getStyleStatusBar(), 0);
     lv_obj_clear_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t* title = lv_label_create(title_bar);
-    lv_label_set_text_fmt(title, "VAIL MASTER - %s", vmGetModeName(vmSession.mode));
-    lv_obj_add_style(title, getStyleLabelTitle(), 0);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 15, 0);
+    createSplitTitleLabel(title_bar, "VAIL MASTER", vmGetModeName(vmSession.mode));
 
     // Score on right side of title bar
     vm_score_label = lv_label_create(title_bar);
@@ -417,7 +414,7 @@ lv_obj_t* createVailMasterPracticeScreen() {
     vm_streak_label = lv_label_create(stats_row);
     lv_label_set_text(vm_streak_label, "Streak: 0");
     lv_obj_set_style_text_font(vm_streak_label, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(vm_streak_label, LV_COLOR_ACCENT_CYAN, 0);  // Cyan
+    lv_obj_set_style_text_color(vm_streak_label, LV_COLOR_ACCENT_PRIMARY, 0);  // Cyan
 
     // Efficiency
     vm_efficiency_label = lv_label_create(stats_row);
@@ -462,7 +459,7 @@ lv_obj_t* createVailMasterPracticeScreen() {
     vm_echo_label = lv_label_create(echo_container);
     lv_label_set_text(vm_echo_label, "_");
     lv_obj_set_style_text_font(vm_echo_label, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(vm_echo_label, LV_COLOR_ACCENT_CYAN, 0);  // Cyan
+    lv_obj_set_style_text_color(vm_echo_label, LV_COLOR_ACCENT_PRIMARY, 0);  // Cyan
     lv_obj_set_width(vm_echo_label, SCREEN_WIDTH - 40);
     lv_label_set_long_mode(vm_echo_label, LV_LABEL_LONG_WRAP);
     lv_obj_align(vm_echo_label, LV_ALIGN_CENTER, 0, 8);
@@ -516,7 +513,7 @@ static void vm_settings_update_focus() {
         if (rows[i] == NULL) continue;
 
         if (i == vm_settings_focus) {
-            lv_obj_set_style_border_color(rows[i], LV_COLOR_ACCENT_CYAN, 0);
+            lv_obj_set_style_border_color(rows[i], LV_COLOR_ACCENT_PRIMARY, 0);
             lv_obj_set_style_border_width(rows[i], 2, 0);
             // Scroll the focused row into view
             lv_obj_scroll_to_view(rows[i], LV_ANIM_ON);
@@ -733,7 +730,7 @@ lv_obj_t* createVailMasterSettingsScreen() {
 
     vm_wpm_value = lv_label_create(wpm_row);
     lv_label_set_text_fmt(vm_wpm_value, "%d WPM", vmWPM);
-    lv_obj_set_style_text_color(vm_wpm_value, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(vm_wpm_value, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(vm_wpm_value, LV_ALIGN_RIGHT_MID, -10, 0);
 
     vm_wpm_slider = lv_slider_create(wpm_row);
@@ -755,7 +752,7 @@ lv_obj_t* createVailMasterSettingsScreen() {
 
     vm_runlen_value = lv_label_create(runlen_row);
     lv_label_set_text_fmt(vm_runlen_value, "%d trials", vmRunLength);
-    lv_obj_set_style_text_color(vm_runlen_value, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(vm_runlen_value, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(vm_runlen_value, LV_ALIGN_RIGHT_MID, -10, 0);
 
     // Group Count (row 2)
@@ -771,7 +768,7 @@ lv_obj_t* createVailMasterSettingsScreen() {
 
     vm_groupcnt_value = lv_label_create(grpcnt_row);
     lv_label_set_text_fmt(vm_groupcnt_value, "%d groups", vmMixedSettings.groupCount);
-    lv_obj_set_style_text_color(vm_groupcnt_value, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(vm_groupcnt_value, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(vm_groupcnt_value, LV_ALIGN_RIGHT_MID, -10, 0);
 
     vm_grpcnt_slider = lv_slider_create(grpcnt_row);
@@ -793,7 +790,7 @@ lv_obj_t* createVailMasterSettingsScreen() {
 
     vm_grouplen_value = lv_label_create(grplen_row);
     lv_label_set_text_fmt(vm_grouplen_value, "%d chars", vmMixedSettings.groupLength);
-    lv_obj_set_style_text_color(vm_grouplen_value, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(vm_grouplen_value, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(vm_grouplen_value, LV_ALIGN_RIGHT_MID, -10, 0);
 
     vm_grplen_slider = lv_slider_create(grplen_row);
@@ -1023,7 +1020,7 @@ static void vm_charset_btn_toggle_cb(lv_event_t* e) {
     vm_charset_selected[idx] = !vm_charset_selected[idx];
 
     if (vm_charset_selected[idx]) {
-        lv_obj_set_style_bg_color(btn, LV_COLOR_ACCENT_CYAN, 0);  // Cyan when selected
+        lv_obj_set_style_bg_color(btn, LV_COLOR_ACCENT_PRIMARY, 0);  // Cyan when selected
         lv_obj_set_style_text_color(lv_obj_get_child(btn, 0), LV_COLOR_BG_DEEP, 0);
     } else {
         lv_obj_set_style_bg_color(btn, LV_COLOR_BG_LAYER2, 0);  // Dark when deselected
@@ -1081,7 +1078,7 @@ lv_obj_t* createVailMasterCharsetScreen() {
 
         // Style based on selection state
         if (vm_charset_selected[i]) {
-            lv_obj_set_style_bg_color(btn, LV_COLOR_ACCENT_CYAN, 0);
+            lv_obj_set_style_bg_color(btn, LV_COLOR_ACCENT_PRIMARY, 0);
         } else {
             lv_obj_set_style_bg_color(btn, LV_COLOR_BG_LAYER2, 0);
         }
@@ -1090,7 +1087,7 @@ lv_obj_t* createVailMasterCharsetScreen() {
         lv_obj_set_style_radius(btn, 5, 0);
 
         // Focused style
-        lv_obj_set_style_outline_color(btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+        lv_obj_set_style_outline_color(btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
         lv_obj_set_style_outline_width(btn, 2, LV_STATE_FOCUSED);
 
         lv_obj_t* label = lv_label_create(btn);
