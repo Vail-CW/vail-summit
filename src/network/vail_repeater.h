@@ -128,9 +128,9 @@ int64_t clockSkew = 0;  // Offset to convert millis() to server time
 int clockSkewSamples = 0;  // Number of clock skew samples received
 const float CLOCK_SKEW_ALPHA = 0.3f;  // Exponential moving average weight
 
-// TX morse compose state — fixed char buffers (not Arduino String) per
-// CLAUDE.md HARD REQUIREMENT 3. These are mutated on every keyed element
-// in an audio-critical screen, so we cannot afford heap churn.
+// TX morse compose state — fixed char buffers (not Arduino String). These
+// are mutated on every keyed element in an audio-critical screen, so we
+// cannot afford heap churn.
 #define VAIL_MORSE_BUF_SIZE 80
 char vailTxMorseSymbols[VAIL_MORSE_BUF_SIZE] = {0};   // current char being keyed: ". - ." etc
 char vailRxMorseSymbols[VAIL_MORSE_BUF_SIZE] = {0};   // RX visualization

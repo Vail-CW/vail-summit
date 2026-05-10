@@ -84,7 +84,7 @@ void cleanupLICWPractice() {
 
     // Stop and delete the Send Practice direct-decoder tick timer if active.
     // Without this, the esp_timer becomes a zombie on back-nav and accumulates
-    // on every visit (per CLAUDE.md HARD REQUIREMENT 1).
+    // on every visit.
     if (licwSendTickTimer != nullptr) {
         esp_timer_stop(licwSendTickTimer);
         esp_timer_delete(licwSendTickTimer);

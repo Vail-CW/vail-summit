@@ -15,11 +15,10 @@
 LV_FONT_DECLARE(ExtraFontAwesomeIcons);
 
 /*
- * Header-only data block. Per project convention (CLAUDE.md "header-only
- * build"), the bitmap + glyph metadata + lv_font_t definition live inside
- * the include guard above so they are instantiated exactly once per
- * translation unit. The single-TU build means this happens exactly once
- * project-wide. Replaces the previous src/fonts/extra_font_awesome_icons.c.
+ * Header-only data block. The project uses a single-TU header-only build,
+ * so the bitmap + glyph metadata + lv_font_t definition live inside the
+ * include guard above and are instantiated exactly once per translation
+ * unit (which is once project-wide).
  */
 #include "extra_font_awesome_icons_shell.h"
 

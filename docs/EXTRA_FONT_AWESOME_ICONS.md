@@ -6,7 +6,7 @@ This project embeds a subset of **Font Awesome** icons as an LVGL **bitmap font*
 |------|------|
 | **`extra_font_awesome_icons_shell.h`** | **Stable** — Arduino/LVGL includes and `EXTRAFONTAWESOMEICONS`. **Do not replace** from the font converter. |
 | **`extra_font_awesome_icons_generated.h`** | **Replaceable** — paste only the **font body** from [LVGL Font Converter](https://lvgl.io/tools/fontconverter) or `lv_font_conv` here (see [what to strip](#what-to-paste-into-extra_font_awesome_icons_generatedh) below). Must live **next to** `extra_font_awesome_icons.h`. Uses **`.h`** so Arduino’s sketch copy step picks it up (`.inc` was often missing in the build temp tree). |
-| **`extra_font_awesome_icons.h`** | UTF-8 `FA_EXTRA_*` macros + `LV_FONT_DECLARE`, plus the include of `shell.h` and `generated.h` that instantiates the bitmap data. The whole font lives inside the `EXTRA_FONT_AWESOME_ICONS_H` include guard so the data is defined exactly once per translation unit (project is single-TU header-only — see CLAUDE.md). |
+| **`extra_font_awesome_icons.h`** | UTF-8 `FA_EXTRA_*` macros + `LV_FONT_DECLARE`, plus the include of `shell.h` and `generated.h` that instantiates the bitmap data. The whole font lives inside the `EXTRA_FONT_AWESOME_ICONS_H` include guard so the data is defined exactly once per translation unit (the project uses a single-TU header-only build). |
 
 **Include rule:** `extra_font_awesome_icons.h` may be included transitively by any header that uses an `FA_EXTRA_*` macro or refers to `&ExtraFontAwesomeIcons`. The standard include guard prevents duplicate instantiation. **Do NOT add a `.c` file** alongside these headers — the project's single-TU build expects everything in headers.
 
