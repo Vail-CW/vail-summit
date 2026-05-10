@@ -68,6 +68,11 @@ static void licw_cancel_autoplay_timer() {
     }
 }
 
+// Forward declarations for cleanup — actual definitions live further down,
+// alongside the LICW Send Practice screen state.
+extern esp_timer_handle_t licwSendTickTimer;
+extern volatile bool licwSendTickPending;
+
 // Cleanup all LICW timers on back-navigation
 void cleanupLICWPractice() {
     if (licw_playback_timer) {
@@ -76,6 +81,16 @@ void cleanupLICWPractice() {
     }
     licw_cancel_autoplay_timer();
     licw_on_playback_done = NULL;
+
+    // Stop and delete the Send Practice direct-decoder tick timer if active.
+    // Without this, the esp_timer becomes a zombie on back-nav and accumulates
+    // on every visit (per CLAUDE.md HARD REQUIREMENT 1).
+    if (licwSendTickTimer != nullptr) {
+        esp_timer_stop(licwSendTickTimer);
+        esp_timer_delete(licwSendTickTimer);
+        licwSendTickTimer = nullptr;
+    }
+    licwSendTickPending = false;
 }
 
 // ============================================
@@ -841,8 +856,9 @@ static bool licw_send_needs_ui_update = false;
 
 // Decoder for sending practice
 static MorseDecoder* licwSendDecoder = NULL;
-static esp_timer_handle_t licwSendTickTimer = nullptr;
-static volatile bool licwSendTickPending = false;
+// Non-static so cleanupLICWPractice() above can reference these via extern decl.
+esp_timer_handle_t licwSendTickTimer = nullptr;
+volatile bool licwSendTickPending = false;
 
 static void licwSendTickCallback(void*) {
     licwSendTickPending = true;
