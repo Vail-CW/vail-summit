@@ -1,4 +1,4 @@
-﻿/*
+/*
  * CW Speeder Game
  *
  * A speed-typing game where players send Morse code matching a displayed

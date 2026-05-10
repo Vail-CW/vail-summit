@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - LVGL Menu Screens
  * Replaces LovyanGFX menu rendering with LVGL
  */

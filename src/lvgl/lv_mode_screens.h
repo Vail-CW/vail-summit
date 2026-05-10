@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - LVGL Mode Screens
  * Covers Radio, Vail Repeater, QSO Logger, Bluetooth, and other modes
  */

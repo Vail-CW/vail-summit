@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - CW School LVGL Screens
  * Device linking and account management for CW School integration
  */

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - Band Plans Screen
  * US Amateur Radio HF Band Allocations with license visualization
  */

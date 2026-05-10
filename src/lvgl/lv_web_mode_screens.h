@@ -1,4 +1,4 @@
-﻿#ifndef LV_WEB_MODE_SCREENS_H
+#ifndef LV_WEB_MODE_SCREENS_H
 #define LV_WEB_MODE_SCREENS_H
 
 #include <WiFi.h>

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - LVGL Vail Master Screens
  * Provides LVGL UI for the Vail Master CW sending trainer
  */

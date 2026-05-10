@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - LVGL Splash Screen
  * Boot splash with mountain logo, title, and progress bar
  * Uses lv_canvas to render the 1-bit bitmap logo

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - LVGL Web Download Screen
  * Prompts user to download web files on first WiFi connection
  * Replaces legacy LovyanGFX-based UI with proper LVGL implementation

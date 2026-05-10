@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - Band Conditions Screen
  * Displays solar/propagation data from hamqsl.com in a tabbed UI
  */

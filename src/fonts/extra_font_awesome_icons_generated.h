@@ -1,4 +1,4 @@
-﻿/*
+/*
  * PASTE ZONE — replace this file's contents with the font body from lv_font_conv or
  * https://lvgl.io/tools/fontconverter (strip outer #include / #if / trailing #endif — see
  * docs/EXTRA_FONT_AWESOME_ICONS.md). Included from extra_font_awesome_icons.c (same folder).

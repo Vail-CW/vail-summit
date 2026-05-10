@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - POTA Recorder Screens
  * Setup and recording screens for POTA QSO logging
  */
