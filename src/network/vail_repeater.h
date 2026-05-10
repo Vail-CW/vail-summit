@@ -523,6 +523,10 @@ void disconnectFromVail() {
     vailKeyer->reset();
   }
 
+  // Stop and free RX/TX decoder esp_timers and decoder objects so back-nav
+  // doesn't leave zombie timers firing into freed callback context.
+  stopVailDecoders();
+
   Serial.println("[Vail] Disconnected and state cleared");
 }
 
