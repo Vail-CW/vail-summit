@@ -2797,23 +2797,29 @@ void updateVailScreenLVGL() {
     }
     lastKnownVailState = vailState;
 
-    // Update status indicator color based on connection state
+    // Update status indicator color — receiver lamp state machine.
+    // Mirrors the web repeater's recv-lamp behavior:
+    //   gray    = disconnected
+    //   yellow  = connecting
+    //   cyan    = connected, idle
+    //   orange  = currently receiving (someone else's keying playing back)
+    //   green   = recently transmitted (own keying lit this within ~1.5s)
+    //   red     = connection error
+    static unsigned long lastTxLitMs = 0;
+    if (vailIsTransmitting) lastTxLitMs = millis();
+    bool recentlyTxd = (millis() - lastTxLitMs) < 1500;
+
     lv_color_t status_color;
     switch (vailState) {
-        case VAIL_DISCONNECTED:
-            status_color = LV_COLOR_TEXT_SECONDARY;  // Gray
-            break;
-        case VAIL_CONNECTING:
-            status_color = LV_COLOR_WARNING;  // Yellow/Orange
-            break;
+        case VAIL_DISCONNECTED: status_color = LV_COLOR_TEXT_SECONDARY; break;
+        case VAIL_CONNECTING:   status_color = LV_COLOR_WARNING;        break;
         case VAIL_CONNECTED:
-            status_color = LV_COLOR_SUCCESS;  // Green
+            if (recentlyTxd)       status_color = LV_COLOR_SUCCESS;     // green: just keyed
+            else if (isPlaying)    status_color = LV_COLOR_WARNING;     // orange-ish: RX
+            else                   status_color = LV_COLOR_ACCENT_PRIMARY; // cyan: idle
             break;
-        case VAIL_ERROR:
-            status_color = LV_COLOR_ERROR;  // Red
-            break;
-        default:
-            status_color = LV_COLOR_TEXT_SECONDARY;
+        case VAIL_ERROR:        status_color = LV_COLOR_ERROR;          break;
+        default:                status_color = LV_COLOR_TEXT_SECONDARY;
     }
 
     // Update indicator dot color
