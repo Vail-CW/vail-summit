@@ -8,6 +8,7 @@
 
 #include <lvgl.h>
 #include <WiFi.h>
+#include "../fonts/extra_font_awesome_icons.h"
 #include "lv_theme_summit.h"
 #include "lv_widgets_summit.h"
 #include "lv_screen_manager.h"
@@ -279,10 +280,11 @@ static const struct {
     const char* icon;
     const char* title;
     int target_mode;
+    const lv_font_t* icon_font; /* NULL: Montserrat 28 + LV_SYMBOL_* */
 } potaMenuItems[] = {
-    {LV_SYMBOL_GPS, "Active Spots", MODE_POTA_ACTIVE_SPOTS},
-    {LV_SYMBOL_HOME, "Activate a Park", MODE_POTA_ACTIVATE},
-    {LV_SYMBOL_AUDIO, "POTA Recorder", MODE_POTA_RECORDER_SETUP}
+    {FA_EXTRA_MAP_MARKED_ALT, "Active Spots", MODE_POTA_ACTIVE_SPOTS, &ExtraFontAwesomeIcons},
+    {FA_EXTRA_ROUTE, "Activate a Park", MODE_POTA_ACTIVATE, &ExtraFontAwesomeIcons},
+    {LV_SYMBOL_AUDIO, "POTA Recorder", MODE_POTA_RECORDER_SETUP, NULL},
 };
 #define POTA_MENU_COUNT 3
 
@@ -316,41 +318,47 @@ lv_obj_t* createPOTAMenuScreen() {
     lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(content, 0, 0);
     lv_obj_set_layout(content, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(content, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(content, 20, 0);
-    lv_obj_set_style_pad_row(content, 15, 0);
+    lv_obj_set_style_pad_column(content, 15, 0);
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
 
     // Create menu buttons
     for (int i = 0; i < POTA_MENU_COUNT; i++) {
         lv_obj_t* btn = lv_obj_create(content);
-        lv_obj_set_size(btn, 200, 85);
+        lv_obj_set_size(btn, 140, 90);
         applyCardStyle(btn);
         lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_user_data(btn, (void*)(intptr_t)potaMenuItems[i].target_mode);
         lv_obj_clear_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_layout(btn, LV_LAYOUT_FLEX);
+        lv_obj_set_flex_flow(btn, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(btn, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_all(btn, 8, 0);
+        lv_obj_set_style_pad_row(btn, 4, 0);
 
         // Focus style
-        lv_obj_set_style_border_color(btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+        lv_obj_set_style_border_color(btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
         lv_obj_set_style_border_width(btn, 2, LV_STATE_FOCUSED);
-        lv_obj_set_style_shadow_color(btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+        lv_obj_set_style_shadow_color(btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
         lv_obj_set_style_shadow_width(btn, 15, LV_STATE_FOCUSED);
         lv_obj_set_style_shadow_opa(btn, LV_OPA_30, LV_STATE_FOCUSED);
 
         // Icon
         lv_obj_t* icon = lv_label_create(btn);
         lv_label_set_text(icon, potaMenuItems[i].icon);
-        lv_obj_set_style_text_font(icon, &lv_font_montserrat_28, 0);
-        lv_obj_set_style_text_color(icon, LV_COLOR_ACCENT_CYAN, 0);
-        lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 15);
+        if (potaMenuItems[i].icon_font != NULL) {
+            lv_obj_set_style_text_font(icon, potaMenuItems[i].icon_font, 0);
+        } else {
+            lv_obj_set_style_text_font(icon, &lv_font_montserrat_28, 0);
+        }
+        lv_obj_set_style_text_color(icon, LV_COLOR_TEXT_PRIMARY, 0);
 
         // Title
         lv_obj_t* label = lv_label_create(btn);
         lv_label_set_text(label, potaMenuItems[i].title);
         lv_obj_set_style_text_font(label, &lv_font_montserrat_16, 0);
         lv_obj_set_style_text_color(label, LV_COLOR_TEXT_PRIMARY, 0);
-        lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -15);
 
         lv_obj_add_event_cb(btn, pota_menu_key_handler, LV_EVENT_KEY, NULL);
         pota_menu_buttons[i] = btn;
@@ -535,7 +543,7 @@ lv_obj_t* createPOTAActiveSpotsScreen() {
     lv_obj_t* filter_btn = lv_label_create(header);
     lv_label_set_text(filter_btn, "[F]ilter");
     lv_obj_set_style_text_font(filter_btn, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(filter_btn, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(filter_btn, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(filter_btn, LV_ALIGN_CENTER, 20, 0);
 
     createCompactStatusBar(screen);
@@ -582,25 +590,25 @@ lv_obj_t* createPOTAActiveSpotsScreen() {
     lv_obj_t* h1 = lv_label_create(header_bar);
     lv_label_set_text(h1, "CALL");
     lv_obj_set_style_text_font(h1, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(h1, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(h1, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_pos(h1, 8, 5);
 
     lv_obj_t* h2 = lv_label_create(header_bar);
     lv_label_set_text(h2, "PARK");
     lv_obj_set_style_text_font(h2, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(h2, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(h2, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_pos(h2, 98, 5);
 
     lv_obj_t* h3 = lv_label_create(header_bar);
     lv_label_set_text(h3, "FREQ / MODE");
     lv_obj_set_style_text_font(h3, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(h3, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(h3, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_pos(h3, 198, 5);
 
     lv_obj_t* h4 = lv_label_create(header_bar);
     lv_label_set_text(h4, "AGE");
     lv_obj_set_style_text_font(h4, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(h4, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(h4, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_pos(h4, 358, 5);
 
     // ========================================
@@ -636,7 +644,7 @@ lv_obj_t* createPOTAActiveSpotsScreen() {
     lv_obj_set_style_pad_left(pota_spots_table, 4, LV_PART_ITEMS);
 
     // Selected row styling
-    lv_obj_set_style_bg_color(pota_spots_table, LV_COLOR_ACCENT_CYAN, LV_PART_ITEMS | LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(pota_spots_table, LV_COLOR_ACCENT_PRIMARY, LV_PART_ITEMS | LV_STATE_PRESSED);
     lv_obj_set_style_text_color(pota_spots_table, getThemeColors()->text_on_accent, LV_PART_ITEMS | LV_STATE_PRESSED);
 
     // Set column widths to match header
@@ -670,7 +678,7 @@ lv_obj_t* createPOTAActiveSpotsScreen() {
     lv_obj_set_pos(loading_container, (SCREEN_WIDTH - 280) / 2, loading_center_y);
     lv_obj_set_style_bg_color(loading_container, getThemeColors()->bg_layer2, 0);
     lv_obj_set_style_bg_opa(loading_container, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(loading_container, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_border_color(loading_container, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_border_width(loading_container, 2, 0);
     lv_obj_set_style_radius(loading_container, 8, 0);
     lv_obj_clear_flag(loading_container, LV_OBJ_FLAG_SCROLLABLE);
@@ -680,7 +688,7 @@ lv_obj_t* createPOTAActiveSpotsScreen() {
     lv_obj_t* spinner = lv_spinner_create(loading_container, 1000, 60);
     lv_obj_set_size(spinner, 40, 40);
     lv_obj_align(spinner, LV_ALIGN_TOP_MID, 0, 8);
-    lv_obj_set_style_arc_color(spinner, LV_COLOR_ACCENT_CYAN, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(spinner, LV_COLOR_ACCENT_PRIMARY, LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(spinner, getThemeColors()->bg_deep, LV_PART_MAIN);
     lv_obj_set_style_arc_width(spinner, 4, LV_PART_INDICATOR);
     lv_obj_set_style_arc_width(spinner, 4, LV_PART_MAIN);
@@ -864,7 +872,7 @@ void updateDetailTabStyles() {
         if (!pota_detail_tabs[i]) continue;
 
         if (i == pota_detail_selected_tab) {
-            lv_obj_set_style_bg_color(pota_detail_tabs[i], LV_COLOR_ACCENT_CYAN, 0);
+            lv_obj_set_style_bg_color(pota_detail_tabs[i], LV_COLOR_ACCENT_PRIMARY, 0);
             lv_obj_t* label = lv_obj_get_child(pota_detail_tabs[i], 0);
             if (label) lv_obj_set_style_text_color(label, getThemeColors()->text_on_accent, 0);
         } else {
@@ -914,7 +922,7 @@ void updateDetailContent() {
             snprintf(buf, sizeof(buf), "FREQUENCY: %.3f MHz    MODE: %s", freq, spot.mode);
             lv_label_set_text(freq_lbl, buf);
             lv_obj_set_style_text_font(freq_lbl, &lv_font_montserrat_14, 0);
-            lv_obj_set_style_text_color(freq_lbl, LV_COLOR_ACCENT_CYAN, 0);
+            lv_obj_set_style_text_color(freq_lbl, LV_COLOR_ACCENT_PRIMARY, 0);
 
             lv_obj_t* spotter_lbl = lv_label_create(pota_detail_content);
             char age[16];
@@ -942,7 +950,7 @@ void updateDetailContent() {
             snprintf(buf, sizeof(buf), "CALLSIGN: %s", spot.activator);
             lv_label_set_text(call_lbl, buf);
             lv_obj_set_style_text_font(call_lbl, &lv_font_montserrat_18, 0);
-            lv_obj_set_style_text_color(call_lbl, LV_COLOR_ACCENT_CYAN, 0);
+            lv_obj_set_style_text_color(call_lbl, LV_COLOR_ACCENT_PRIMARY, 0);
 
             lv_obj_t* ref_lbl = lv_label_create(pota_detail_content);
             snprintf(buf, sizeof(buf), "PARK: %s", spot.reference);
@@ -977,7 +985,7 @@ void updateDetailContent() {
             lv_obj_t* title_lbl = lv_label_create(pota_detail_content);
             lv_label_set_text(title_lbl, "Recent Spots");
             lv_obj_set_style_text_font(title_lbl, &lv_font_montserrat_16, 0);
-            lv_obj_set_style_text_color(title_lbl, LV_COLOR_ACCENT_CYAN, 0);
+            lv_obj_set_style_text_color(title_lbl, LV_COLOR_ACCENT_PRIMARY, 0);
 
             lv_obj_t* info_lbl = lv_label_create(pota_detail_content);
             lv_label_set_text(info_lbl, "Recent hunter spots for this\nactivator will be shown here.\n\n(Coming soon)");
@@ -991,7 +999,7 @@ void updateDetailContent() {
             lv_obj_t* title_lbl = lv_label_create(pota_detail_content);
             lv_label_set_text(title_lbl, "QRZ Lookup");
             lv_obj_set_style_text_font(title_lbl, &lv_font_montserrat_16, 0);
-            lv_obj_set_style_text_color(title_lbl, LV_COLOR_ACCENT_CYAN, 0);
+            lv_obj_set_style_text_color(title_lbl, LV_COLOR_ACCENT_PRIMARY, 0);
 
             lv_obj_t* info_lbl = lv_label_create(pota_detail_content);
             snprintf(buf, sizeof(buf), "QRZ lookup for %s\n\nConfigure QRZ API key in Settings\nto enable operator information.", spot.activator);
@@ -1048,7 +1056,7 @@ lv_obj_t* createPOTASpotDetailScreen() {
         lv_obj_set_pos(tab, tabX, HEADER_HEIGHT + 5);
         lv_obj_set_style_radius(tab, 6, 0);
         lv_obj_set_style_border_width(tab, 1, 0);
-        lv_obj_set_style_border_color(tab, LV_COLOR_ACCENT_CYAN, 0);
+        lv_obj_set_style_border_color(tab, LV_COLOR_ACCENT_PRIMARY, 0);
         lv_obj_set_style_pad_all(tab, 0, 0);
         lv_obj_clear_flag(tab, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -1084,7 +1092,7 @@ lv_obj_t* createPOTASpotDetailScreen() {
     lv_obj_t* log_btn = lv_btn_create(screen);
     lv_obj_set_size(log_btn, 150, 40);
     lv_obj_align(log_btn, LV_ALIGN_BOTTOM_MID, 0, -FOOTER_HEIGHT - 10);
-    lv_obj_set_style_bg_color(log_btn, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_bg_color(log_btn, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_bg_color(log_btn, lv_color_hex(0x00AAAA), LV_STATE_FOCUSED);
     lv_obj_set_style_border_width(log_btn, 2, LV_STATE_FOCUSED);
     lv_obj_set_style_border_color(log_btn, lv_color_hex(0xFFFFFF), LV_STATE_FOCUSED);
@@ -1205,23 +1213,23 @@ void updateFilterRowStyles() {
             if (i == 4) {
                 // Apply button - keep green bg, add cyan border
                 lv_obj_set_style_bg_color(filter_rows[i], LV_COLOR_SUCCESS, 0);
-                lv_obj_set_style_border_color(filter_rows[i], LV_COLOR_ACCENT_CYAN, 0);
+                lv_obj_set_style_border_color(filter_rows[i], LV_COLOR_ACCENT_PRIMARY, 0);
                 lv_obj_set_style_border_width(filter_rows[i], 3, 0);
-                lv_obj_set_style_shadow_color(filter_rows[i], LV_COLOR_ACCENT_CYAN, 0);
+                lv_obj_set_style_shadow_color(filter_rows[i], LV_COLOR_ACCENT_PRIMARY, 0);
                 lv_obj_set_style_shadow_width(filter_rows[i], 10, 0);
                 lv_obj_set_style_shadow_opa(filter_rows[i], LV_OPA_50, 0);
             } else if (i == 5) {
                 // Clear button - keep red bg, add cyan border
                 lv_obj_set_style_bg_color(filter_rows[i], LV_COLOR_ERROR, 0);
-                lv_obj_set_style_border_color(filter_rows[i], LV_COLOR_ACCENT_CYAN, 0);
+                lv_obj_set_style_border_color(filter_rows[i], LV_COLOR_ACCENT_PRIMARY, 0);
                 lv_obj_set_style_border_width(filter_rows[i], 3, 0);
-                lv_obj_set_style_shadow_color(filter_rows[i], LV_COLOR_ACCENT_CYAN, 0);
+                lv_obj_set_style_shadow_color(filter_rows[i], LV_COLOR_ACCENT_PRIMARY, 0);
                 lv_obj_set_style_shadow_width(filter_rows[i], 10, 0);
                 lv_obj_set_style_shadow_opa(filter_rows[i], LV_OPA_50, 0);
             } else {
                 // Filter rows (0-3)
                 lv_obj_set_style_bg_color(filter_rows[i], getThemeColors()->card_secondary, 0);
-                lv_obj_set_style_border_color(filter_rows[i], LV_COLOR_ACCENT_CYAN, 0);
+                lv_obj_set_style_border_color(filter_rows[i], LV_COLOR_ACCENT_PRIMARY, 0);
                 lv_obj_set_style_border_width(filter_rows[i], 2, 0);
                 lv_obj_set_style_shadow_width(filter_rows[i], 0, 0);
             }
@@ -1341,7 +1349,7 @@ lv_obj_t* createPOTAFilterScreen() {
 
     filter_band_label = lv_label_create(band_row);
     lv_obj_set_style_text_font(filter_band_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(filter_band_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(filter_band_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(filter_band_label, LV_ALIGN_RIGHT_MID, 0, 0);
 
     // Mode row
@@ -1361,7 +1369,7 @@ lv_obj_t* createPOTAFilterScreen() {
 
     filter_mode_label = lv_label_create(mode_row);
     lv_obj_set_style_text_font(filter_mode_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(filter_mode_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(filter_mode_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(filter_mode_label, LV_ALIGN_RIGHT_MID, 0, 0);
 
     // Region row
@@ -1381,7 +1389,7 @@ lv_obj_t* createPOTAFilterScreen() {
 
     filter_region_label = lv_label_create(region_row);
     lv_obj_set_style_text_font(filter_region_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(filter_region_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(filter_region_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(filter_region_label, LV_ALIGN_RIGHT_MID, 0, 0);
 
     // Callsign row - text input for callsign search
@@ -1407,7 +1415,7 @@ lv_obj_t* createPOTAFilterScreen() {
     lv_textarea_set_max_length(filter_callsign_textarea, 10);
     lv_textarea_set_placeholder_text(filter_callsign_textarea, "Type callsign...");
     lv_obj_set_style_text_font(filter_callsign_textarea, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(filter_callsign_textarea, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(filter_callsign_textarea, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_bg_color(filter_callsign_textarea, getThemeColors()->bg_layer2, 0);
     lv_obj_set_style_border_width(filter_callsign_textarea, 1, 0);
     lv_obj_set_style_border_color(filter_callsign_textarea, LV_COLOR_TEXT_TERTIARY, 0);

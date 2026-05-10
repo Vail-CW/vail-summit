@@ -335,7 +335,7 @@ void showWebFilesUpdateNotification() {
     lv_obj_t* icon = lv_label_create(card);
     lv_label_set_text(icon, isUpdate ? LV_SYMBOL_REFRESH : LV_SYMBOL_DOWNLOAD);
     lv_obj_set_style_text_font(icon, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(icon, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(icon, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(icon, LV_ALIGN_TOP_LEFT, 10, 10);
 
     // Message text - directs user to WiFi Settings
@@ -445,7 +445,7 @@ void showWebFilesDownloadProgress() {
     // Percentage label
     web_download_pct_label = lv_label_create(card);
     lv_label_set_text(web_download_pct_label, "0%");
-    lv_obj_set_style_text_color(web_download_pct_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(web_download_pct_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_text_font(web_download_pct_label, getThemeFonts()->font_subtitle, 0);
     lv_obj_align(web_download_pct_label, LV_ALIGN_CENTER, 0, 55);
 

@@ -18,7 +18,8 @@
 #include "../core/config.h"
 #include "../core/morse_code.h"
 #include "../audio/i2s_audio.h"
-#include "../audio/morse_decoder_adaptive.h"
+#include "../audio/morse_decoder_direct.h"
+#include "../settings/settings_decoder.h"
 #include "../keyer/keyer.h"
 #include "../lvgl/lv_screen_manager.h"
 #include "../lvgl/lv_theme_summit.h"
@@ -78,7 +79,7 @@ struct MemoryChainGame {
 
 // Global game instance
 static MemoryChainGame mcGame;
-static MorseDecoderAdaptive mcDecoder(15, 20, 30);
+static MorseDecoder* mcDecoder = nullptr;
 static Preferences mcPrefs;
 
 // Unified keyer
@@ -198,8 +199,8 @@ static void mc_key_event_cb(lv_event_t* e) {
             mcGame.phase = MC_PHASE_USER_INPUT;
             mcGame.playerPos = 0;
             mcGame.lastInputTime = millis();
-            mcDecoder.reset();
-            mcDecoder.flush();
+            mcDecoder->reset();
+            mcDecoder->flush();
             mcUpdateStatus("YOUR TURN");
         }
     }
@@ -257,7 +258,7 @@ lv_obj_t* createMemoryChainScreen() {
     // Score in title bar
     mc_score_label = lv_label_create(title_bar);
     lv_label_set_text(mc_score_label, "0");
-    lv_obj_set_style_text_color(mc_score_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(mc_score_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_text_font(mc_score_label, getThemeFonts()->font_subtitle, 0);
 
     // Level card
@@ -276,7 +277,7 @@ lv_obj_t* createMemoryChainScreen() {
     mc_level_label = lv_label_create(level_card);
     lv_label_set_text(mc_level_label, "1");
     lv_obj_set_style_text_font(mc_level_label, getThemeFonts()->font_large, 0);
-    lv_obj_set_style_text_color(mc_level_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(mc_level_label, LV_COLOR_ACCENT_PRIMARY, 0);
 
     // Lives card
     lv_obj_t* lives_card = lv_obj_create(screen);
@@ -320,7 +321,7 @@ lv_obj_t* createMemoryChainScreen() {
     mc_status_label = lv_label_create(status_card);
     lv_label_set_text(mc_status_label, "GET READY");
     lv_obj_set_style_text_font(mc_status_label, getThemeFonts()->font_title, 0);
-    lv_obj_set_style_text_color(mc_status_label, LV_COLOR_ACCENT_GREEN, 0);
+    lv_obj_set_style_text_color(mc_status_label, LV_COLOR_SUCCESS, 0);
 
     // Message label
     mc_message_label = lv_label_create(screen);
@@ -411,8 +412,8 @@ void mcStartUserInput() {
     }
 
     // Reset decoder
-    mcDecoder.reset();
-    mcDecoder.flush();
+    mcDecoder->reset();
+    mcDecoder->flush();
 
     mcUpdateStatus("YOUR TURN");
     lv_timer_handler();  // Update UI
@@ -512,10 +513,7 @@ void mcProcessDecodedChar(char c) {
 // ============================================
 
 void mcSetupDecoder() {
-    static bool setup = false;
-    if (setup) return;
-
-    mcDecoder.messageCallback = [](String morse, String text) {
+    mcDecoder->messageCallback = [](String morse, String text) {
         Serial.printf("[MC] Decoder callback: morse='%s' text='%s' state=%d phase=%d\n",
                       morse.c_str(), text.c_str(), mcGame.state, mcGame.phase);
         if (text.length() > 0 && mcGame.state == MC_STATE_PLAYING && mcGame.phase == MC_PHASE_USER_INPUT) {
@@ -524,8 +522,6 @@ void mcSetupDecoder() {
             Serial.printf("[MC] Stored decoded char: '%c'\n", mcGame.lastDecoded);
         }
     };
-
-    setup = true;
 }
 
 // ============================================
@@ -542,7 +538,7 @@ void mcKeyerCallback(bool txOn, int element) {
             if (mcLastStateChange > 0) {
                 float silence = now - mcLastStateChange;
                 if (silence > 0) {
-                    mcDecoder.addTiming(-silence);
+                    mcDecoder->addTiming(-silence);
                 }
             }
             mcLastStateChange = now;
@@ -555,7 +551,7 @@ void mcKeyerCallback(bool txOn, int element) {
             float tone = now - mcLastStateChange;
             Serial.printf("[MC] Keyer tone OFF - duration: %.0f ms\n", tone);
             if (tone > 0) {
-                mcDecoder.addTiming(tone);
+                mcDecoder->addTiming(tone);
             }
             mcLastStateChange = now;
             mcLastToneState = false;
@@ -585,6 +581,9 @@ void mcKeyerUpdate(bool ditPressed, bool dahPressed) {
 
     // Tick the keyer state machine
     mcKeyer->tick(now);
+
+    // Tick the decoder (Direct mode: proactive character-gap flush)
+    mcDecoder->tick();
 
     // Keep tone playing if keyer is active
     if (mcKeyer->isTxActive()) {
@@ -634,7 +633,7 @@ void memoryChainUpdate() {
 
                     if (now - mcLastStateChange > gap) {
                         Serial.printf("[MC] Flushing decoder after %lu ms silence\n", now - mcLastStateChange);
-                        mcDecoder.flush();
+                        mcDecoder->flush();
                         mcLastStateChange = 0;
                     }
                 }
@@ -716,10 +715,14 @@ void memoryChainStart() {
     mcKeyer->setDitDuration(DIT_DURATION(cwSpeed));
     mcKeyer->setTxCallback(mcKeyerCallback);
 
-    // Reset decoder
-    mcDecoder.reset();
-    mcDecoder.flush();
-    mcDecoder.setWPM(cwSpeed);
+    // Initialize decoder
+    delete mcDecoder;
+    mcDecoder = (decoderType == DECODER_DIRECT)
+        ? (MorseDecoder*) new MorseDecoderDirect(cwSpeed, cwSpeed, 30)
+        : (MorseDecoder*) new MorseDecoderAdaptive(cwSpeed, cwSpeed, 30);
+    mcDecoder->reset();
+    mcDecoder->flush();
+    mcDecoder->setWPM(cwSpeed);
 
     // Setup decoder callback
     mcSetupDecoder();

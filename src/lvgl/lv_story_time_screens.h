@@ -147,7 +147,7 @@ lv_obj_t* createStoryTimeMenuScreen() {
     snprintf(stats_text, sizeof(stats_text), "%d stories completed | %d perfect scores",
              stProgress.totalStoriesCompleted, stProgress.totalPerfectScores);
     lv_label_set_text(stats, stats_text);
-    lv_obj_set_style_text_color(stats, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(stats, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_text_font(stats, getThemeFonts()->font_small, 0);
     lv_obj_align(stats, LV_ALIGN_BOTTOM_MID, 0, -FOOTER_HEIGHT - 10);
 
@@ -197,8 +197,8 @@ lv_obj_t* createStoryTimeDifficultyScreen() {
     // Difficulty buttons
     const char* diff_names[] = {"Tutorial", "Easy", "Medium", "Hard", "Expert"};
     const lv_color_t diff_colors[] = {
-        LV_COLOR_ACCENT_CYAN,
-        LV_COLOR_ACCENT_GREEN,
+        LV_COLOR_ACCENT_PRIMARY,
+        LV_COLOR_SUCCESS,
         LV_COLOR_WARNING,
         LV_COLOR_ERROR,
         LV_COLOR_ACCENT_MAGENTA
@@ -330,12 +330,12 @@ lv_obj_t* createStoryTimeListScreen() {
             lv_obj_t* check = lv_label_create(btn);
             if (prog.bestScore == 5) {
                 lv_label_set_text(check, LV_SYMBOL_OK " Perfect");
-                lv_obj_set_style_text_color(check, LV_COLOR_ACCENT_GREEN, 0);
+                lv_obj_set_style_text_color(check, LV_COLOR_SUCCESS, 0);
             } else {
                 char score_text[16];
                 snprintf(score_text, sizeof(score_text), LV_SYMBOL_OK " %d/5", prog.bestScore);
                 lv_label_set_text(check, score_text);
-                lv_obj_set_style_text_color(check, LV_COLOR_ACCENT_CYAN, 0);
+                lv_obj_set_style_text_color(check, LV_COLOR_ACCENT_PRIMARY, 0);
             }
             lv_obj_align(check, LV_ALIGN_RIGHT_MID, -5, 0);
         }
@@ -472,7 +472,7 @@ lv_obj_t* createStoryTimeListenScreen() {
     else if (stSession.playPhase == ST_PLAY_PAUSED) initial_status = "PAUSED";
     lv_label_set_text(st_status_label, initial_status);
     lv_obj_set_style_text_font(st_status_label, getThemeFonts()->font_title, 0);
-    lv_obj_set_style_text_color(st_status_label, LV_COLOR_ACCENT_GREEN, 0);
+    lv_obj_set_style_text_color(st_status_label, LV_COLOR_SUCCESS, 0);
     lv_obj_center(st_status_label);
 
     // Play count indicator
@@ -488,7 +488,7 @@ lv_obj_t* createStoryTimeListenScreen() {
     char wpm_text[32];
     snprintf(wpm_text, sizeof(wpm_text), "%d WPM", stSession.playbackWPM);
     lv_label_set_text(wpm_display, wpm_text);
-    lv_obj_set_style_text_color(wpm_display, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(wpm_display, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(wpm_display, LV_ALIGN_TOP_MID, 0, HEADER_HEIGHT + 140);
 
     // Control buttons
@@ -563,12 +563,12 @@ static void st_answer_handler(lv_event_t* e) {
     bool correct = (answer == q->correctIndex);
 
     if (correct) {
-        lv_obj_set_style_bg_color(btn, LV_COLOR_ACCENT_GREEN, 0);
+        lv_obj_set_style_bg_color(btn, LV_COLOR_SUCCESS, 0);
     } else {
         lv_obj_set_style_bg_color(btn, LV_COLOR_ERROR, 0);
         // Highlight correct answer
         if (st_answer_btns[q->correctIndex]) {
-            lv_obj_set_style_bg_color(st_answer_btns[q->correctIndex], LV_COLOR_ACCENT_GREEN, 0);
+            lv_obj_set_style_bg_color(st_answer_btns[q->correctIndex], LV_COLOR_SUCCESS, 0);
         }
     }
     lv_timer_handler();
@@ -646,13 +646,13 @@ lv_obj_t* createStoryTimeQuizScreen() {
         if (i < stSession.currentQuestion) {
             // Answered - show if correct or wrong
             if (stSession.selectedAnswers[i] == stSession.currentStory->questions[i].correctIndex) {
-                lv_obj_set_style_bg_color(dot, LV_COLOR_ACCENT_GREEN, 0);
+                lv_obj_set_style_bg_color(dot, LV_COLOR_SUCCESS, 0);
             } else {
                 lv_obj_set_style_bg_color(dot, LV_COLOR_ERROR, 0);
             }
         } else if (i == stSession.currentQuestion) {
             // Current
-            lv_obj_set_style_bg_color(dot, LV_COLOR_ACCENT_CYAN, 0);
+            lv_obj_set_style_bg_color(dot, LV_COLOR_ACCENT_PRIMARY, 0);
         } else {
             // Future
             lv_obj_set_style_bg_color(dot, LV_COLOR_BG_LAYER2, 0);
@@ -684,7 +684,7 @@ lv_obj_t* createStoryTimeQuizScreen() {
         // Letter label
         lv_obj_t* letter = lv_label_create(btn);
         lv_label_set_text(letter, letters[i]);
-        lv_obj_set_style_text_color(letter, LV_COLOR_ACCENT_CYAN, 0);
+        lv_obj_set_style_text_color(letter, LV_COLOR_ACCENT_PRIMARY, 0);
         lv_obj_align(letter, LV_ALIGN_LEFT_MID, 10, 0);
 
         // Answer text
@@ -779,11 +779,11 @@ lv_obj_t* createStoryTimeResultsScreen() {
     if (perfect) {
         snprintf(score_text, sizeof(score_text), "%d/%d - PERFECT!",
                  stSession.correctAnswers, ST_MAX_QUESTIONS);
-        lv_obj_set_style_text_color(st_score_label, LV_COLOR_ACCENT_GREEN, 0);
+        lv_obj_set_style_text_color(st_score_label, LV_COLOR_SUCCESS, 0);
     } else {
         snprintf(score_text, sizeof(score_text), "%d/%d Correct",
                  stSession.correctAnswers, ST_MAX_QUESTIONS);
-        lv_obj_set_style_text_color(st_score_label, LV_COLOR_ACCENT_CYAN, 0);
+        lv_obj_set_style_text_color(st_score_label, LV_COLOR_ACCENT_PRIMARY, 0);
     }
     lv_label_set_text(st_score_label, score_text);
     lv_obj_set_style_text_font(st_score_label, getThemeFonts()->font_title, 0);
@@ -811,7 +811,7 @@ lv_obj_t* createStoryTimeResultsScreen() {
                  i + 1,
                  correct ? "Correct" : "Wrong");
         lv_label_set_text(row, row_text);
-        lv_obj_set_style_text_color(row, correct ? LV_COLOR_ACCENT_GREEN : LV_COLOR_ERROR, 0);
+        lv_obj_set_style_text_color(row, correct ? LV_COLOR_SUCCESS : LV_COLOR_ERROR, 0);
         lv_obj_set_style_text_font(row, getThemeFonts()->font_small, 0);
         lv_obj_align(row, LV_ALIGN_TOP_LEFT, 30, y);
         y += 20;
@@ -908,7 +908,7 @@ lv_obj_t* createStoryTimeProgressScreen() {
     snprintf(perfect_text, sizeof(perfect_text), "Perfect Scores: %d",
              stProgress.totalPerfectScores);
     lv_label_set_text(perfect, perfect_text);
-    lv_obj_set_style_text_color(perfect, LV_COLOR_ACCENT_GREEN, 0);
+    lv_obj_set_style_text_color(perfect, LV_COLOR_SUCCESS, 0);
     lv_obj_align(perfect, LV_ALIGN_TOP_LEFT, 10, y);
     y += 25;
 
@@ -921,7 +921,7 @@ lv_obj_t* createStoryTimeProgressScreen() {
     char acc_text[32];
     snprintf(acc_text, sizeof(acc_text), "Accuracy: %d%%", accuracy);
     lv_label_set_text(acc, acc_text);
-    lv_obj_set_style_text_color(acc, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(acc, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(acc, LV_ALIGN_TOP_LEFT, 10, y);
     y += 35;
 
@@ -1074,7 +1074,7 @@ lv_obj_t* createStoryTimeSettingsScreen() {
     char wpm_text[16];
     snprintf(wpm_text, sizeof(wpm_text), "%d WPM", stProgress.preferredWPM);
     lv_label_set_text(st_wpm_label, wpm_text);
-    lv_obj_set_style_text_color(st_wpm_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(st_wpm_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(st_wpm_label, LV_ALIGN_RIGHT_MID, -55, 0);
 
     lv_obj_t* wpm_inc = lv_btn_create(wpm_row);
@@ -1117,7 +1117,7 @@ lv_obj_t* createStoryTimeSettingsScreen() {
     char tone_text[16];
     snprintf(tone_text, sizeof(tone_text), "%d Hz", stProgress.preferredTone);
     lv_label_set_text(st_tone_label, tone_text);
-    lv_obj_set_style_text_color(st_tone_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(st_tone_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(st_tone_label, LV_ALIGN_RIGHT_MID, -55, 0);
 
     lv_obj_t* tone_inc = lv_btn_create(tone_row);

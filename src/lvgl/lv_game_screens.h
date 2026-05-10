@@ -157,7 +157,7 @@ lv_obj_t* createMorseShooterScreen() {
 
     shooter_score_label = lv_label_create(score_container);
     lv_label_set_text(shooter_score_label, "0");
-    lv_obj_set_style_text_color(shooter_score_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(shooter_score_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_text_font(shooter_score_label, getThemeFonts()->font_subtitle, 0);
 
     // Combo display (between score and lives)
@@ -234,7 +234,7 @@ lv_obj_t* createMorseShooterScreen() {
 
     shooter_decoded_label = lv_label_create(bottom_hud);
     lv_label_set_text(shooter_decoded_label, "_");
-    lv_obj_set_style_text_color(shooter_decoded_label, LV_COLOR_ACCENT_GREEN, 0);
+    lv_obj_set_style_text_color(shooter_decoded_label, LV_COLOR_SUCCESS, 0);
     lv_obj_set_style_text_font(shooter_decoded_label, getThemeFonts()->font_subtitle, 0);
 
     // Invisible focus container for keyboard input (ESC to exit)
@@ -301,7 +301,7 @@ void updateShooterCombo(int combo, int multiplier) {
             } else if (multiplier >= 3) {
                 lv_obj_set_style_text_color(shooter_combo_label, LV_COLOR_WARNING, 0);  // Yellow for 3x
             } else {
-                lv_obj_set_style_text_color(shooter_combo_label, LV_COLOR_ACCENT_GREEN, 0);  // Green for 2x
+                lv_obj_set_style_text_color(shooter_combo_label, LV_COLOR_SUCCESS, 0);  // Green for 2x
             }
         } else {
             // Hide combo display when not active
@@ -355,7 +355,7 @@ void updateShooterWord(int index, const char* word, int lettersTyped, int x, int
 
             // Color: partially completed words show progress
             if (lettersTyped > 0 && lettersTyped < len) {
-                lv_obj_set_style_text_color(shooter_letter_labels[index], LV_COLOR_ACCENT_GREEN, 0);
+                lv_obj_set_style_text_color(shooter_letter_labels[index], LV_COLOR_SUCCESS, 0);
             } else {
                 lv_obj_set_style_text_color(shooter_letter_labels[index], LV_COLOR_WARNING, 0);
             }
@@ -573,7 +573,7 @@ void drawShooterScenery() {
     // Turret dome (cyan highlight)
     lv_draw_line_dsc_t line_dsc;
     lv_draw_line_dsc_init(&line_dsc);
-    line_dsc.color = LV_COLOR_ACCENT_CYAN;
+    line_dsc.color = LV_COLOR_ACCENT_PRIMARY;
     line_dsc.width = 1;
 
     // Draw dome as half circle
@@ -596,7 +596,7 @@ void drawShooterScenery() {
     lv_canvas_draw_line(shooter_canvas, barrel, 2, &line_dsc);
 
     // Barrel tip glow
-    line_dsc.color = LV_COLOR_ACCENT_CYAN;
+    line_dsc.color = LV_COLOR_ACCENT_PRIMARY;
     line_dsc.width = 6;
     lv_point_t tip[2] = {{(lv_coord_t)turretCenterX, (lv_coord_t)(groundY - 48)},
                          {(lv_coord_t)turretCenterX, (lv_coord_t)(groundY - 52)}};
@@ -664,7 +664,7 @@ static void showLaserBeam(int targetX, int targetY) {
     shooter_laser_points[1].y = targetY + 10;
 
     lv_line_set_points(shooter_laser_line, shooter_laser_points, 2);
-    lv_obj_set_style_line_color(shooter_laser_line, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_line_color(shooter_laser_line, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_opa(shooter_laser_line, LV_OPA_COVER, 0);
     lv_obj_clear_flag(shooter_laser_line, LV_OBJ_FLAG_HIDDEN);
 
@@ -982,7 +982,7 @@ static void shooter_settings_update_all() {
     if (shooter_speed_value != NULL) {
         lv_label_set_text_fmt(shooter_speed_value, "%d WPM", cwSpeed);
         lv_obj_set_style_text_color(shooter_speed_value,
-            isCustom ? LV_COLOR_ACCENT_CYAN : LV_COLOR_TEXT_DISABLED, 0);
+            isCustom ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_TEXT_DISABLED, 0);
     }
 
     // Tone
@@ -1003,7 +1003,7 @@ static void shooter_settings_update_all() {
         }
         lv_label_set_text_fmt(shooter_lives_value, "%d", lives);
         lv_obj_set_style_text_color(shooter_lives_value,
-            isCustom ? LV_COLOR_ACCENT_CYAN : LV_COLOR_TEXT_DISABLED, 0);
+            isCustom ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_TEXT_DISABLED, 0);
     }
 
     // High score for current mode
@@ -1083,7 +1083,7 @@ lv_obj_t* createMorseShooterSettingsScreen() {
         lv_obj_set_style_pad_hor(btn, 10, 0);
         lv_obj_set_style_pad_ver(btn, 2, 0);
         // Focus style: cyan border when selected
-        lv_obj_set_style_border_color(btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+        lv_obj_set_style_border_color(btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
         lv_obj_set_style_border_width(btn, 2, LV_STATE_FOCUSED);
         lv_obj_set_style_bg_color(btn, LV_COLOR_BG_LAYER2, LV_STATE_FOCUSED);
 
@@ -1093,7 +1093,7 @@ lv_obj_t* createMorseShooterSettingsScreen() {
         lv_obj_set_style_text_font(lbl, getThemeFonts()->font_small, 0);
 
         lv_obj_t* val = lv_label_create(btn);
-        lv_obj_set_style_text_color(val, LV_COLOR_ACCENT_CYAN, 0);
+        lv_obj_set_style_text_color(val, LV_COLOR_ACCENT_PRIMARY, 0);
         lv_obj_set_style_text_font(val, getThemeFonts()->font_small, 0);
 
         // Value handler FIRST (handles LEFT/RIGHT), then linear_nav_handler (UP/DOWN)
@@ -1123,7 +1123,7 @@ lv_obj_t* createMorseShooterSettingsScreen() {
     lv_obj_set_style_radius(shooter_start_btn, 8, 0);
     lv_obj_set_style_border_width(shooter_start_btn, 1, 0);
     lv_obj_set_style_border_color(shooter_start_btn, LV_COLOR_BORDER_SUBTLE, 0);
-    lv_obj_set_style_border_color(shooter_start_btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+    lv_obj_set_style_border_color(shooter_start_btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
     lv_obj_set_style_border_width(shooter_start_btn, 2, LV_STATE_FOCUSED);
 
     lv_obj_t* btn_label = lv_label_create(shooter_start_btn);

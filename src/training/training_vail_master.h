@@ -17,7 +17,8 @@
 #include "../core/config.h"
 #include "../core/task_manager.h"
 #include "../settings/settings_cw.h"
-#include "../audio/morse_decoder_adaptive.h"
+#include "../audio/morse_decoder_direct.h"
+#include "../settings/settings_decoder.h"
 #include "../keyer/keyer.h"
 #include "training_vail_master_data.h"
 
@@ -139,7 +140,7 @@ static int vmWPM = VM_DEFAULT_WPM;
 static int vmRunLength = VM_DEFAULT_RUN_LENGTH;
 
 // Decoder state (separate from practice mode decoder)
-static MorseDecoderAdaptive vmDecoder(VM_DEFAULT_WPM, VM_DEFAULT_WPM, 30);
+static MorseDecoder* vmDecoder = nullptr;
 static String vmEchoText = "";
 static bool vmNeedsUIUpdate = false;
 static unsigned long vmLastMatchCheck = 0;
@@ -346,13 +347,17 @@ void vmStartSession(VailMasterMode mode) {
     memset(vmProblemChars, 0, sizeof(vmProblemChars));
 
     // Initialize decoder
-    vmDecoder.reset();
-    vmDecoder.flush();
-    vmDecoder.setWPM(vmWPM);
+    delete vmDecoder;
+    vmDecoder = (decoderType == DECODER_DIRECT)
+        ? (MorseDecoder*) new MorseDecoderDirect(vmWPM, vmWPM, 30)
+        : (MorseDecoder*) new MorseDecoderAdaptive(vmWPM, vmWPM, 30);
+    vmDecoder->reset();
+    vmDecoder->flush();
+    vmDecoder->setWPM(vmWPM);
     vmEchoText = "";
 
     // Setup decoder callback
-    vmDecoder.messageCallback = [](String morse, String text) {
+    vmDecoder->messageCallback = [](String morse, String text) {
         for (int i = 0; i < text.length(); i++) {
             char c = text[i];
             // Convert to uppercase
@@ -401,8 +406,8 @@ void vmStartTrial() {
 
     // Clear echo
     vmEchoText = "";
-    vmDecoder.reset();
-    vmDecoder.flush();
+    vmDecoder->reset();
+    vmDecoder->flush();
 
     // Set state
     vmState = VM_STATE_READY;
@@ -708,7 +713,7 @@ void vmKeyerCallback(bool txOn, int element) {
             if (vmLastStateChangeTime > 0) {
                 float silenceDuration = currentTime - vmLastStateChangeTime;
                 if (silenceDuration > 0) {
-                    vmDecoder.addTiming(-silenceDuration);
+                    vmDecoder->addTiming(-silenceDuration);
                 }
             }
             vmLastStateChangeTime = currentTime;
@@ -720,7 +725,7 @@ void vmKeyerCallback(bool txOn, int element) {
         if (vmLastToneState == true) {
             float toneDuration = currentTime - vmLastStateChangeTime;
             if (toneDuration > 0) {
-                vmDecoder.addTiming(toneDuration);
+                vmDecoder->addTiming(toneDuration);
                 vmLastElementTime = currentTime;
             }
             vmLastStateChangeTime = currentTime;
@@ -769,13 +774,16 @@ void vmUpdateKeyer() {
     // Tick the keyer state machine
     vmKeyer->tick(millis());
 
+    // Tick the decoder (Direct mode: proactive character-gap flush)
+    vmDecoder->tick();
+
     // Check for decoder timeout (flush after word gap)
     if (vmLastElementTime > 0 && !vmDitPressed && !vmDahPressed) {
         unsigned long timeSinceElement = millis() - vmLastElementTime;
-        float wordGap = MorseWPM::wordGap(vmDecoder.getWPM());
+        float wordGap = MorseWPM::wordGap(vmDecoder->getWPM());
 
         if (timeSinceElement > wordGap) {
-            vmDecoder.flush();
+            vmDecoder->flush();
             vmLastElementTime = 0;
         }
     }
@@ -790,8 +798,8 @@ void vmUpdateKeyer() {
 
 void vmClearEcho() {
     vmEchoText = "";
-    vmDecoder.reset();
-    vmDecoder.flush();
+    vmDecoder->reset();
+    vmDecoder->flush();
     vmNeedsUIUpdate = true;
     beep(TONE_MENU_NAV, BEEP_SHORT);
     Serial.println("[VailMaster] Echo cleared");
@@ -802,7 +810,7 @@ void vmHandleEsc() {
     if (vmKeyer) {
         vmKeyer->reset();
     }
-    vmDecoder.flush();
+    vmDecoder->flush();
     vmActive = false;
     vmState = VM_STATE_MENU;
     Serial.println("[VailMaster] Exiting via ESC");

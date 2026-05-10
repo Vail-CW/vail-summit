@@ -23,7 +23,10 @@
 #include "../core/morse_code.h"
 #include "../audio/i2s_audio.h"
 #include "../audio/morse_decoder_adaptive.h"
+#include "../audio/morse_decoder_direct.h"
+#include "../settings/settings_decoder.h"
 #include "../settings/settings_cw.h"
+#include <esp_timer.h>
 
 // Forward declarations
 extern void onLVGLMenuSelect(int target_mode);
@@ -65,6 +68,11 @@ static void licw_cancel_autoplay_timer() {
     }
 }
 
+// Forward declarations for cleanup — actual definitions live further down,
+// alongside the LICW Send Practice screen state.
+extern esp_timer_handle_t licwSendTickTimer;
+extern volatile bool licwSendTickPending;
+
 // Cleanup all LICW timers on back-navigation
 void cleanupLICWPractice() {
     if (licw_playback_timer) {
@@ -73,6 +81,16 @@ void cleanupLICWPractice() {
     }
     licw_cancel_autoplay_timer();
     licw_on_playback_done = NULL;
+
+    // Stop and delete the Send Practice direct-decoder tick timer if active.
+    // Without this, the esp_timer becomes a zombie on back-nav and accumulates
+    // on every visit.
+    if (licwSendTickTimer != nullptr) {
+        esp_timer_stop(licwSendTickTimer);
+        esp_timer_delete(licwSendTickTimer);
+        licwSendTickTimer = nullptr;
+    }
+    licwSendTickPending = false;
 }
 
 // ============================================
@@ -837,7 +855,14 @@ static bool licw_send_showing_feedback = false;
 static bool licw_send_needs_ui_update = false;
 
 // Decoder for sending practice
-static MorseDecoderAdaptive* licwSendDecoder = NULL;
+static MorseDecoder* licwSendDecoder = NULL;
+// Non-static so cleanupLICWPractice() above can reference these via extern decl.
+esp_timer_handle_t licwSendTickTimer = nullptr;
+volatile bool licwSendTickPending = false;
+
+static void licwSendTickCallback(void*) {
+    licwSendTickPending = true;
+}
 
 // Paddle/keyer state for sending
 static bool licw_send_dit_pressed = false;
@@ -986,6 +1011,12 @@ void licwSendHandleKeyer() {
 void updateLICWSendingPractice() {
     if (!licw_send_waiting) return;
 
+    // Service direct decoder tick
+    if (licwSendTickPending) {
+        licwSendTickPending = false;
+        if (licwSendDecoder) licwSendDecoder->tick();
+    }
+
     const LICWLesson* lesson = getLICWLesson(licwSelectedCarousel, licwSelectedLesson);
 
     // Check for decoder timeout
@@ -1130,11 +1161,23 @@ lv_obj_t* createLICWSendPracticeScreen() {
     const LICWCarouselDef* carousel = getLICWCarousel(licwSelectedCarousel);
     const LICWLesson* lesson = getLICWLesson(licwSelectedCarousel, licwSelectedLesson);
 
-    // Initialize decoder
-    if (licwSendDecoder == NULL) {
-        licwSendDecoder = new MorseDecoderAdaptive(lesson->characterWPM, lesson->characterWPM, 30);
+    // Initialize decoder — recreate so decoderType changes take effect
+    if (licwSendTickTimer != nullptr) {
+        esp_timer_stop(licwSendTickTimer);
+        esp_timer_delete(licwSendTickTimer);
+        licwSendTickTimer = nullptr;
+    }
+    licwSendTickPending = false;
+    delete licwSendDecoder;
+    if (decoderType == DECODER_DIRECT) {
+        licwSendDecoder = new MorseDecoderDirect(lesson->characterWPM, lesson->characterWPM, 30);
+        esp_timer_create_args_t timerArgs = {};
+        timerArgs.callback = licwSendTickCallback;
+        timerArgs.name = "licw_send_tick";
+        esp_timer_create(&timerArgs, &licwSendTickTimer);
+        esp_timer_start_periodic(licwSendTickTimer, 5000);
     } else {
-        licwSendDecoder->setWPM(lesson->characterWPM);
+        licwSendDecoder = new MorseDecoderAdaptive(lesson->characterWPM, lesson->characterWPM, 30);
     }
     licwSendDecoder->messageCallback = [](String morse, String text) {
         int curLen = strlen(licw_send_decoded);
@@ -1180,7 +1223,7 @@ lv_obj_t* createLICWSendPracticeScreen() {
     lv_obj_set_size(content, LV_PCT(90), 80);
     lv_obj_align(content, LV_ALIGN_TOP_MID, 0, 80);
     lv_obj_set_style_bg_color(content, LV_COLOR_BG_LAYER2, 0);
-    lv_obj_set_style_border_color(content, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_border_color(content, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_border_width(content, 2, 0);
     lv_obj_set_style_radius(content, 12, 0);
     lv_obj_set_style_pad_all(content, 15, 0);
@@ -2292,7 +2335,7 @@ lv_obj_t* createLICWCSFScreen() {
     lv_obj_t* title = lv_label_create(content);
     lv_label_set_text(title, "Character Sound Familiarity");
     lv_obj_set_style_text_font(title, getThemeFonts()->font_title, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_PRIMARY, 0);
 
     if (lesson->newChars && strlen(lesson->newChars) > 0) {
         lv_obj_t* chars = lv_label_create(content);
@@ -2358,7 +2401,7 @@ lv_obj_t* createLICWPlaceholderScreen(const char* mode_name) {
     lv_obj_t* title = lv_label_create(content);
     lv_label_set_text(title, mode_name);
     lv_obj_set_style_text_font(title, getThemeFonts()->font_title, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(title, LV_COLOR_ACCENT_PRIMARY, 0);
 
     lv_obj_t* coming = lv_label_create(content);
     lv_label_set_text(coming, "Coming Soon");

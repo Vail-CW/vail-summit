@@ -203,7 +203,7 @@ void updateBandCardFocus() {
     for (int i = 0; i < 10; i++) {
         if (bp_band_cards[i]) {
             if (i == bp_focused_band) {
-                lv_obj_set_style_border_color(bp_band_cards[i], LV_COLOR_ACCENT_CYAN, 0);
+                lv_obj_set_style_border_color(bp_band_cards[i], LV_COLOR_ACCENT_PRIMARY, 0);
                 lv_obj_set_style_border_width(bp_band_cards[i], 2, 0);
                 lv_obj_set_style_bg_color(bp_band_cards[i], getThemeColors()->card_secondary, 0);
             } else {
@@ -266,7 +266,7 @@ static lv_obj_t* createDetailRow(lv_obj_t* parent, const BandPlanEntry* entry, i
 
     if (is_focused) {
         lv_obj_set_style_bg_color(row, getThemeColors()->card_secondary, 0);
-        lv_obj_set_style_border_color(row, LV_COLOR_ACCENT_CYAN, 0);
+        lv_obj_set_style_border_color(row, LV_COLOR_ACCENT_PRIMARY, 0);
         lv_obj_set_style_border_width(row, 1, 0);
     } else {
         lv_obj_set_style_bg_color(row, getThemeColors()->bg_layer2, 0);
@@ -301,7 +301,7 @@ static lv_obj_t* createDetailRow(lv_obj_t* parent, const BandPlanEntry* entry, i
 
     // Color based on whether user can operate
     if (can_operate) {
-        lv_obj_set_style_text_color(lic_lbl, LV_COLOR_ACCENT_CYAN, 0);
+        lv_obj_set_style_text_color(lic_lbl, LV_COLOR_ACCENT_PRIMARY, 0);
     } else {
         lv_obj_set_style_text_color(lic_lbl, getLicenseColor(entry->license, false), 0);
     }
@@ -315,7 +315,7 @@ static lv_obj_t* createDetailRow(lv_obj_t* parent, const BandPlanEntry* entry, i
     lv_obj_clear_flag(status, LV_OBJ_FLAG_SCROLLABLE);
 
     if (can_operate) {
-        lv_obj_set_style_bg_color(status, LV_COLOR_ACCENT_CYAN, 0);
+        lv_obj_set_style_bg_color(status, LV_COLOR_ACCENT_PRIMARY, 0);
     } else {
         lv_obj_set_style_bg_color(status, lv_color_hex(0x444444), 0);
     }
@@ -355,7 +355,7 @@ void updateBandPlansDetail() {
     lv_obj_set_style_bg_opa(header_card, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(header_card, 8, 0);
     lv_obj_set_style_border_width(header_card, 1, 0);
-    lv_obj_set_style_border_color(header_card, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_border_color(header_card, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_pad_all(header_card, 8, 0);
     lv_obj_clear_flag(header_card, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -363,7 +363,7 @@ void updateBandPlansDetail() {
     lv_obj_t* name_lbl = lv_label_create(header_card);
     lv_label_set_text(name_lbl, band->name);
     lv_obj_set_style_text_font(name_lbl, &lv_font_montserrat_18, 0);
-    lv_obj_set_style_text_color(name_lbl, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(name_lbl, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_pos(name_lbl, 0, 0);
 
     // Frequency range
@@ -399,7 +399,7 @@ void updateBandPlansDetail() {
     snprintf(lic_buf, sizeof(lic_buf), "Your: %s", getLicenseClassShort(user_lic));
     lv_label_set_text(your_lic, lic_buf);
     lv_obj_set_style_text_font(your_lic, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(your_lic, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(your_lic, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(your_lic, LV_ALIGN_TOP_RIGHT, 0, 10);
 
     // Column headers
@@ -725,7 +725,7 @@ lv_obj_t* createBandPlansScreen() {
     lv_obj_t* lic_key = lv_label_create(lic_container);
     lv_label_set_text(lic_key, "[L]");
     lv_obj_set_style_text_font(lic_key, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(lic_key, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(lic_key, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_pos(lic_key, 6, 6);
 
     lv_obj_t* lic_prefix = lv_label_create(lic_container);
@@ -755,7 +755,7 @@ lv_obj_t* createBandPlansScreen() {
     lv_obj_t* mode_key = lv_label_create(mode_container);
     lv_label_set_text(mode_key, "[M]");
     lv_obj_set_style_text_font(mode_key, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(mode_key, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(mode_key, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_pos(mode_key, 6, 6);
 
     lv_obj_t* mode_prefix = lv_label_create(mode_container);

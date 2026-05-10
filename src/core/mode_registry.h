@@ -186,8 +186,9 @@ static const ModeParent parentTable[] = {
     { MODE_MORSE_MAILBOX_COMPOSE,   MODE_MORSE_MAILBOX_INBOX },
 
     // Morse Notes hierarchy
+    { MODE_MORSE_NOTES_LIST,        MODE_MORSE_NOTES_LIBRARY },
     { MODE_MORSE_NOTES_RECORD,      MODE_MORSE_NOTES_LIBRARY },
-    { MODE_MORSE_NOTES_PLAYBACK,    MODE_MORSE_NOTES_LIBRARY },
+    { MODE_MORSE_NOTES_PLAYBACK,    MODE_MORSE_NOTES_LIST },
     { MODE_MORSE_NOTES_SETTINGS,    MODE_MORSE_NOTES_LIBRARY },
 
     // CW School hierarchy
@@ -197,7 +198,8 @@ static const ModeParent parentTable[] = {
     { MODE_CWSCHOOL_PROGRESS,       MODE_CWSCHOOL },
 
     // Vail Course hierarchy
-    { MODE_VAIL_COURSE_MODULE_SELECT,  MODE_CWSCHOOL_TRAINING },
+    // Back from course picker goes to CW School landing (MODE_CWSCHOOL_TRAINING has no LVGL screen)
+    { MODE_VAIL_COURSE_MODULE_SELECT,  MODE_CWSCHOOL },
     { MODE_VAIL_COURSE_LESSON_SELECT,  MODE_VAIL_COURSE_MODULE_SELECT },
     { MODE_VAIL_COURSE_LESSON,         MODE_VAIL_COURSE_LESSON_SELECT },
     { MODE_VAIL_COURSE_PROGRESS,       MODE_VAIL_COURSE_MODULE_SELECT },
@@ -260,6 +262,10 @@ static const ModeFlags flagTable[] = {
     { MODE_THEME_SETTINGS,       MODE_FLAG_SETTINGS },
     { MODE_SYSTEM_INFO,          MODE_FLAG_SETTINGS },
     { MODE_MORSE_NOTES_SETTINGS, MODE_FLAG_SETTINGS },
+
+    // Morse Notes browse screens (pure-nav menu screens, not audio-critical)
+    { MODE_MORSE_NOTES_LIBRARY,  MODE_FLAG_MENU | MODE_FLAG_PURE_NAV },
+    { MODE_MORSE_NOTES_LIST,     MODE_FLAG_MENU | MODE_FLAG_PURE_NAV },
 
     // Audio-critical modes (need 1ms polling)
     { MODE_PRACTICE,                    MODE_FLAG_AUDIO_CRITICAL | MODE_FLAG_NO_STATUS },

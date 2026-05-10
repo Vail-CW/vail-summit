@@ -7,12 +7,13 @@
 #ifndef WEB_PRACTICE_MODE_H
 #define WEB_PRACTICE_MODE_H
 
-#include "../../audio/morse_decoder_adaptive.h"
+#include "../../audio/morse_decoder_direct.h"
+#include "../../settings/settings_decoder.h"
 #include "../../audio/morse_wpm.h"
 #include "../../core/config.h"
 
 // Web practice decoder instance (separate from device practice mode)
-MorseDecoderAdaptive webPracticeDecoder(20.0f);  // Default 20 WPM
+MorseDecoder* webPracticeDecoder = nullptr;
 
 // Forward declarations from web_practice_socket.h
 extern void sendPracticeDecoded(const char* morse, const char* text);
@@ -49,9 +50,13 @@ void onWebPracticeSpeed(float wpm, float fwpm) {
  */
 void initWebPracticeMode() {
     Serial.println("Initializing web practice mode");
-    webPracticeDecoder.messageCallback = onWebPracticeDecoded;
-    webPracticeDecoder.speedCallback = onWebPracticeSpeed;
-    webPracticeDecoder.reset();
+    delete webPracticeDecoder;
+    webPracticeDecoder = (decoderType == DECODER_DIRECT)
+        ? (MorseDecoder*) new MorseDecoderDirect(20.0f)
+        : (MorseDecoder*) new MorseDecoderAdaptive(20.0f);
+    webPracticeDecoder->messageCallback = onWebPracticeDecoded;
+    webPracticeDecoder->speedCallback = onWebPracticeSpeed;
+    webPracticeDecoder->reset();
 }
 
 /*

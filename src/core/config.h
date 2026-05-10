@@ -9,8 +9,8 @@
 // ============================================
 // Firmware Version Information
 // ============================================
-#define FIRMWARE_VERSION "0.526"
-#define FIRMWARE_DATE "2026-02-19"  // Update this date each time you build new firmware
+#define FIRMWARE_VERSION "0.528"
+#define FIRMWARE_DATE "2026-05-10"  // Update this date each time you build new firmware
 #define FIRMWARE_NAME "VAIL SUMMIT"
 #define WEB_FILES_VERSION "1.6.0"   // Expected web interface version for this firmware
 
@@ -237,6 +237,10 @@
 #define ICON_RADIUS         30    // Menu card icon circle radius
 #define STATUS_ICON_SIZE    36    // Status bar icon size (battery, WiFi)
 #define GROUND_Y            300   // Ground position for Morse Shooter game
+
+// Right-side reservation for compact status bar icons (WiFi at -50, battery at -10)
+// Title labels must not extend into this zone.
+#define TITLE_SAFE_RIGHT_MARGIN 95
 
 // ============================================
 // Menu Configuration

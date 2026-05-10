@@ -11,6 +11,7 @@
 #include "lv_widgets_summit.h"
 #include "lv_screen_manager.h"
 #include "../core/config.h"
+#include "../core/firebase_availability.h"
 #include "../core/modes.h"
 #include "../network/cwschool_link.h"
 #include "../network/internet_check.h"
@@ -65,11 +66,11 @@ static void cwschool_link_timer_cb(lv_timer_t* timer) {
                 break;
             case CWSCHOOL_LINK_CHECKING:
                 lv_label_set_text(cwschool_status_label, "Checking...");
-                lv_obj_set_style_text_color(cwschool_status_label, LV_COLOR_ACCENT_CYAN, 0);
+                lv_obj_set_style_text_color(cwschool_status_label, LV_COLOR_ACCENT_PRIMARY, 0);
                 break;
             case CWSCHOOL_LINK_EXCHANGING_TOKEN:
                 lv_label_set_text(cwschool_status_label, "Linking account...");
-                lv_obj_set_style_text_color(cwschool_status_label, LV_COLOR_ACCENT_CYAN, 0);
+                lv_obj_set_style_text_color(cwschool_status_label, LV_COLOR_ACCENT_PRIMARY, 0);
                 break;
             case CWSCHOOL_LINK_SUCCESS: {
                 Serial.println("[CWSchool] SUCCESS state - stopping timer and navigating");
@@ -152,6 +153,17 @@ static void cwschool_link_key_handler(lv_event_t* e) {
  * Create device linking screen
  */
 lv_obj_t* createCWSchoolLinkScreen() {
+    // Already linked — redirect to account screen
+    if (isCWSchoolLinked()) {
+        lv_timer_create([](lv_timer_t* t) {
+            lv_timer_del(t);
+            onLVGLMenuSelect(MODE_CWSCHOOL_ACCOUNT);
+        }, 0, NULL);
+        lv_obj_t* screen = createScreen();
+        applyScreenStyle(screen);
+        return screen;
+    }
+
     // Check internet first
     if (getInternetStatus() != INET_CONNECTED) {
         // Show error screen
@@ -244,11 +256,7 @@ lv_obj_t* createCWSchoolLinkScreen() {
     lv_obj_set_style_border_width(header, 0, 0);
     lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t* title = lv_label_create(header);
-    lv_label_set_text(title, "Link CW School Account");
-    lv_obj_set_style_text_font(title, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_TEXT_PRIMARY, 0);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 15, 0);
+    createSplitTitleLabel(header, "VAIL CW SCHOOL", "LINK ACCOUNT");
 
     // Main content
     lv_obj_t* content = lv_obj_create(screen);
@@ -279,7 +287,7 @@ lv_obj_t* createCWSchoolLinkScreen() {
     cwschool_code_label = lv_label_create(content);
     lv_label_set_text(cwschool_code_label, getCWSchoolLinkCode().c_str());
     lv_obj_set_style_text_font(cwschool_code_label, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(cwschool_code_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(cwschool_code_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_text_letter_space(cwschool_code_label, 8, 0);
 
     // Status
@@ -347,11 +355,7 @@ lv_obj_t* createCWSchoolAccountScreen() {
     lv_obj_set_style_border_width(header, 0, 0);
     lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t* title = lv_label_create(header);
-    lv_label_set_text(title, "CW School Account");
-    lv_obj_set_style_text_font(title, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_TEXT_PRIMARY, 0);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 15, 0);
+    createSplitTitleLabel(header, "VAIL CW SCHOOL", "ACCOUNT");
 
     // Account info card
     lv_obj_t* card = lv_obj_create(screen);
@@ -401,7 +405,7 @@ lv_obj_t* createCWSchoolAccountScreen() {
     lv_obj_t* cs_val = lv_label_create(cs_row);
     lv_label_set_text(cs_val, getCWSchoolAccountDisplay().c_str());
     lv_obj_set_style_text_font(cs_val, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(cs_val, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(cs_val, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(cs_val, LV_ALIGN_RIGHT_MID, 0, 0);
 
     // Display name row (if available)
@@ -468,13 +472,12 @@ lv_obj_t* createCWSchoolAccountScreen() {
         lv_obj_add_event_cb(unlink_btn, cwschool_unlink_confirm, LV_EVENT_CLICKED, NULL);
         lv_obj_add_event_cb(unlink_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
         addNavigableWidget(unlink_btn);
-    } else {
-        // Link button if not linked
+    } else if (cwschoolFirebaseConfigured()) {
         lv_obj_t* link_btn = lv_btn_create(screen);
         lv_obj_set_size(link_btn, 200, 50);
         lv_obj_align(link_btn, LV_ALIGN_BOTTOM_MID, 0, -60);
         lv_obj_set_style_bg_color(link_btn, LV_COLOR_SUCCESS, 0);
-        lv_obj_set_style_bg_color(link_btn, LV_COLOR_ACCENT_GREEN, LV_STATE_FOCUSED);
+        lv_obj_set_style_bg_color(link_btn, LV_COLOR_SUCCESS, LV_STATE_FOCUSED);
         lv_obj_set_style_radius(link_btn, 8, 0);
 
         lv_obj_t* link_lbl = lv_label_create(link_btn);
@@ -487,11 +490,27 @@ lv_obj_t* createCWSchoolAccountScreen() {
         }, LV_EVENT_CLICKED, NULL);
         lv_obj_add_event_cb(link_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
         addNavigableWidget(link_btn);
+    } else {
+        // TODO: show Link Account button when enabled
+        lv_obj_t* focus = lv_obj_create(screen);
+        lv_obj_set_size(focus, 1, 1);
+        lv_obj_set_style_bg_opa(focus, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(focus, 0, 0);
+        lv_obj_add_flag(focus, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(focus, [](lv_event_t* e) {
+            if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+            if (lv_event_get_key(e) == LV_KEY_ESC) {
+                onLVGLMenuSelect(MODE_CWSCHOOL);
+            }
+        }, LV_EVENT_KEY, NULL);
+        addNavigableWidget(focus);
     }
 
     // Footer
     lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, isCWSchoolLinked() ? "ENTER Unlink   ESC Back" : "ENTER Link   ESC Back");
+    lv_label_set_text(footer,
+                       isCWSchoolLinked() ? "ENTER Unlink   ESC Back"
+                                          : (cwschoolFirebaseConfigured() ? "ENTER Link   ESC Back" : "ESC Back"));
     lv_obj_set_style_text_font(footer, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);
@@ -519,23 +538,22 @@ lv_obj_t* createCWSchoolMenuScreen() {
     lv_obj_set_style_border_width(header, 0, 0);
     lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t* title = lv_label_create(header);
-    lv_label_set_text(title, "Vail CW School");
-    lv_obj_set_style_text_font(title, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_TEXT_PRIMARY, 0);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 15, 0);
+    createSplitTitleLabel(header, "VAIL CW SCHOOL", "MENU");
 
-    // Status indicator in header
-    lv_obj_t* status_indicator = lv_label_create(header);
-    if (isCWSchoolLinked()) {
-        lv_label_set_text(status_indicator, getCWSchoolAccountDisplay().c_str());
-        lv_obj_set_style_text_color(status_indicator, LV_COLOR_SUCCESS, 0);
+    // Connection status dot
+    lv_obj_t* status_dot = lv_obj_create(header);
+    lv_obj_set_size(status_dot, 14, 14);
+    lv_obj_set_style_radius(status_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_width(status_dot, 0, 0);
+    lv_obj_clear_flag(status_dot, LV_OBJ_FLAG_SCROLLABLE);
+    if (isCWSchoolLinked() && getInternetStatus() == INET_CONNECTED) {
+        lv_obj_set_style_bg_color(status_dot, LV_COLOR_SUCCESS, 0);
+    } else if (isCWSchoolLinked()) {
+        lv_obj_set_style_bg_color(status_dot, LV_COLOR_WARNING, 0);
     } else {
-        lv_label_set_text(status_indicator, "Not linked");
-        lv_obj_set_style_text_color(status_indicator, LV_COLOR_TEXT_TERTIARY, 0);
+        lv_obj_set_style_bg_color(status_dot, LV_COLOR_TEXT_SECONDARY, 0);
     }
-    lv_obj_set_style_text_font(status_indicator, getThemeFonts()->font_body, 0);
-    lv_obj_align(status_indicator, LV_ALIGN_RIGHT_MID, -15, 0);
+    lv_obj_align(status_dot, LV_ALIGN_RIGHT_MID, -15, 0);
 
     // Menu container
     lv_obj_t* menu_container = lv_obj_create(screen);
@@ -549,33 +567,36 @@ lv_obj_t* createCWSchoolMenuScreen() {
     lv_obj_set_style_pad_row(menu_container, 15, 0);
     lv_obj_clear_flag(menu_container, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Account button
-    lv_obj_t* account_btn = lv_btn_create(menu_container);
-    lv_obj_set_size(account_btn, 350, 55);
-    lv_obj_set_style_bg_color(account_btn, LV_COLOR_CARD_TEAL, 0);
-    lv_obj_set_style_bg_color(account_btn, LV_COLOR_CARD_CYAN, LV_STATE_FOCUSED);
-    lv_obj_set_style_radius(account_btn, 10, 0);
+    // Link Account row only when a real CW School Firebase key is available (not fork placeholder build).
+    if (isCWSchoolLinked() || cwschoolFirebaseConfigured()) {
+        lv_obj_t* account_btn = lv_btn_create(menu_container);
+        lv_obj_set_size(account_btn, 350, 55);
+        lv_obj_set_style_bg_color(account_btn, LV_COLOR_BG_CARD, 0);
+        lv_obj_set_style_bg_color(account_btn, LV_COLOR_BG_CARD_ACTIVE, LV_STATE_FOCUSED);
+        lv_obj_set_style_radius(account_btn, 10, 0);
 
-    lv_obj_t* account_lbl = lv_label_create(account_btn);
-    lv_label_set_text(account_lbl, isCWSchoolLinked() ? LV_SYMBOL_OK " Account Settings" : LV_SYMBOL_PLUS " Link Account");
-    lv_obj_set_style_text_font(account_lbl, getThemeFonts()->font_input, 0);
-    lv_obj_center(account_lbl);
+        lv_obj_t* account_lbl = lv_label_create(account_btn);
+        lv_label_set_text(account_lbl,
+                          isCWSchoolLinked() ? LV_SYMBOL_OK " Account Settings" : LV_SYMBOL_PLUS " Link Account");
+        lv_obj_set_style_text_font(account_lbl, getThemeFonts()->font_input, 0);
+        lv_obj_center(account_lbl);
 
-    lv_obj_add_event_cb(account_btn, [](lv_event_t* e) {
-        if (isCWSchoolLinked()) {
-            onLVGLMenuSelect(MODE_CWSCHOOL_ACCOUNT);
-        } else {
-            onLVGLMenuSelect(MODE_CWSCHOOL_LINK);
-        }
-    }, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(account_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
-    addNavigableWidget(account_btn);
+        lv_obj_add_event_cb(account_btn, [](lv_event_t* e) {
+            if (isCWSchoolLinked()) {
+                onLVGLMenuSelect(MODE_CWSCHOOL_ACCOUNT);
+            } else {
+                onLVGLMenuSelect(MODE_CWSCHOOL_LINK);
+            }
+        }, LV_EVENT_CLICKED, NULL);
+        lv_obj_add_event_cb(account_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
+        addNavigableWidget(account_btn);
+    }
 
     // Training button - navigate to Vail Course module selection
     lv_obj_t* training_btn = lv_btn_create(menu_container);
     lv_obj_set_size(training_btn, 350, 55);
-    lv_obj_set_style_bg_color(training_btn, LV_COLOR_CARD_BLUE, 0);
-    lv_obj_set_style_bg_color(training_btn, LV_COLOR_CARD_CYAN, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(training_btn, LV_COLOR_BG_CARD_ALT, 0);
+    lv_obj_set_style_bg_color(training_btn, LV_COLOR_BG_CARD_ACTIVE, LV_STATE_FOCUSED);
     lv_obj_set_style_radius(training_btn, 10, 0);
 
     lv_obj_t* training_lbl = lv_label_create(training_btn);
@@ -593,8 +614,8 @@ lv_obj_t* createCWSchoolMenuScreen() {
     // Progress button - show course progress
     lv_obj_t* progress_btn = lv_btn_create(menu_container);
     lv_obj_set_size(progress_btn, 350, 55);
-    lv_obj_set_style_bg_color(progress_btn, LV_COLOR_CARD_MINT, 0);
-    lv_obj_set_style_bg_color(progress_btn, LV_COLOR_CARD_CYAN, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(progress_btn, LV_COLOR_BORDER_CARD, 0);
+    lv_obj_set_style_bg_color(progress_btn, LV_COLOR_BG_CARD_ACTIVE, LV_STATE_FOCUSED);
     lv_obj_set_style_radius(progress_btn, 10, 0);
 
     lv_obj_t* progress_lbl = lv_label_create(progress_btn);
@@ -654,6 +675,10 @@ bool handleCWSchoolMode(int mode) {
             break;
 
         case MODE_CWSCHOOL_LINK:
+            if (!cwschoolFirebaseConfigured()) {
+                screen = createCWSchoolMenuScreen();
+                break;
+            }
             cleanupCWSchoolLinkScreen();
             screen = createCWSchoolLinkScreen();
             break;
@@ -662,9 +687,10 @@ bool handleCWSchoolMode(int mode) {
             screen = createCWSchoolAccountScreen();
             break;
 
-        // Future modes for training, progress, etc.
-        // case MODE_CWSCHOOL_TRAINING:
-        // case MODE_CWSCHOOL_PROGRESS:
+        // Logical submenu for Vail Course parent chain; no separate UI (same as main CW School menu)
+        case MODE_CWSCHOOL_TRAINING:
+            screen = createCWSchoolMenuScreen();
+            break;
 
         default:
             return false;  // Not a CW School mode

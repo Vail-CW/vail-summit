@@ -71,13 +71,13 @@ lv_obj_t* createWebPracticeModeScreen() {
     lv_obj_t* icon = lv_label_create(card);
     lv_label_set_text(icon, LV_SYMBOL_EDIT);
     lv_obj_set_style_text_font(icon, getThemeFonts()->font_large, 0);
-    lv_obj_set_style_text_color(icon, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(icon, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(icon, LV_ALIGN_TOP_MID, -80, 0);
 
     lv_obj_t* mode_title = lv_label_create(card);
     lv_label_set_text(mode_title, "Morse Practice Active");
     lv_obj_set_style_text_font(mode_title, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(mode_title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(mode_title, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(mode_title, LV_ALIGN_TOP_MID, 20, 5);
 
     // Info text
@@ -94,7 +94,7 @@ lv_obj_t* createWebPracticeModeScreen() {
     snprintf(ip_text, sizeof(ip_text), "IP: %s", WiFi.localIP().toString().c_str());
     lv_label_set_text(ip_label, ip_text);
     lv_obj_set_style_text_font(ip_label, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(ip_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(ip_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(ip_label, LV_ALIGN_TOP_MID, 0, 80);
 
     // Connection status
@@ -111,7 +111,7 @@ lv_obj_t* createWebPracticeModeScreen() {
     lv_obj_set_style_bg_color(stop_btn, lv_color_hex(0xE74C3C), 0);
     lv_obj_set_style_bg_color(stop_btn, lv_color_hex(0xC0392B), LV_STATE_FOCUSED);
     lv_obj_set_style_radius(stop_btn, 8, 0);
-    lv_obj_set_style_border_color(stop_btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+    lv_obj_set_style_border_color(stop_btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
     lv_obj_set_style_border_width(stop_btn, 2, LV_STATE_FOCUSED);
 
     lv_obj_t* btn_label = lv_label_create(stop_btn);
@@ -152,8 +152,8 @@ void cleanupWebPracticeMode() {
     cleanupPracticeWebSocket();
     webPracticeModeActive = false;
     webPracticeStatusLabel = NULL;
-    extern MorseDecoderAdaptive webPracticeDecoder;
-    webPracticeDecoder.reset();
+    extern MorseDecoder* webPracticeDecoder;
+    if (webPracticeDecoder) webPracticeDecoder->reset();
 }
 
 // ============================================================
@@ -205,13 +205,13 @@ lv_obj_t* createWebHearItModeScreen() {
     lv_obj_t* icon = lv_label_create(card);
     lv_label_set_text(icon, LV_SYMBOL_AUDIO);
     lv_obj_set_style_text_font(icon, getThemeFonts()->font_large, 0);
-    lv_obj_set_style_text_color(icon, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(icon, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(icon, LV_ALIGN_TOP_MID, -100, 0);
 
     lv_obj_t* mode_title = lv_label_create(card);
     lv_label_set_text(mode_title, "Hear It Type It Active");
     lv_obj_set_style_text_font(mode_title, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(mode_title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(mode_title, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(mode_title, LV_ALIGN_TOP_MID, 10, 5);
 
     // Info text
@@ -228,7 +228,7 @@ lv_obj_t* createWebHearItModeScreen() {
     snprintf(ip_text, sizeof(ip_text), "IP: %s", WiFi.localIP().toString().c_str());
     lv_label_set_text(ip_label, ip_text);
     lv_obj_set_style_text_font(ip_label, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(ip_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(ip_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(ip_label, LV_ALIGN_TOP_MID, 0, 70);
 
     // Connection status
@@ -245,7 +245,7 @@ lv_obj_t* createWebHearItModeScreen() {
     lv_obj_set_style_bg_color(stop_btn, lv_color_hex(0xE74C3C), 0);
     lv_obj_set_style_bg_color(stop_btn, lv_color_hex(0xC0392B), LV_STATE_FOCUSED);
     lv_obj_set_style_radius(stop_btn, 8, 0);
-    lv_obj_set_style_border_color(stop_btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+    lv_obj_set_style_border_color(stop_btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
     lv_obj_set_style_border_width(stop_btn, 2, LV_STATE_FOCUSED);
 
     lv_obj_t* btn_label = lv_label_create(stop_btn);
@@ -337,13 +337,13 @@ lv_obj_t* createWebMemoryChainModeScreen() {
     lv_obj_t* icon = lv_label_create(card);
     lv_label_set_text(icon, LV_SYMBOL_SHUFFLE);
     lv_obj_set_style_text_font(icon, getThemeFonts()->font_large, 0);
-    lv_obj_set_style_text_color(icon, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(icon, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(icon, LV_ALIGN_TOP_MID, -90, 0);
 
     lv_obj_t* mode_title = lv_label_create(card);
     lv_label_set_text(mode_title, "Memory Chain Active");
     lv_obj_set_style_text_font(mode_title, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(mode_title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(mode_title, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(mode_title, LV_ALIGN_TOP_MID, 15, 5);
 
     // Info text
@@ -360,7 +360,7 @@ lv_obj_t* createWebMemoryChainModeScreen() {
     snprintf(ip_text, sizeof(ip_text), "IP: %s", WiFi.localIP().toString().c_str());
     lv_label_set_text(ip_label, ip_text);
     lv_obj_set_style_text_font(ip_label, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(ip_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(ip_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(ip_label, LV_ALIGN_TOP_MID, 0, 70);
 
     // Connection status
@@ -377,7 +377,7 @@ lv_obj_t* createWebMemoryChainModeScreen() {
     lv_obj_set_style_bg_color(stop_btn, lv_color_hex(0xE74C3C), 0);
     lv_obj_set_style_bg_color(stop_btn, lv_color_hex(0xC0392B), LV_STATE_FOCUSED);
     lv_obj_set_style_radius(stop_btn, 8, 0);
-    lv_obj_set_style_border_color(stop_btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+    lv_obj_set_style_border_color(stop_btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
     lv_obj_set_style_border_width(stop_btn, 2, LV_STATE_FOCUSED);
 
     lv_obj_t* btn_label = lv_label_create(stop_btn);
@@ -418,8 +418,8 @@ void cleanupWebMemoryChainMode() {
     cleanupMemoryChainWebSocket();
     webMemoryChainModeActive = false;
     webMemoryChainStatusLabel = NULL;
-    extern MorseDecoderAdaptive webMemoryChainDecoder;
-    webMemoryChainDecoder.reset();
+    extern MorseDecoder* webMemoryChainDecoder;
+    if (webMemoryChainDecoder) webMemoryChainDecoder->reset();
 }
 
 #endif // LV_WEB_MODE_SCREENS_H

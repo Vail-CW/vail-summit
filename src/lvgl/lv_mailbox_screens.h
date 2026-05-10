@@ -11,12 +11,14 @@
 #include "lv_widgets_summit.h"
 #include "lv_screen_manager.h"
 #include "../core/config.h"
+#include "../core/firebase_availability.h"
 #include "../core/modes.h"
 #include "../network/morse_mailbox.h"
 #include "../network/internet_check.h"
 
 // Forward declarations for mode switching
 extern void onLVGLMenuSelect(int target_mode);  // Proper navigation with screen loading
+lv_obj_t* createCWMenuScreen();
 
 // ============================================
 // Screen State
@@ -397,11 +399,11 @@ static void mailbox_link_timer_cb(lv_timer_t* timer) {
                 break;
             case MAILBOX_LINK_CHECKING:
                 lv_label_set_text(mailbox_status_label, "Checking...");
-                lv_obj_set_style_text_color(mailbox_status_label, LV_COLOR_ACCENT_CYAN, 0);
+                lv_obj_set_style_text_color(mailbox_status_label, LV_COLOR_ACCENT_PRIMARY, 0);
                 break;
             case MAILBOX_LINK_EXCHANGING_TOKEN:
                 lv_label_set_text(mailbox_status_label, "Linking account...");
-                lv_obj_set_style_text_color(mailbox_status_label, LV_COLOR_ACCENT_CYAN, 0);
+                lv_obj_set_style_text_color(mailbox_status_label, LV_COLOR_ACCENT_PRIMARY, 0);
                 break;
             case MAILBOX_LINK_SUCCESS: {
                 Serial.println("[Mailbox] SUCCESS state - stopping timer and navigating");
@@ -592,7 +594,7 @@ lv_obj_t* createMailboxLinkScreen() {
     mailbox_code_label = lv_label_create(content);
     lv_label_set_text(mailbox_code_label, getMailboxLinkCode().c_str());
     lv_obj_set_style_text_font(mailbox_code_label, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(mailbox_code_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(mailbox_code_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_text_letter_space(mailbox_code_label, 8, 0);
 
     // Status
@@ -701,7 +703,7 @@ lv_obj_t* createMailboxInboxScreen() {
     lv_obj_set_size(compose_btn, 110, 35);
     lv_obj_align(compose_btn, LV_ALIGN_RIGHT_MID, -120, 0);
     lv_obj_set_style_bg_color(compose_btn, LV_COLOR_SUCCESS, 0);
-    lv_obj_set_style_bg_color(compose_btn, LV_COLOR_ACCENT_GREEN, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(compose_btn, LV_COLOR_SUCCESS, LV_STATE_FOCUSED);
     lv_obj_set_style_radius(compose_btn, 5, 0);
 
     lv_obj_t* compose_lbl = lv_label_create(compose_btn);
@@ -721,8 +723,8 @@ lv_obj_t* createMailboxInboxScreen() {
     lv_obj_t* account_btn = lv_btn_create(header);
     lv_obj_set_size(account_btn, 100, 35);
     lv_obj_align(account_btn, LV_ALIGN_RIGHT_MID, -5, 0);
-    lv_obj_set_style_bg_color(account_btn, LV_COLOR_CARD_TEAL, 0);
-    lv_obj_set_style_bg_color(account_btn, LV_COLOR_CARD_CYAN, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(account_btn, LV_COLOR_BG_CARD, 0);
+    lv_obj_set_style_bg_color(account_btn, LV_COLOR_BG_CARD_ACTIVE, LV_STATE_FOCUSED);
     lv_obj_set_style_radius(account_btn, 5, 0);
 
     lv_obj_t* account_lbl = lv_label_create(account_btn);
@@ -774,11 +776,11 @@ lv_obj_t* createMailboxInboxScreen() {
             lv_obj_t* item = lv_btn_create(list_container);
             lv_obj_set_size(item, LV_PCT(100), 60);
             lv_obj_set_style_bg_color(item, LV_COLOR_BG_LAYER2, 0);
-            lv_obj_set_style_bg_color(item, LV_COLOR_CARD_CYAN, LV_STATE_FOCUSED);
+            lv_obj_set_style_bg_color(item, LV_COLOR_BG_CARD_ACTIVE, LV_STATE_FOCUSED);
             lv_obj_set_style_radius(item, 8, 0);
             lv_obj_set_style_border_width(item, 1, 0);
             lv_obj_set_style_border_color(item, LV_COLOR_BORDER_SUBTLE, 0);
-            lv_obj_set_style_border_color(item, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+            lv_obj_set_style_border_color(item, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
 
             // Store message ID for click handler (use file-scope array)
             mailbox_inbox_msgIds[i] = msg.id;
@@ -1114,7 +1116,7 @@ lv_obj_t* createMailboxPlaybackScreen() {
     snprintf(fromBuf, sizeof(fromBuf), "From: %s (%s)", senderCallsign.c_str(), senderMmid.c_str());
     lv_label_set_text(from_lbl, fromBuf);
     lv_obj_set_style_text_font(from_lbl, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(from_lbl, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(from_lbl, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(from_lbl, LV_ALIGN_TOP_LEFT, 0, 0);
 
     // Date
@@ -1130,7 +1132,7 @@ lv_obj_t* createMailboxPlaybackScreen() {
     lv_obj_set_size(mailbox_play_btn, 140, 50);
     lv_obj_align(mailbox_play_btn, LV_ALIGN_BOTTOM_LEFT, 0, 0);
     lv_obj_set_style_bg_color(mailbox_play_btn, LV_COLOR_SUCCESS, 0);
-    lv_obj_set_style_bg_color(mailbox_play_btn, LV_COLOR_ACCENT_GREEN, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(mailbox_play_btn, LV_COLOR_SUCCESS, LV_STATE_FOCUSED);
     lv_obj_set_style_radius(mailbox_play_btn, 8, 0);
 
     lv_obj_t* play_lbl = lv_label_create(mailbox_play_btn);
@@ -1162,15 +1164,15 @@ lv_obj_t* createMailboxPlaybackScreen() {
     snprintf(speedBuf, sizeof(speedBuf), "%.2fx", mailbox_playback_speed);
     lv_label_set_text(mailbox_speed_label, speedBuf);
     lv_obj_set_style_text_font(mailbox_speed_label, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(mailbox_speed_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(mailbox_speed_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(mailbox_speed_label, LV_ALIGN_RIGHT_MID, 0, 0);
 
     // Speed adjustment button (UP/DOWN to adjust when focused)
     lv_obj_t* speed_btn = lv_btn_create(card);
     lv_obj_set_size(speed_btn, 100, 40);
     lv_obj_align(speed_btn, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_set_style_bg_color(speed_btn, LV_COLOR_CARD_TEAL, 0);
-    lv_obj_set_style_bg_color(speed_btn, LV_COLOR_CARD_CYAN, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(speed_btn, LV_COLOR_BG_CARD, 0);
+    lv_obj_set_style_bg_color(speed_btn, LV_COLOR_BG_CARD_ACTIVE, LV_STATE_FOCUSED);
     lv_obj_set_style_radius(speed_btn, 5, 0);
 
     lv_obj_t* adj_lbl = lv_label_create(speed_btn);
@@ -1190,7 +1192,7 @@ lv_obj_t* createMailboxPlaybackScreen() {
     lv_obj_set_size(reply_btn, 100, 40);
     lv_obj_align(reply_btn, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
     lv_obj_set_style_bg_color(reply_btn, LV_COLOR_SUCCESS, 0);
-    lv_obj_set_style_bg_color(reply_btn, LV_COLOR_ACCENT_GREEN, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(reply_btn, LV_COLOR_SUCCESS, LV_STATE_FOCUSED);
     lv_obj_set_style_radius(reply_btn, 5, 0);
 
     lv_obj_t* reply_lbl = lv_label_create(reply_btn);
@@ -1273,7 +1275,7 @@ lv_obj_t* createMailboxAccountScreen() {
     lv_obj_t* cs_val = lv_label_create(cs_row);
     lv_label_set_text(cs_val, getMailboxUserCallsign());
     lv_obj_set_style_text_font(cs_val, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(cs_val, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(cs_val, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(cs_val, LV_ALIGN_RIGHT_MID, 0, 0);
 
     // MM ID
@@ -1293,7 +1295,7 @@ lv_obj_t* createMailboxAccountScreen() {
     lv_obj_t* mm_val = lv_label_create(mm_row);
     lv_label_set_text(mm_val, getMailboxUserMmid());
     lv_obj_set_style_text_font(mm_val, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(mm_val, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(mm_val, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(mm_val, LV_ALIGN_RIGHT_MID, 0, 0);
 
     // Device ID (truncated)
@@ -1429,7 +1431,7 @@ static void mailbox_compose_update_timer_cb(lv_timer_t* timer) {
                 break;
             case MB_RECORD_SENDING:
                 lv_label_set_text(mailbox_record_status_label, "Sending...");
-                lv_obj_set_style_text_color(mailbox_record_status_label, LV_COLOR_ACCENT_CYAN, 0);
+                lv_obj_set_style_text_color(mailbox_record_status_label, LV_COLOR_ACCENT_PRIMARY, 0);
                 break;
             case MB_RECORD_SENT:
                 lv_label_set_text(mailbox_record_status_label, "Message sent!");
@@ -1655,7 +1657,7 @@ lv_obj_t* createMailboxComposeScreen() {
     lv_textarea_set_max_length(mailbox_recipient_input, 15);
     lv_obj_set_style_bg_color(mailbox_recipient_input, LV_COLOR_BG_DEEP, 0);
     lv_obj_set_style_border_color(mailbox_recipient_input, LV_COLOR_BORDER_SUBTLE, 0);
-    lv_obj_set_style_border_color(mailbox_recipient_input, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+    lv_obj_set_style_border_color(mailbox_recipient_input, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
     lv_obj_set_style_text_font(mailbox_recipient_input, getThemeFonts()->font_input, 0);
     lv_obj_add_event_cb(mailbox_recipient_input, mailbox_recipient_input_event, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(mailbox_recipient_input, mailbox_compose_nav_handler, LV_EVENT_KEY, NULL);
@@ -1715,7 +1717,7 @@ lv_obj_t* createMailboxComposeScreen() {
     mailbox_send_btn = lv_btn_create(btn_row);
     lv_obj_set_size(mailbox_send_btn, 140, 45);
     lv_obj_set_style_bg_color(mailbox_send_btn, LV_COLOR_TEXT_DISABLED, 0);
-    lv_obj_set_style_bg_color(mailbox_send_btn, LV_COLOR_ACCENT_GREEN, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(mailbox_send_btn, LV_COLOR_SUCCESS, LV_STATE_FOCUSED);
     lv_obj_set_style_radius(mailbox_send_btn, 8, 0);
     lv_obj_add_state(mailbox_send_btn, LV_STATE_DISABLED);
 
@@ -1798,6 +1800,15 @@ void cleanupMailboxLinkScreen() {
  */
 bool handleMailboxMode(int mode) {
     lv_obj_t* screen = NULL;
+
+    if (!morseMailboxFirebaseConfigured()) {
+        screen = createCWMenuScreen();
+        if (screen) {
+            loadScreen(screen, SCREEN_ANIM_FADE);
+            return true;
+        }
+        return false;
+    }
 
     switch (mode) {
         case MODE_MORSE_MAILBOX:

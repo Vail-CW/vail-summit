@@ -4,6 +4,8 @@
 #include "morse_notes_types.h"
 #include "morse_notes_storage.h"
 #include "../audio/morse_decoder_adaptive.h"
+#include "../audio/morse_decoder_direct.h"
+#include "../settings/settings_decoder.h"
 
 // ===================================
 // MORSE NOTES - RECORDING ENGINE
@@ -11,7 +13,7 @@
 
 // Global recording session
 static MorseNotesRecordingSession mnRecordingSession;
-static MorseDecoderAdaptive mnRecordingDecoder(20, 20, 30);  // For WPM calculation
+static MorseDecoder* mnRecordingDecoder = nullptr;  // For WPM calculation
 
 // Timing buffer allocated in PSRAM on first use (saves 40KB heap)
 static float* mnRecordingTimingBuffer = nullptr;
@@ -79,8 +81,12 @@ bool mnStartRecording() {
     mnRecordingSession.keyState = false;
     memset(mnRecordingSession.title, 0, sizeof(mnRecordingSession.title));
 
-    // Reset decoder for WPM calculation
-    mnRecordingDecoder.flush();
+    // Recreate decoder for WPM calculation (respects decoderType setting)
+    delete mnRecordingDecoder;
+    mnRecordingDecoder = (decoderType == DECODER_DIRECT)
+        ? (MorseDecoder*) new MorseDecoderDirect(20, 20, 30)
+        : (MorseDecoder*) new MorseDecoderAdaptive(20, 20, 30);
+    mnRecordingDecoder->flush();
 
     Serial.println("[MorseNotes] Recording started");
     return true;
@@ -132,7 +138,7 @@ bool mnSaveRecording(const char* title) {
     }
 
     // Calculate average WPM from decoder
-    float avgWPM = mnRecordingDecoder.getWPM();
+    float avgWPM = mnRecordingDecoder->getWPM();
     if (avgWPM < 5.0f) {
         avgWPM = (float)cwSpeed;  // Fall back to configured speed
     }
@@ -210,7 +216,7 @@ int mnGetRecordingEventCount() {
  * Get recording average WPM
  */
 float mnGetRecordingWPM() {
-    float wpm = mnRecordingDecoder.getWPM();
+    float wpm = mnRecordingDecoder ? mnRecordingDecoder->getWPM() : 0.0f;
     return (wpm >= 5.0f) ? wpm : (float)cwSpeed;
 }
 
@@ -268,7 +274,7 @@ void mnKeyerCallback(bool keyDown, unsigned long timestamp) {
             mnRecordingSession.timingBuffer[mnRecordingSession.eventCount++] = silence;
 
             // Feed to decoder for WPM calculation
-            mnRecordingDecoder.addTiming(silence);
+            mnRecordingDecoder->addTiming(silence);
         }
         mnRecordingSession.lastEventTime = timestamp;
         mnRecordingSession.keyState = true;
@@ -282,7 +288,7 @@ void mnKeyerCallback(bool keyDown, unsigned long timestamp) {
         mnRecordingSession.timingBuffer[mnRecordingSession.eventCount++] = tone;
 
         // Feed to decoder for WPM calculation
-        mnRecordingDecoder.addTiming(tone);
+        mnRecordingDecoder->addTiming(tone);
 
         mnRecordingSession.lastEventTime = timestamp;
         mnRecordingSession.keyState = false;

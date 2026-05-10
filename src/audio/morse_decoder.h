@@ -173,11 +173,19 @@ public:
     updateThresholds();
   }
 
+  virtual ~MorseDecoder() {}
+
+  bool isEmpty() const { return unusedTimes.empty(); }
+  float getDitLen() const { return ditLen; }
+
+  // Called periodically by external timer; override in subclasses for proactive flushing
+  virtual void tick() {}
+
   /**
    * Add a timing value to the decoder
    * @param duration Positive for tone-on, negative for silence
    */
-  void addTiming(float duration) {
+  virtual void addTiming(float duration) {
     // Get last timing if buffer not empty
     float last = unusedTimes.empty() ? 0 : unusedTimes.back();
 
@@ -222,11 +230,22 @@ public:
       timings.erase(timings.begin(), timings.begin() + MORSE_DECODER_TRIM_AMOUNT);
     }
 
-    // Call addDecode for each element (for adaptive tracking)
-    for (size_t i = 0; i < unusedTimes.size(); i++) {
-      if (i < morse.length()) {
-        addDecode(unusedTimes[i], morse[i]);
+    // Call addDecode for each element (for adaptive tracking).
+    // Re-classify each timing individually so element gaps (skipped in timings2morse)
+    // don't cause index misalignment with the morse string.
+    for (float t : unusedTimes) {
+      float abst = abs(t);
+      char cls;
+      if (t > 0) {
+        cls = (abst < ditDahThreshold) ? '.' : '-';
+      } else if (abst < ditDahThreshold) {
+        cls = '\0';  // element gap = 1 dit
+      } else if (abst < dahSpaceThreshold) {
+        cls = ' ';
+      } else {
+        cls = '/';
       }
+      addDecode(t, cls);
     }
 
     // Store morse characters
@@ -338,7 +357,7 @@ public:
   /**
    * Reset decoder state
    */
-  void reset() {
+  virtual void reset() {
     unusedTimes.clear();
     timings.clear();
     characters.clear();

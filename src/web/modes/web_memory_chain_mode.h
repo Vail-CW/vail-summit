@@ -26,8 +26,8 @@ void onWebMemoryDecoded(String morse, String text) {
  */
 void initWebMemoryChainMode() {
     Serial.println("Initializing web Memory Chain mode");
-    webMemoryChainDecoder.messageCallback = onWebMemoryDecoded;
-    webMemoryChainDecoder.reset();
+    webMemoryChainDecoder->messageCallback = onWebMemoryDecoded;
+    webMemoryChainDecoder->reset();
 }
 
 /*

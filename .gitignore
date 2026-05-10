@@ -1,7 +1,10 @@
 # IDE and editor directories
 .claude/
+.cursor/
+.tools/
 .vscode/
 .idea/
+.vs/
 
 # Project-specific files (not for distribution)
 CLAUDE.md

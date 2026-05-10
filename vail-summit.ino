@@ -522,6 +522,10 @@ void setup() {
   Serial.println("Loading Vail settings...");
   loadVailSettings();
 
+  // Load decoder type preference (Adaptive vs Direct)
+  Serial.println("Loading decoder settings...");
+  loadDecoderSettings();
+
   // Initialize Morse Mailbox (load settings, start polling if linked)
   Serial.println("Initializing Morse Mailbox...");
   initMailboxPolling();
