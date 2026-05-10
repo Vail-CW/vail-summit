@@ -1409,66 +1409,26 @@ void addChatMessage(String callsign, String message) {
   }
 }
 
-// Encode text into a Vail Duration array (alternating tone/silence ms) using
-// current cwSpeed and standard CW spacing: dot=1u, dash=3u, intra-char=1u,
-// letter=3u, word=7u. Skips characters with no morse mapping; runs of spaces
-// collapse to a single word gap.
-static void vailTextToDurations(const String& text, std::vector<uint16_t>& out) {
-  int wpm = (cwSpeed > 0) ? cwSpeed : 18;
-  int dit = 1200 / wpm;
-  bool needGap = false;
-  int pendingGapDits = 3;
-
-  for (int i = 0; i < (int)text.length(); i++) {
-    char c = text[i];
-    if (c == ' ' || c == '\t') {
-      if (needGap) pendingGapDits = 7;
-      continue;
-    }
-    const char* pattern = getMorseCode(c);
-    if (pattern == nullptr) continue;
-
-    if (needGap) {
-      out.push_back((uint16_t)(pendingGapDits * dit));
-      pendingGapDits = 3;
-    }
-
-    for (int j = 0; pattern[j] != '\0'; j++) {
-      if (j > 0) out.push_back((uint16_t)(1 * dit));
-      int len = (pattern[j] == '.') ? 1 : 3;
-      out.push_back((uint16_t)(len * dit));
-    }
-    needGap = true;
-  }
-}
-
-// Send text chat message over WebSocket. Includes a Duration array encoding
-// the message as morse so receivers play it audibly while Text lands in chat.
+// Send text chat message over WebSocket. Text-only — no synthesized morse on
+// the air. Per project policy, all over-the-air CW must be hand-keyed by the
+// operator; chat is delivered as a Text payload with an empty Duration array.
 void sendChatMessage(String message) {
   if (vailState != VAIL_CONNECTED) {
     Serial.println("Not connected - cannot send chat message");
     return;
   }
 
-  StaticJsonDocument<2048> doc;
-  int64_t timestamp = getCurrentTimestamp();
-  doc["Timestamp"] = timestamp;
+  StaticJsonDocument<512> doc;
+  doc["Timestamp"] = getCurrentTimestamp();
   doc["Callsign"] = vailCallsign;
   doc["TxTone"] = vailTxTone;
   doc["Text"] = message;
-
-  std::vector<uint16_t> durations;
-  vailTextToDurations(message, durations);
-
-  JsonArray durArray = doc.createNestedArray("Duration");
-  for (uint16_t d : durations) durArray.add(d);
+  doc.createNestedArray("Duration");  // empty — never synthesize morse
 
   String output;
   serializeJson(doc, output);
 
-  Serial.print("Sending chat message (");
-  Serial.print(durations.size());
-  Serial.print(" elements): ");
+  Serial.print("Sending chat message: ");
   Serial.println(output);
 
   webSocket.sendTXT(output);
