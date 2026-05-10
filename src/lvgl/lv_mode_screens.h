@@ -1679,7 +1679,15 @@ static void refreshVailSettingsValues() {
     lv_label_set_text(vail_srow_values[1], buf);
     lv_label_set_text(vail_srow_values[2], vail_keytype_names[cwKeyType]);
     lv_label_set_text(vail_srow_values[3], vailShowMorseRow ? "Show" : "Hide");
-    lv_label_set_text(vail_srow_values[4], vailShowDecoded ? "Show" : "Hide");
+    // RX decoder only operates on the dedicated "Decoder" room (matches
+    // vailmorse.com behavior). On other rooms the toggle is shown but with
+    // a hint that it has no effect there.
+    if (vailIsOnDecoderChannel()) {
+        lv_label_set_text(vail_srow_values[4], vailShowDecoded ? "Show" : "Hide");
+    } else {
+        lv_label_set_text(vail_srow_values[4],
+            vailShowDecoded ? "Show (Decoder room only)" : "Hide (Decoder room only)");
+    }
 }
 
 // Highlight the focused settings row
