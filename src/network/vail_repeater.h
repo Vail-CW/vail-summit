@@ -133,11 +133,19 @@ String vailTxMorseSymbols = "";       // current char being keyed: ". - ." etc
 // RX morse-row visualization (incoming durations classified by length).
 String vailRxMorseSymbols = "";
 
+// RX decoding (incoming morse -> text) is only allowed on the dedicated
+// "Decoder" room, matching vailmorse.com behavior. On all other rooms the
+// decoder must stay dormant — both decoded text and the dot/dash row.
+// TX-side decoding/visualization is unaffected (operator's own keying).
+static inline bool vailIsOnDecoderChannel() {
+    return vailChannel == "Decoder";
+}
+
 // Append a dit or dah to the RX morse row based on tone duration vs current
 // cwSpeed dit length. Adds a leading space if the accumulator already has
 // content (mirrors the TX-side pattern).
 static void vailRxAppendTone(uint16_t toneMs) {
-    if (!vailShowDecoded) return;
+    if (!vailShowDecoded || !vailIsOnDecoderChannel()) return;
     float ditMs = 1200.0f / (float)cwSpeed;
     if (vailRxMorseSymbols.length() > 0 && !vailRxMorseSymbols.endsWith(" /") && !vailRxMorseSymbols.endsWith(" //"))
         vailRxMorseSymbols += " ";
@@ -154,7 +162,7 @@ static void vailRxAppendTone(uint16_t toneMs) {
 // Append a letter/word boundary to the RX morse row based on silence length.
 // Intra-character gaps (≤ 2× dit) are skipped — they're the default rhythm.
 static void vailRxAppendSilence(uint16_t silenceMs) {
-    if (!vailShowDecoded) return;
+    if (!vailShowDecoded || !vailIsOnDecoderChannel()) return;
     float ditMs = 1200.0f / (float)cwSpeed;
     if (silenceMs >= ditMs * 5.0f) {
         vailRxMorseSymbols += " //";
@@ -420,6 +428,13 @@ void connectToVail(String channel) {
 
   vailChannel = channel;
   saveVailSettings();  // Persist room selection for next boot
+
+  // Clear any stale decoded state from a previous room — decoded text only
+  // appears on the dedicated "Decoder" room.
+  vailRxMorseSymbols = "";
+  vailDecodedCount = 0;
+  vailDecodedNeedsUpdate = true;
+
   vailState = VAIL_CONNECTING;
   statusText = "Connecting...";
 
@@ -706,7 +721,7 @@ void sendInitialMessage() {
   doc["Callsign"] = vailCallsign;
   doc["TxTone"] = vailTxTone;
   doc["Private"] = false;  // Public room
-  doc["Decoder"] = false;  // Morse decoder disabled
+  doc["Decoder"] = vailIsOnDecoderChannel();  // True only on the dedicated Decoder room
 
   String output;
   serializeJson(doc, output);
@@ -729,7 +744,7 @@ void sendKeepalive() {
   doc["Callsign"] = vailCallsign;
   doc["TxTone"] = vailTxTone;
   doc["Private"] = false;  // Public room
-  doc["Decoder"] = false;  // Morse decoder disabled
+  doc["Decoder"] = vailIsOnDecoderChannel();  // True only on the dedicated Decoder room
 
   String output;
   serializeJson(doc, output);
@@ -983,7 +998,7 @@ void playbackMessages() {
         if (playbackIndex % 2 == 0) {
           // Even index = tone
           Serial.println("TONE");
-          if (vailShowDecoded && vailRxDecoder)
+          if (vailShowDecoded && vailIsOnDecoderChannel() && vailRxDecoder)
             vailRxDecoder->addTiming((float)elemDur);
           vailRxAppendTone(elemDur);
           #if VAIL_USE_LOCAL_TONE_FOR_RECEIVE
@@ -995,7 +1010,7 @@ void playbackMessages() {
         } else {
           // Odd index = silence
           Serial.println("SILENCE");
-          if (vailShowDecoded && vailRxDecoder)
+          if (vailShowDecoded && vailIsOnDecoderChannel() && vailRxDecoder)
             vailRxDecoder->addTiming(-(float)elemDur);
           vailRxAppendSilence(elemDur);
           playbackToneFrequency = 0;
