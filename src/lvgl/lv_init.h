@@ -14,6 +14,10 @@
 // Returns true if key was consumed as a global hotkey
 extern bool handleGlobalHotkey(char key);
 
+// WiFi password screen: remap CardKB TAB so it is not interpreted as LVGL group NEXT.
+// Implemented in lv_wifi_screen.h (included by the sketch after lv_init.h).
+bool lvglWifiPasswordRemapTab(uint32_t* key);
+
 // ============================================
 // Display Buffer Configuration
 // ============================================
@@ -199,6 +203,10 @@ void lvgl_keypad_read(lv_indev_drv_t* drv, lv_indev_data_t* data) {
                       input_group ? lv_group_get_obj_count(input_group) : -1);
 
         if (lvgl_key != 0) {
+            // Route TAB away from LVGL's default "NEXT" handling while entering WiFi password.
+            // This must happen before keys reach the default input group / textarea logic.
+            lvglWifiPasswordRemapTab(&lvgl_key);
+
             data->key = lvgl_key;
             data->state = LV_INDEV_STATE_PR;
 

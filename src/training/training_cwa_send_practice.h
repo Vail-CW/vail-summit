@@ -9,6 +9,9 @@
 #include "training_cwa_core.h"  // Same folder
 #include "training_cwa_copy_practice.h"  // Same folder - For generateCWAContent()
 #include "../keyer/keyer.h"
+#include "../audio/morse_decoder_direct.h"
+#include "../settings/settings_decoder.h"
+#include <esp_timer.h>
 
 // ============================================
 // Sending Practice State
@@ -27,7 +30,13 @@ unsigned long cwaSendKeyStartTime = 0;   // When student started keying
 bool cwaSendNeedsUIUpdate = false;       // Flag to trigger UI refresh when decoded text changes
 
 // Decoder for sending practice
-MorseDecoderAdaptive cwaSendDecoder(15, 15, 30);  // 15 WPM for sending practice
+MorseDecoder* cwaSendDecoder = nullptr;
+static esp_timer_handle_t cwaSendTickTimer = nullptr;
+static volatile bool cwaSendTickPending = false;
+
+static void cwaSendTickCallback(void*) {
+  cwaSendTickPending = true;
+}
 
 // Keyer state - using unified keyer module
 static bool cwaSendDitPressed = false;
@@ -59,8 +68,10 @@ void startCWASendRound() {
   cwaSendKeyStartTime = 0;
 
   // Reset decoder
-  cwaSendDecoder.reset();
-  cwaSendDecoder.flush();
+  if (cwaSendDecoder) {
+    cwaSendDecoder->reset();
+    cwaSendDecoder->flush();
+  }
   cwaSendLastStateChangeTime = 0;
   cwaSendLastToneState = false;
   cwaSendLastElementTime = 0;
@@ -182,8 +193,24 @@ void startCWASendingPractice(LGFX& tft) {
   cwaSendShowReference = true;
   cwaSendStartTime = millis();
 
-  // Set sending practice speed (15 WPM character speed)
-  cwaSendDecoder.setWPM(15);
+  // Recreate decoder so decoderType changes take effect
+  if (cwaSendTickTimer != nullptr) {
+    esp_timer_stop(cwaSendTickTimer);
+    esp_timer_delete(cwaSendTickTimer);
+    cwaSendTickTimer = nullptr;
+  }
+  cwaSendTickPending = false;
+  delete cwaSendDecoder;
+  if (decoderType == DECODER_DIRECT) {
+    cwaSendDecoder = new MorseDecoderDirect(15, 15, 30);
+    esp_timer_create_args_t timerArgs = {};
+    timerArgs.callback = cwaSendTickCallback;
+    timerArgs.name = "cwa_send_tick";
+    esp_timer_create(&timerArgs, &cwaSendTickTimer);
+    esp_timer_start_periodic(cwaSendTickTimer, 5000);
+  } else {
+    cwaSendDecoder = new MorseDecoderAdaptive(15, 15, 30);
+  }
   cwaSendDitDuration = DIT_DURATION(15);
 
   // Initialize unified keyer
@@ -195,7 +222,7 @@ void startCWASendingPractice(LGFX& tft) {
   cwaSendDahPressed = false;
 
   // Setup decoder callback
-  cwaSendDecoder.messageCallback = [](String morse, String text) {
+  cwaSendDecoder->messageCallback = [](String morse, String text) {
     for (int i = 0; i < text.length(); i++) {
       cwaSendDecoded += text[i];
     }
@@ -288,7 +315,7 @@ void cwaSendKeyerCallback(bool txOn, int element) {
       if (cwaSendLastStateChangeTime > 0) {
         float silenceDuration = currentTime - cwaSendLastStateChangeTime;
         if (silenceDuration > 0) {
-          cwaSendDecoder.addTiming(-silenceDuration);
+          cwaSendDecoder->addTiming(-silenceDuration);
         }
       }
       cwaSendLastStateChangeTime = currentTime;
@@ -300,7 +327,7 @@ void cwaSendKeyerCallback(bool txOn, int element) {
     if (cwaSendLastToneState == true) {
       float toneDuration = currentTime - cwaSendLastStateChangeTime;
       if (toneDuration > 0) {
-        cwaSendDecoder.addTiming(toneDuration);
+        cwaSendDecoder->addTiming(toneDuration);
         cwaSendLastElementTime = currentTime;
       }
       cwaSendLastStateChangeTime = currentTime;
@@ -317,13 +344,19 @@ void updateCWASendingPractice() {
   if (!cwaSendWaitingForSend) return;
   if (!cwaSendKeyer) return;
 
+  // Service direct decoder tick
+  if (cwaSendTickPending) {
+    cwaSendTickPending = false;
+    if (cwaSendDecoder) cwaSendDecoder->tick();
+  }
+
   // Check for decoder timeout (flush after word gap)
   if (cwaSendLastElementTime > 0 && !cwaSendDitPressed && !cwaSendDahPressed) {
     unsigned long timeSinceLastElement = millis() - cwaSendLastElementTime;
     float wordGapDuration = MorseWPM::wordGap(15);  // 15 WPM sending speed
 
     if (timeSinceLastElement > wordGapDuration) {
-      cwaSendDecoder.flush();
+      cwaSendDecoder->flush();
       cwaSendLastElementTime = 0;
     }
   }
@@ -430,7 +463,7 @@ int handleCWASendingPracticeInput(char key, LGFX& tft) {
 
     } else if (key == KEY_ENTER || key == KEY_ENTER_ALT) {
       // Submit what they sent
-      cwaSendDecoder.flush();  // Flush any remaining buffered data
+      cwaSendDecoder->flush();  // Flush any remaining buffered data
 
       cwaSendTotal++;
       if (cwaSendDecoded.equalsIgnoreCase(cwaSendTarget)) {

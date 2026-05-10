@@ -1,4 +1,4 @@
-/*
+﻿/*
  * VAIL SUMMIT - Vail CW Course LVGL Screens
  * Module selection, lesson screens, and practice UI for CW School training
  */
@@ -68,23 +68,22 @@ lv_obj_t* createVailCourseModuleSelectScreen() {
     lv_obj_set_style_border_width(header, 0, 0);
     lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t* title = lv_label_create(header);
-    lv_label_set_text(title, "Vail CW Course - Modules");
-    lv_obj_set_style_text_font(title, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_TEXT_PRIMARY, 0);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 15, 0);
+    createSplitTitleLabel(header, "VAIL CW SCHOOL", "MODULES");
 
-    // Account status in header
-    lv_obj_t* status = lv_label_create(header);
-    if (isCWSchoolLinked()) {
-        lv_label_set_text(status, getCWSchoolAccountDisplay().c_str());
-        lv_obj_set_style_text_color(status, LV_COLOR_SUCCESS, 0);
+    // Connection status dot
+    lv_obj_t* status_dot = lv_obj_create(header);
+    lv_obj_set_size(status_dot, 14, 14);
+    lv_obj_set_style_radius(status_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_width(status_dot, 0, 0);
+    lv_obj_clear_flag(status_dot, LV_OBJ_FLAG_SCROLLABLE);
+    if (isCWSchoolLinked() && getInternetStatus() == INET_CONNECTED) {
+        lv_obj_set_style_bg_color(status_dot, LV_COLOR_SUCCESS, 0);
+    } else if (isCWSchoolLinked()) {
+        lv_obj_set_style_bg_color(status_dot, LV_COLOR_WARNING, 0);
     } else {
-        lv_label_set_text(status, "Offline Mode");
-        lv_obj_set_style_text_color(status, LV_COLOR_TEXT_TERTIARY, 0);
+        lv_obj_set_style_bg_color(status_dot, LV_COLOR_TEXT_SECONDARY, 0);
     }
-    lv_obj_set_style_text_font(status, getThemeFonts()->font_body, 0);
-    lv_obj_align(status, LV_ALIGN_RIGHT_MID, -15, 0);
+    lv_obj_align(status_dot, LV_ALIGN_RIGHT_MID, -15, 0);
 
     // Module grid container
     lv_obj_t* grid = lv_obj_create(screen);
@@ -111,11 +110,12 @@ lv_obj_t* createVailCourseModuleSelectScreen() {
         if (unlocked) {
             applyMenuCardStyle(btn);
             if (completed) {
-                lv_obj_set_style_bg_color(btn, LV_COLOR_SUCCESS, 0);
-                lv_obj_set_style_bg_color(btn, LV_COLOR_ACCENT_GREEN, LV_STATE_FOCUSED);
+                lv_obj_set_style_border_color(btn, LV_COLOR_BORDER_ACCENT, 0);
+                lv_obj_set_style_border_width(btn, 2, 0);
             }
         } else {
-            lv_obj_set_style_bg_color(btn, LV_COLOR_TEXT_DISABLED, 0);
+            lv_obj_add_style(btn, getStyleMenuCard(), 0);
+            lv_obj_set_style_bg_color(btn, LV_COLOR_BG_LAYER2, 0);
             lv_obj_set_style_radius(btn, 8, 0);
             lv_obj_add_state(btn, LV_STATE_DISABLED);
         }
@@ -178,13 +178,7 @@ lv_obj_t* createVailCourseLessonSelectScreen() {
     lv_obj_set_style_border_width(header, 0, 0);
     lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t* title = lv_label_create(header);
-    char titleText[64];
-    snprintf(titleText, sizeof(titleText), "%s - Lessons", vailCourseModuleNames[module]);
-    lv_label_set_text(title, titleText);
-    lv_obj_set_style_text_font(title, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_TEXT_PRIMARY, 0);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 15, 0);
+    createSplitTitleLabel(header, vailCourseModuleNames[module], "LESSONS");
 
     // Characters info
     lv_obj_t* chars_label = lv_label_create(header);
@@ -196,7 +190,7 @@ lv_obj_t* createVailCourseLessonSelectScreen() {
     }
     lv_label_set_text(chars_label, charsText);
     lv_obj_set_style_text_font(chars_label, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(chars_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(chars_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(chars_label, LV_ALIGN_RIGHT_MID, -15, 0);
 
     // Lesson list
@@ -221,13 +215,9 @@ lv_obj_t* createVailCourseLessonSelectScreen() {
         lv_obj_set_size(btn, 350, 50);
         applyMenuCardStyle(btn);
 
-        if (completed) {
-            lv_obj_set_style_bg_color(btn, LV_COLOR_SUCCESS, 0);
-            lv_obj_set_style_bg_color(btn, LV_COLOR_ACCENT_GREEN, LV_STATE_FOCUSED);
-        } else if (current) {
-            lv_obj_set_style_bg_color(btn, LV_COLOR_CARD_CYAN, 0);
-            lv_obj_set_style_bg_color(btn, LV_COLOR_CARD_BLUE, LV_STATE_FOCUSED);
-        }
+        // Focused: accent fill, white text
+        lv_obj_set_style_bg_color(btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
+        lv_obj_set_style_text_color(btn, LV_COLOR_TEXT_PRIMARY, LV_STATE_FOCUSED);
 
         lv_obj_t* lbl = lv_label_create(btn);
         char lessonText[64];
@@ -274,6 +264,7 @@ struct VailCourseLessonState {
     int playbackCount;           // Times character has been played
     bool waitingForInput;        // Waiting for user's answer
     bool showingFeedback;        // Showing correct/incorrect feedback
+    bool lastAnswerWasCorrect;   // Result of the answer that triggered current feedback (not phase totals)
     unsigned long feedbackTime;  // When feedback started
 
     // Intro phase state
@@ -475,6 +466,7 @@ void submitVailCourseGroupAnswer() {
     if (correct) vailCourseProgress.sessionCorrect++;
 
     // Show feedback
+    lessonState.lastAnswerWasCorrect = correct;
     lessonState.showingFeedback = true;
     lessonState.feedbackTime = millis();
 
@@ -709,6 +701,7 @@ void checkVailCourseLessonAnswer(char answer) {
     if (correct) vailCourseProgress.sessionCorrect++;
 
     // Show feedback
+    lessonState.lastAnswerWasCorrect = correct;
     lessonState.showingFeedback = true;
     lessonState.feedbackTime = millis();
 
@@ -769,29 +762,22 @@ static void vail_course_lesson_key_handler(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code != LV_EVENT_KEY) return;
 
-    // Track key state to prevent processing same key twice (press + release)
-    static uint32_t last_key = 0;
-    static bool key_was_pressed = false;
-
     uint32_t key = lv_event_get_key(e);
-
-    // Detect key release by checking if same key comes again
-    if (key == last_key && key_was_pressed) {
-        // This is the release event - ignore it
-        key_was_pressed = false;
-        last_key = 0;
-        return;
-    }
-
-    // This is a new key press
-    last_key = key;
-    key_was_pressed = true;
 
     VailCoursePhase phase = vailCourseProgress.currentPhase;
 
     // Block TAB
     if (key == '\t' || key == LV_KEY_NEXT) {
         lv_event_stop_processing(e);
+        return;
+    }
+
+    // ESC: exit lesson back to lesson select
+    if (key == LV_KEY_ESC) {
+        cancelVailCourseAutoplayTimer();
+        endVailCourseSession();
+        lv_event_stop_processing(e);
+        onLVGLMenuSelect(MODE_VAIL_COURSE_LESSON_SELECT);
         return;
     }
 
@@ -806,15 +792,25 @@ static void vail_course_lesson_key_handler(lv_event_t* e) {
             int totalTotal = vailCourseProgress.sessionTotal;
             int percentage = (totalTotal > 0) ? (totalCorrect * 100 / totalTotal) : 0;
 
-            if (percentage >= VAIL_LESSON_PASS_THRESHOLD) {
-                // Pass - unlock next lesson
-                completeVailCourseLesson(vailCourseProgress.currentModule, vailCourseProgress.currentLesson);
-                saveVailCourseProgress();
+            VailCourseModule module = vailCourseProgress.currentModule;
+            int curLesson = vailCourseProgress.currentLesson;
+            int maxLessons = vailCourseLessonCounts[module];
+            const bool passed = (percentage >= VAIL_LESSON_PASS_THRESHOLD);
+
+            if (passed) {
+                completeVailCourseLesson(module, curLesson);
+                if (curLesson < maxLessons) {
+                    vailCourseProgress.currentLesson = curLesson + 1;
+                }
             }
 
-            // Go back to lesson select
             endVailCourseSession();
-            onLVGLMenuSelect(MODE_VAIL_COURSE_LESSON_SELECT);
+
+            if (passed && curLesson < maxLessons) {
+                onLVGLMenuSelect(MODE_VAIL_COURSE_LESSON);
+            } else {
+                onLVGLMenuSelect(MODE_VAIL_COURSE_LESSON_SELECT);
+            }
         }
         return;
     }
@@ -864,6 +860,16 @@ static void vail_course_lesson_key_handler(lv_event_t* e) {
             if (!isMorsePlaybackActive()) {
                 playCurrentCharacter();
             }
+        }
+        return;
+    }
+
+    // Waiting for input: still allow SPACE to replay (footer: "SPACE Replay"). ENTER replays in
+    // solo/mixed only; in GROUPS, ENTER submits (handled below).
+    if (key == ' ' || (vailCourseProgress.currentPhase != PHASE_GROUPS && key == LV_KEY_ENTER)) {
+        cancelVailCourseAutoplayTimer();
+        if (!isMorsePlaybackActive()) {
+            playCurrentCharacter();
         }
         return;
     }
@@ -920,7 +926,7 @@ void updateVailCourseLessonUI() {
                     char buf[8];
                     snprintf(buf, sizeof(buf), "%c", lessonState.currentChar);
                     lv_label_set_text(lessonState.main_label, buf);
-                    lv_obj_set_style_text_color(lessonState.main_label, LV_COLOR_ACCENT_CYAN, 0);
+                    lv_obj_set_style_text_color(lessonState.main_label, LV_COLOR_ACCENT_PRIMARY, 0);
                 }
                 break;
 
@@ -964,7 +970,7 @@ void updateVailCourseLessonUI() {
                             snprintf(inputDisplay, sizeof(inputDisplay), "%s_", lessonState.groupInputBuffer);
                         }
                         lv_label_set_text(lessonState.group_input_label, inputDisplay);
-                        lv_obj_set_style_text_color(lessonState.group_input_label, LV_COLOR_ACCENT_CYAN, 0);
+                        lv_obj_set_style_text_color(lessonState.group_input_label, LV_COLOR_ACCENT_PRIMARY, 0);
                         lv_obj_clear_flag(lessonState.group_input_label, LV_OBJ_FLAG_HIDDEN);
                     }
                 } else {
@@ -998,20 +1004,37 @@ void updateVailCourseLessonUI() {
         }
     }
 
-    // Update feedback label
+    // Update feedback label (text before align: first show needs final sizes for lv_obj_align_to)
     if (lessonState.feedback_label) {
         if (lessonState.showingFeedback) {
-            bool lastWasCorrect = (lessonState.phaseCorrect == lessonState.phaseTotal);
-            if (lastWasCorrect) {
+            if (lessonState.lastAnswerWasCorrect) {
                 lv_label_set_text(lessonState.feedback_label, "Correct!");
                 lv_obj_set_style_text_color(lessonState.feedback_label, LV_COLOR_SUCCESS, 0);
-                lv_obj_set_style_text_color(lessonState.main_label, LV_COLOR_SUCCESS, 0);
+                if (lessonState.main_label) {
+                    lv_obj_set_style_text_color(lessonState.main_label, LV_COLOR_SUCCESS, 0);
+                }
             } else {
                 lv_label_set_text(lessonState.feedback_label, "Incorrect");
                 lv_obj_set_style_text_color(lessonState.feedback_label, LV_COLOR_ERROR, 0);
-                lv_obj_set_style_text_color(lessonState.main_label, LV_COLOR_ERROR, 0);
+                if (lessonState.main_label) {
+                    lv_obj_set_style_text_color(lessonState.main_label, LV_COLOR_ERROR, 0);
+                }
             }
             lv_obj_clear_flag(lessonState.feedback_label, LV_OBJ_FLAG_HIDDEN);
+            if (lessonState.main_label) {
+                lv_obj_t* content = lv_obj_get_parent(lessonState.main_label);
+                if (content) {
+                    lv_obj_update_layout(content);
+                }
+                if (phase == PHASE_GROUPS && lessonState.group_input_label &&
+                    !lv_obj_has_flag(lessonState.group_input_label, LV_OBJ_FLAG_HIDDEN)) {
+                    lv_obj_align_to(lessonState.feedback_label, lessonState.group_input_label,
+                                    LV_ALIGN_OUT_BOTTOM_MID, 0, 18);
+                } else {
+                    lv_obj_align_to(lessonState.feedback_label, lessonState.main_label,
+                                    LV_ALIGN_OUT_BOTTOM_MID, 0, 18);
+                }
+            }
         } else {
             lv_obj_add_flag(lessonState.feedback_label, LV_OBJ_FLAG_HIDDEN);
         }
@@ -1070,7 +1093,7 @@ void updateVailCourseLessonUI() {
                 break;
 
             case PHASE_RESULT:
-                lv_label_set_text(lessonState.prompt_label, "Press ENTER to continue");
+                lv_label_set_text(lessonState.prompt_label, "");
                 break;
 
             default:
@@ -1107,21 +1130,15 @@ lv_obj_t* createVailCourseLessonScreen() {
     lv_obj_set_style_border_width(header, 0, 0);
     lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t* title = lv_label_create(header);
-    char titleText[64];
-    snprintf(titleText, sizeof(titleText), "%s - Lesson %d",
-             vailCourseModuleNames[vailCourseProgress.currentModule],
-             vailCourseProgress.currentLesson);
-    lv_label_set_text(title, titleText);
-    lv_obj_set_style_text_font(title, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_TEXT_PRIMARY, 0);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 15, 0);
+    char lessonSubtitle[16];
+    snprintf(lessonSubtitle, sizeof(lessonSubtitle), "LESSON %d", vailCourseProgress.currentLesson);
+    createSplitTitleLabel(header, vailCourseModuleNames[vailCourseProgress.currentModule], lessonSubtitle);
 
     // Phase indicator
     lessonState.phase_label = lv_label_create(header);
     lv_label_set_text(lessonState.phase_label, vailCoursePhaseNames[vailCourseProgress.currentPhase]);
     lv_obj_set_style_text_font(lessonState.phase_label, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(lessonState.phase_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(lessonState.phase_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(lessonState.phase_label, LV_ALIGN_RIGHT_MID, -15, 0);
 
     // Main content area
@@ -1150,14 +1167,14 @@ lv_obj_t* createVailCourseLessonScreen() {
     lessonState.feedback_label = lv_label_create(content);
     lv_label_set_text(lessonState.feedback_label, "");
     lv_obj_set_style_text_font(lessonState.feedback_label, getThemeFonts()->font_input, 0);
-    lv_obj_align(lessonState.feedback_label, LV_ALIGN_CENTER, 0, 30);
+    lv_obj_align_to(lessonState.feedback_label, lessonState.main_label, LV_ALIGN_OUT_BOTTOM_MID, 0, 18);
     lv_obj_add_flag(lessonState.feedback_label, LV_OBJ_FLAG_HIDDEN);
 
     // Group input display (for PHASE_GROUPS, below main label)
     lessonState.group_input_label = lv_label_create(content);
     lv_label_set_text(lessonState.group_input_label, "");
     lv_obj_set_style_text_font(lessonState.group_input_label, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(lessonState.group_input_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(lessonState.group_input_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(lessonState.group_input_label, LV_ALIGN_CENTER, 0, 15);
     lv_obj_add_flag(lessonState.group_input_label, LV_OBJ_FLAG_HIDDEN);
 
@@ -1186,6 +1203,7 @@ lv_obj_t* createVailCourseLessonScreen() {
     lv_obj_add_flag(focus, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(focus, vail_course_lesson_key_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(focus);
+    focusWidget(focus);
 
     // Footer
     lessonState.footer_label = lv_label_create(screen);
@@ -1218,11 +1236,7 @@ lv_obj_t* createVailCourseProgressScreen() {
     lv_obj_set_style_border_width(header, 0, 0);
     lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t* title = lv_label_create(header);
-    lv_label_set_text(title, "Vail CW Course - Progress");
-    lv_obj_set_style_text_font(title, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(title, LV_COLOR_TEXT_PRIMARY, 0);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 15, 0);
+    createSplitTitleLabel(header, "VAIL CW SCHOOL", "PROGRESS");
 
     // Stats container
     lv_obj_t* stats = lv_obj_create(screen);

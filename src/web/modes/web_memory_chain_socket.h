@@ -9,14 +9,15 @@
 
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
-#include "../../audio/morse_decoder_adaptive.h"
+#include "../../audio/morse_decoder_direct.h"
+#include "../../settings/settings_decoder.h"
 
 // WebSocket pointer (allocated on-demand)
 AsyncWebSocket* memoryChainWebSocket = nullptr;
 
 // State
 bool webMemoryChainModeActive = false;
-MorseDecoderAdaptive webMemoryChainDecoder(15.0f);
+MorseDecoder* webMemoryChainDecoder = nullptr;
 
 /*
  * Send decoded character to browser for game logic processing
@@ -37,6 +38,10 @@ void onMemoryChainWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *c
         case WS_EVT_CONNECT:
             Serial.printf("Memory Chain WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
             webMemoryChainModeActive = true;
+            delete webMemoryChainDecoder;
+            webMemoryChainDecoder = (decoderType == DECODER_DIRECT)
+                ? (MorseDecoder*) new MorseDecoderDirect(15.0f)
+                : (MorseDecoder*) new MorseDecoderAdaptive(15.0f);
             break;
 
         case WS_EVT_DISCONNECT:
@@ -67,9 +72,9 @@ void onMemoryChainWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *c
                         bool positive = doc["positive"].as<bool>();
 
                         if (positive) {
-                            webMemoryChainDecoder.addTiming(duration);
+                            webMemoryChainDecoder->addTiming(duration);
                         } else {
-                            webMemoryChainDecoder.addTiming(-duration);
+                            webMemoryChainDecoder->addTiming(-duration);
                         }
                     }
                 }

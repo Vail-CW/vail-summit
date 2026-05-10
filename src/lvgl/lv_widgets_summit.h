@@ -1,4 +1,4 @@
-/*
+﻿/*
  * VAIL SUMMIT - LVGL Widget Factory
  * Reusable widget creation functions for consistent UI
  */
@@ -101,7 +101,7 @@ lv_obj_t* createMenuCard(lv_obj_t* parent, const char* icon, const char* title, 
     lv_obj_t* icon_label = lv_label_create(icon_circle);
     lv_label_set_text(icon_label, icon);
     lv_obj_set_style_text_font(icon_label, getThemeFonts()->font_title, 0);
-    lv_obj_set_style_text_color(icon_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(icon_label, LV_COLOR_TEXT_PRIMARY, 0);
     lv_obj_center(icon_label);
 
     // Title label
@@ -162,7 +162,7 @@ lv_obj_t* createSettingsRow(lv_obj_t* parent, const char* label, const char* val
     // Value (highlighted) - use theme font
     lv_obj_t* val = lv_label_create(row);
     lv_label_set_text(val, value);
-    lv_obj_set_style_text_color(val, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(val, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_text_font(val, getThemeFonts()->font_input, 0);
 
     // Make focusable
@@ -218,7 +218,7 @@ lv_obj_t* createValueSlider(lv_obj_t* parent, const char* label, int min, int ma
     // Value display - use theme font
     lv_obj_t* val = lv_label_create(header);
     lv_label_set_text_fmt(val, "%d", current);
-    lv_obj_set_style_text_color(val, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(val, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_text_font(val, getThemeFonts()->font_subtitle, 0);
 
     // Slider
@@ -331,7 +331,7 @@ lv_obj_t* createStatsCard(lv_obj_t* parent, const char* title, const char** labe
 
         lv_obj_t* val = lv_label_create(row);
         lv_label_set_text(val, values[i]);
-        lv_obj_set_style_text_color(val, LV_COLOR_ACCENT_CYAN, 0);
+        lv_obj_set_style_text_color(val, LV_COLOR_ACCENT_PRIMARY, 0);
     }
 
     return card;
@@ -381,7 +381,7 @@ lv_obj_t* createStatusBar(lv_obj_t* parent) {
         lv_obj_set_style_text_color(battery_icon, LV_COLOR_SUCCESS, 0);
     } else if (batteryPercent > 40) {
         lv_label_set_text(battery_icon, LV_SYMBOL_BATTERY_2);
-        lv_obj_set_style_text_color(battery_icon, LV_COLOR_ACCENT_CYAN, 0);
+        lv_obj_set_style_text_color(battery_icon, LV_COLOR_ACCENT_PRIMARY, 0);
     } else if (batteryPercent > 20) {
         lv_label_set_text(battery_icon, LV_SYMBOL_BATTERY_1);
         lv_obj_set_style_text_color(battery_icon, LV_COLOR_WARNING, 0);
@@ -432,7 +432,7 @@ lv_obj_t* createCompactStatusBar(lv_obj_t* parent) {
         lv_obj_set_style_text_color(batt_icon, LV_COLOR_SUCCESS, 0);
     } else if (batteryPercent > 40) {
         lv_label_set_text(batt_icon, LV_SYMBOL_BATTERY_2);
-        lv_obj_set_style_text_color(batt_icon, LV_COLOR_ACCENT_CYAN, 0);
+        lv_obj_set_style_text_color(batt_icon, LV_COLOR_ACCENT_PRIMARY, 0);
     } else if (batteryPercent > 20) {
         lv_label_set_text(batt_icon, LV_SYMBOL_BATTERY_1);
         lv_obj_set_style_text_color(batt_icon, LV_COLOR_WARNING, 0);
@@ -442,6 +442,43 @@ lv_obj_t* createCompactStatusBar(lv_obj_t* parent) {
     }
 
     return batt_icon;
+}
+
+/*
+ * Create a split title bar label: mainTitle in title font, " // subTitle" in subtitle font.
+ * Renders both on one visual line inside a transparent flex-row container.
+ * Returns the container object.
+ *
+ * Parameters:
+ *   parent    - Title bar object (must use manual/absolute layout, not flex)
+ *   mainTitle - Primary section name (e.g. "CW ACADEMY")
+ *   subTitle  - Secondary section name (e.g. "COPY PRACTICE")
+ */
+lv_obj_t* createSplitTitleLabel(lv_obj_t* parent, const char* mainTitle, const char* subTitle) {
+    lv_obj_t* ctn = lv_obj_create(parent);
+    lv_obj_set_size(ctn, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(ctn, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(ctn, 0, 0);
+    lv_obj_set_style_pad_all(ctn, 0, 0);
+    lv_obj_set_layout(ctn, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(ctn, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(ctn, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER);
+    lv_obj_clear_flag(ctn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(ctn, LV_ALIGN_LEFT_MID, 15, 0);
+
+    lv_obj_t* main_lbl = lv_label_create(ctn);
+    lv_label_set_text(main_lbl, mainTitle);
+    lv_obj_add_style(main_lbl, getStyleLabelTitle(), 0);
+
+    lv_obj_t* sub_lbl = lv_label_create(ctn);
+    char sub_text[80];
+    snprintf(sub_text, sizeof(sub_text), " // %s", subTitle);
+    for (char* p = sub_text + 4; *p; p++) *p = toupper((unsigned char)*p);
+    lv_label_set_text(sub_lbl, sub_text);
+    lv_obj_set_style_text_font(sub_lbl, getThemeFonts()->font_input, 0);
+    lv_obj_set_style_text_color(sub_lbl, LV_COLOR_TEXT_SECONDARY, 0);
+
+    return ctn;
 }
 
 // ============================================
@@ -485,47 +522,192 @@ lv_obj_t* createScrollableList(lv_obj_t* parent, int height) {
  *   confirm_cb - Callback for Yes button
  *   cancel_cb - Callback for No button
  */
-lv_obj_t* createConfirmDialog(const char* title, const char* message, lv_event_cb_t confirm_cb, lv_event_cb_t cancel_cb) {
-    static const char* btns[] = {"Yes", "No", ""};
+// Saved indev group so dismissal can restore prior navigation context.
+static lv_group_t* s_confirm_prev_group = NULL;
+static lv_group_t* s_confirm_dialog_group = NULL;
+static lv_indev_t* s_confirm_modal_indevs[8];
+static int s_confirm_modal_indev_count = 0;
 
-    lv_obj_t* mbox = lv_msgbox_create(NULL, title, message, btns, false);
+struct ConfirmDialogContext {
+    lv_event_cb_t confirm_cb;
+    lv_event_cb_t cancel_cb;
+};
+
+static void closeConfirmDialog(lv_obj_t* backdrop) {
+    if (backdrop == NULL) return;
+
+    if (s_confirm_dialog_group != NULL) {
+        for (int i = 0; i < s_confirm_modal_indev_count; i++) {
+            if (s_confirm_modal_indevs[i] != NULL) {
+                lv_indev_set_group(s_confirm_modal_indevs[i], s_confirm_prev_group);
+            }
+        }
+        s_confirm_modal_indev_count = 0;
+        lv_group_del(s_confirm_dialog_group);
+        s_confirm_dialog_group = NULL;
+        s_confirm_prev_group = NULL;
+    }
+
+    ConfirmDialogContext* ctx = (ConfirmDialogContext*)lv_obj_get_user_data(backdrop);
+    if (ctx != NULL) {
+        delete ctx;
+        lv_obj_set_user_data(backdrop, NULL);
+    }
+
+    lv_obj_del(backdrop);
+}
+
+lv_obj_t* createConfirmDialog(const char* title, const char* message, lv_event_cb_t confirm_cb, lv_event_cb_t cancel_cb) {
+    // Fullscreen backdrop absorbs all clicks/keys outside dialog.
+    lv_obj_t* backdrop = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(backdrop);
+    lv_obj_set_size(backdrop, LV_HOR_RES, LV_VER_RES);
+    lv_obj_set_pos(backdrop, 0, 0);
+    lv_obj_clear_flag(backdrop, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(backdrop, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(backdrop, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(backdrop, LV_OPA_50, 0);
+
+    ConfirmDialogContext* ctx = new ConfirmDialogContext();
+    ctx->confirm_cb = confirm_cb;
+    ctx->cancel_cb = cancel_cb;
+    lv_obj_set_user_data(backdrop, ctx);
+
+    lv_obj_add_event_cb(backdrop, [](lv_event_t* e) {
+        if (lv_event_get_target(e) != lv_event_get_current_target(e)) return;
+        lv_event_stop_processing(e);
+        lv_event_stop_bubbling(e);
+    }, LV_EVENT_ALL, NULL);
+
+    lv_obj_t* mbox = lv_msgbox_create(backdrop, title, message, NULL, false);
     lv_obj_center(mbox);
     lv_obj_add_style(mbox, getStyleMsgbox(), 0);
 
-    // Get button matrix and add to navigation
-    lv_obj_t* btns_obj = lv_msgbox_get_btns(mbox);
-    addNavigableWidget(btns_obj);
+    lv_obj_t* footer = lv_obj_create(mbox);
+    lv_obj_remove_style_all(footer);
+    lv_obj_set_size(footer, lv_pct(100), 60);
+    lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(footer, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(footer, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-    // Add event handler for button clicks
-    lv_obj_add_event_cb(mbox, [](lv_event_t* e) {
-        lv_obj_t* obj = lv_event_get_current_target(e);
-        const char* txt = lv_msgbox_get_active_btn_text(obj);
+    lv_obj_t* yes_btn = lv_obj_create(footer);
+    lv_obj_set_size(yes_btn, 100, 34);
+    lv_obj_add_flag(yes_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(yes_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(yes_btn, LV_COLOR_BG_CARD, 0);
+    lv_obj_set_style_bg_color(yes_btn, LV_COLOR_BG_CARD_ACTIVE, LV_STATE_FOCUSED);
+    lv_obj_set_style_radius(yes_btn, 8, 0);
+    lv_obj_set_style_border_width(yes_btn, 1, 0);
+    lv_obj_set_style_border_color(yes_btn, LV_COLOR_BORDER_SUBTLE, 0);
+    lv_obj_set_style_border_width(yes_btn, 2, LV_STATE_FOCUSED);
+    lv_obj_set_style_border_color(yes_btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
+    lv_obj_t* yes_lbl = lv_label_create(yes_btn);
+    lv_label_set_text(yes_lbl, "Yes");
+    lv_obj_set_style_text_color(yes_lbl, LV_COLOR_TEXT_PRIMARY, 0);
+    lv_obj_center(yes_lbl);
 
-        if (txt != NULL) {
-            if (strcmp(txt, "Yes") == 0) {
-                // Get confirm callback from user data
-                void** cbs = (void**)lv_obj_get_user_data(obj);
-                if (cbs != NULL && cbs[0] != NULL) {
-                    ((lv_event_cb_t)cbs[0])(e);
-                }
-            } else if (strcmp(txt, "No") == 0) {
-                // Get cancel callback from user data
-                void** cbs = (void**)lv_obj_get_user_data(obj);
-                if (cbs != NULL && cbs[1] != NULL) {
-                    ((lv_event_cb_t)cbs[1])(e);
+    lv_obj_t* no_btn = lv_obj_create(footer);
+    lv_obj_set_size(no_btn, 100, 34);
+    lv_obj_add_flag(no_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(no_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(no_btn, LV_COLOR_BG_CARD_ALT, 0);
+    lv_obj_set_style_bg_color(no_btn, LV_COLOR_BG_CARD_ACTIVE, LV_STATE_FOCUSED);
+    lv_obj_set_style_radius(no_btn, 8, 0);
+    lv_obj_set_style_border_width(no_btn, 1, 0);
+    lv_obj_set_style_border_color(no_btn, LV_COLOR_BORDER_SUBTLE, 0);
+    lv_obj_set_style_border_width(no_btn, 2, LV_STATE_FOCUSED);
+    lv_obj_set_style_border_color(no_btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
+    lv_obj_t* no_lbl = lv_label_create(no_btn);
+    lv_label_set_text(no_lbl, "No");
+    lv_obj_set_style_text_color(no_lbl, LV_COLOR_TEXT_PRIMARY, 0);
+    lv_obj_center(no_lbl);
+
+    auto activate_yes = [](lv_event_t* e) {
+        lv_obj_t* btn = lv_event_get_target(e);
+        lv_obj_t* backdrop_local = lv_obj_get_parent(lv_obj_get_parent(lv_obj_get_parent(btn)));
+        ConfirmDialogContext* ctx_local = (ConfirmDialogContext*)lv_obj_get_user_data(backdrop_local);
+        if (ctx_local != NULL && ctx_local->confirm_cb != NULL) {
+            ctx_local->confirm_cb(e);
+        }
+        closeConfirmDialog(backdrop_local);
+        lv_indev_t* indev = getLVGLKeypad();
+        if (indev != NULL) lv_indev_wait_release(indev);
+        lv_event_stop_processing(e);
+        lv_event_stop_bubbling(e);
+    };
+
+    auto activate_no = [](lv_event_t* e) {
+        lv_obj_t* btn = lv_event_get_target(e);
+        lv_obj_t* backdrop_local = lv_obj_get_parent(lv_obj_get_parent(lv_obj_get_parent(btn)));
+        ConfirmDialogContext* ctx_local = (ConfirmDialogContext*)lv_obj_get_user_data(backdrop_local);
+        if (ctx_local != NULL && ctx_local->cancel_cb != NULL) {
+            ctx_local->cancel_cb(e);
+        }
+        closeConfirmDialog(backdrop_local);
+        lv_indev_t* indev = getLVGLKeypad();
+        if (indev != NULL) lv_indev_wait_release(indev);
+        lv_event_stop_processing(e);
+        lv_event_stop_bubbling(e);
+    };
+
+    lv_obj_add_event_cb(yes_btn, activate_yes, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(no_btn, activate_no, LV_EVENT_CLICKED, NULL);
+
+    // Key handling: arrows switch focus, ENTER selects, ESC cancels.
+    lv_obj_add_event_cb(yes_btn, [](lv_event_t* e) {
+        if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+        uint32_t key = lv_event_get_key(e);
+        if (key == LV_KEY_RIGHT || key == LV_KEY_DOWN) {
+            if (s_confirm_dialog_group != NULL) {
+                lv_group_focus_next(s_confirm_dialog_group);
+            }
+            lv_event_stop_processing(e);
+        } else if (key == LV_KEY_ENTER) {
+            lv_event_send(lv_event_get_target(e), LV_EVENT_CLICKED, NULL);
+        } else if (key == LV_KEY_ESC) {
+            if (s_confirm_dialog_group != NULL) {
+                lv_group_focus_next(s_confirm_dialog_group);
+                lv_obj_t* focused = lv_group_get_focused(s_confirm_dialog_group);
+                if (focused != NULL) {
+                    lv_event_send(focused, LV_EVENT_CLICKED, NULL);
                 }
             }
-            lv_msgbox_close(obj);
         }
-    }, LV_EVENT_VALUE_CHANGED, NULL);
+    }, LV_EVENT_KEY, NULL);
 
-    // Store callbacks in user data
-    static void* callbacks[2];
-    callbacks[0] = (void*)confirm_cb;
-    callbacks[1] = (void*)cancel_cb;
-    lv_obj_set_user_data(mbox, callbacks);
+    lv_obj_add_event_cb(no_btn, [](lv_event_t* e) {
+        if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+        uint32_t key = lv_event_get_key(e);
+        if (key == LV_KEY_LEFT || key == LV_KEY_UP) {
+            if (s_confirm_dialog_group != NULL) {
+                lv_group_focus_prev(s_confirm_dialog_group);
+            }
+            lv_event_stop_processing(e);
+        } else if (key == LV_KEY_ENTER || key == LV_KEY_ESC) {
+            lv_event_send(lv_event_get_target(e), LV_EVENT_CLICKED, NULL);
+        }
+    }, LV_EVENT_KEY, NULL);
 
-    return mbox;
+    // Private modal group prevents background navigation drift.
+    s_confirm_prev_group = getLVGLInputGroup();
+    s_confirm_dialog_group = lv_group_create();
+    lv_group_add_obj(s_confirm_dialog_group, yes_btn);
+    lv_group_add_obj(s_confirm_dialog_group, no_btn);
+    lv_group_focus_obj(no_btn);  // default safe option
+
+    // Attach all keypad/encoder input devices to modal group.
+    s_confirm_modal_indev_count = 0;
+    lv_indev_t* indev = lv_indev_get_next(NULL);
+    while (indev != NULL && s_confirm_modal_indev_count < 8) {
+        lv_indev_type_t indev_type = lv_indev_get_type(indev);
+        if (indev_type == LV_INDEV_TYPE_KEYPAD || indev_type == LV_INDEV_TYPE_ENCODER) {
+            lv_indev_set_group(indev, s_confirm_dialog_group);
+            s_confirm_modal_indevs[s_confirm_modal_indev_count++] = indev;
+        }
+        indev = lv_indev_get_next(indev);
+    }
+
+    return backdrop;
 }
 
 // ============================================
@@ -533,64 +715,133 @@ lv_obj_t* createConfirmDialog(const char* title, const char* message, lv_event_c
 // ============================================
 
 /*
- * Create a simple alert dialog with OK button that closes on Enter/click
- * Properly handles keyboard navigation and dismissal
+ * Create a modal alert dialog with OK button that closes on Enter/click.
+ *
+ * Modality is enforced by a fullscreen backdrop on lv_layer_top() that swallows
+ * every event landing outside the dialog, and by swapping the keypad indev onto
+ * a private group while the alert is open. This prevents clicks/keys from
+ * falling through to the screen below and prevents the underlying focus from
+ * drifting in response to the dismiss.
  *
  * Parameters:
- *   title - Dialog title
- *   message - Message text
+ *   title    - Dialog title
+ *   message  - Message text
  *   on_close - Optional callback when dialog is closed (can be NULL)
  */
-lv_obj_t* createAlertDialog(const char* title, const char* message, lv_event_cb_t on_close = NULL) {
-    static const char* btns[] = {"OK", ""};
 
-    lv_obj_t* mbox = lv_msgbox_create(NULL, title, message, btns, false);
+// Saved indev group so dismissal can restore the prior navigation context.
+static lv_group_t* s_alert_prev_group = NULL;
+static lv_group_t* s_alert_dialog_group = NULL;
+
+// Tear down: invoke on_close, restore the keypad group, delete the backdrop
+// (which removes the msgbox child along with it).
+static void closeAlertDialog(lv_obj_t* backdrop, lv_event_t* e) {
+    if (backdrop == NULL) return;
+
+    lv_obj_t* mbox = lv_obj_get_child(backdrop, 0);
+    lv_event_cb_t close_cb = (mbox != NULL)
+        ? (lv_event_cb_t)lv_obj_get_user_data(mbox)
+        : NULL;
+    if (close_cb != NULL) close_cb(e);
+
+    lv_indev_t* indev = getLVGLKeypad();
+    if (indev != NULL && s_alert_dialog_group != NULL) {
+        lv_indev_set_group(indev, s_alert_prev_group);
+        lv_group_del(s_alert_dialog_group);
+        s_alert_dialog_group = NULL;
+        s_alert_prev_group = NULL;
+    }
+
+    lv_obj_del(backdrop);
+}
+
+lv_obj_t* createAlertDialog(const char* title, const char* message, lv_event_cb_t on_close = NULL) {
+    // Fullscreen backdrop absorbs every event that does not target the msgbox.
+    lv_obj_t* backdrop = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(backdrop);
+    lv_obj_set_size(backdrop, LV_HOR_RES, LV_VER_RES);
+    lv_obj_set_pos(backdrop, 0, 0);
+    lv_obj_clear_flag(backdrop, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(backdrop, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(backdrop, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(backdrop, LV_OPA_50, 0);
+
+    // Stop every event whose target IS the backdrop. Events on the msgbox/OK
+    // button do not bubble by default, so they are unaffected.
+    lv_obj_add_event_cb(backdrop, [](lv_event_t* e) {
+        if (lv_event_get_target(e) != lv_event_get_current_target(e)) return;
+        lv_event_stop_processing(e);
+        lv_event_stop_bubbling(e);
+    }, LV_EVENT_ALL, NULL);
+
+    // Msgbox is a child of the backdrop so it draws above and dies with it.
+    lv_obj_t* mbox = lv_msgbox_create(backdrop, title, message, NULL, false);
     lv_obj_center(mbox);
     lv_obj_add_style(mbox, getStyleMsgbox(), 0);
 
-    // Store close callback in user data
     lv_obj_set_user_data(mbox, (void*)on_close);
 
-    // Get button matrix
-    lv_obj_t* btns_obj = lv_msgbox_get_btns(mbox);
+    lv_obj_t* footer = lv_obj_create(mbox);
+    lv_obj_remove_style_all(footer);
+    lv_obj_set_size(footer, lv_pct(100), 60);
+    lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(footer, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(footer, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-    // Handle button click (VALUE_CHANGED fires when btnmatrix button is clicked)
-    lv_obj_add_event_cb(mbox, [](lv_event_t* e) {
-        lv_obj_t* obj = lv_event_get_current_target(e);
-        lv_event_cb_t close_cb = (lv_event_cb_t)lv_obj_get_user_data(obj);
-        if (close_cb != NULL) {
-            close_cb(e);
-        }
-        lv_msgbox_close(obj);
-    }, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_t* btn = lv_obj_create(footer);
+    lv_obj_set_size(btn, 120, 40);
+    lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(btn, LV_COLOR_ACCENT_PRIMARY, 0);
+    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(btn, 8, 0);
+    lv_obj_set_style_border_width(btn, 0, 0);
 
-    // Also handle KEY events on the button matrix for Enter key
-    lv_obj_add_event_cb(btns_obj, [](lv_event_t* e) {
-        uint32_t key = lv_event_get_key(e);
-        if (key == LV_KEY_ENTER) {
-            lv_obj_t* btnm = lv_event_get_target(e);
-            lv_obj_t* mbox = lv_obj_get_parent(btnm);
-            lv_event_cb_t close_cb = (lv_event_cb_t)lv_obj_get_user_data(mbox);
-            if (close_cb != NULL) {
-                lv_event_send(mbox, LV_EVENT_VALUE_CHANGED, NULL);
-            }
-            lv_msgbox_close(mbox);
-        } else if (key == LV_KEY_ESC) {
-            lv_obj_t* btnm = lv_event_get_target(e);
-            lv_obj_t* mbox = lv_obj_get_parent(btnm);
-            lv_msgbox_close(mbox);
-        }
+    // Button stores the backdrop so dismissal can find and delete it.
+    lv_obj_set_user_data(btn, (void*)backdrop);
+
+    lv_obj_t* btn_label = lv_label_create(btn);
+    lv_label_set_text(btn_label, "OK");
+    lv_obj_set_style_text_color(btn_label, lv_color_black(), 0);
+    lv_obj_center(btn_label);
+
+    // KEY handler: ANY key dismisses without invoking on_close (ESC-style).
+    // Also discard the rest of the in-flight press via lv_indev_wait_release()
+    // so the Enter release does not synthesize a CLICKED on the menu item that
+    // opened the alert, which would otherwise re-trigger it in a loop.
+    lv_obj_add_event_cb(btn, [](lv_event_t* e) {
+        lv_obj_t* b = lv_event_get_target(e);
+        lv_obj_t* backdrop = (lv_obj_t*)lv_obj_get_user_data(b);
+        closeAlertDialog(backdrop, NULL);
+        lv_indev_t* indev = getLVGLKeypad();
+        if (indev != NULL) lv_indev_wait_release(indev);
+        lv_event_stop_processing(e);
+        lv_event_stop_bubbling(e);
     }, LV_EVENT_KEY, NULL);
 
-    // Add button matrix to input group so keyboard works on CardKB
-    // Note: Use lv_group_add_obj directly (not addNavigableWidget) because
-    // the dialog has its own ESC handler above — adding global_esc_handler
-    // would cause a double-action (close dialog AND navigate back)
-    lv_group_t* group = getLVGLInputGroup();
-    if (group) {
-        lv_group_add_obj(group, btns_obj);
+    // CLICKED handler: ESC-style dismiss — never invokes on_close.
+    lv_obj_add_event_cb(btn, [](lv_event_t* e) {
+        lv_obj_t* b = lv_event_get_target(e);
+        lv_obj_t* backdrop = (lv_obj_t*)lv_obj_get_user_data(b);
+        closeAlertDialog(backdrop, NULL);
+        lv_indev_t* indev = getLVGLKeypad();
+        if (indev != NULL) lv_indev_wait_release(indev);
+        lv_event_stop_processing(e);
+        lv_event_stop_bubbling(e);
+    }, LV_EVENT_CLICKED, NULL);
+
+    // Swap the keypad onto a private group containing only the OK button.
+    // Arrow keys can't move focus on the screen below, and Enter/ESC reach
+    // only this dialog. Restored in closeAlertDialog().
+    lv_indev_t* indev = getLVGLKeypad();
+    if (indev != NULL) {
+        s_alert_prev_group = getLVGLInputGroup();
+        s_alert_dialog_group = lv_group_create();
+        lv_group_set_wrap(s_alert_dialog_group, false);
+        lv_group_add_obj(s_alert_dialog_group, btn);
+        lv_indev_set_group(indev, s_alert_dialog_group);
+        lv_group_focus_obj(btn);
     }
-    lv_group_focus_obj(btns_obj);
 
     return mbox;
 }
@@ -623,7 +874,7 @@ lv_obj_t* createLoadingOverlay(const char* message) {
     lv_obj_t* spinner = lv_spinner_create(card, 1000, 60);
     lv_obj_set_size(spinner, 40, 40);
     lv_obj_align(spinner, LV_ALIGN_TOP_MID, 0, 10);
-    lv_obj_set_style_arc_color(spinner, LV_COLOR_ACCENT_CYAN, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(spinner, LV_COLOR_ACCENT_PRIMARY, LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(spinner, LV_COLOR_BG_LAYER2, LV_PART_MAIN);
 
     // Message label
@@ -657,7 +908,7 @@ lv_obj_t* createDecoderBox(lv_obj_t* parent, int width, int height) {
     lv_obj_t* text = lv_label_create(box);
     lv_label_set_text(text, "");
     lv_obj_set_style_text_font(text, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(text, LV_COLOR_ACCENT_GREEN, 0);
+    lv_obj_set_style_text_color(text, LV_COLOR_SUCCESS, 0);
     lv_label_set_long_mode(text, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_width(text, width - 20);
 
@@ -670,7 +921,7 @@ lv_obj_t* createDecoderBox(lv_obj_t* parent, int width, int height) {
 lv_obj_t* createWPMIndicator(lv_obj_t* parent, int initial_wpm) {
     lv_obj_t* container = lv_obj_create(parent);
     lv_obj_set_size(container, 100, 50);
-    lv_obj_set_style_bg_color(container, LV_COLOR_CARD_TEAL, 0);
+    lv_obj_set_style_bg_color(container, LV_COLOR_BG_CARD, 0);
     lv_obj_set_style_radius(container, 8, 0);
     lv_obj_set_style_pad_all(container, 5, 0);
 
@@ -683,7 +934,7 @@ lv_obj_t* createWPMIndicator(lv_obj_t* parent, int initial_wpm) {
     lv_obj_t* value = lv_label_create(container);
     lv_label_set_text_fmt(value, "%d", initial_wpm);
     lv_obj_set_style_text_font(value, getThemeFonts()->font_title, 0);
-    lv_obj_set_style_text_color(value, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(value, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(value, LV_ALIGN_BOTTOM_MID, 0, 0);
 
     return container;
@@ -709,7 +960,7 @@ lv_obj_t* createScoreDisplay(lv_obj_t* parent, const char* label, int initial_sc
 
     lv_obj_t* val = lv_label_create(container);
     lv_label_set_text_fmt(val, "%d", initial_score);
-    lv_obj_set_style_text_color(val, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(val, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_text_font(val, getThemeFonts()->font_subtitle, 0);
 
     return container;

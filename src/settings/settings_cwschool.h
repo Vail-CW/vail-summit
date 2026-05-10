@@ -91,14 +91,19 @@ void saveCWSchoolTokens(const String& idToken, const String& refreshToken, unsig
 // Save device link info (called after successful device linking)
 void saveCWSchoolDeviceLink(const String& deviceId, const String& uid, const String& callsign, const String& displayName) {
     cwschoolSettings.linked = true;
-    cwschoolSettings.deviceId = deviceId;
+    // Don't overwrite a valid deviceId with an empty one from the server response
+    if (deviceId.length() > 0) {
+        cwschoolSettings.deviceId = deviceId;
+    }
     cwschoolSettings.userUid = uid;
     cwschoolSettings.userCallsign = callsign;
     cwschoolSettings.displayName = displayName;
 
     cwschoolPrefs.begin("cwschool", false);
     cwschoolPrefs.putBool("linked", true);
-    cwschoolPrefs.putString("device_id", deviceId);
+    if (deviceId.length() > 0) {
+        cwschoolPrefs.putString("device_id", deviceId);
+    }
     cwschoolPrefs.putString("uid", uid);
     cwschoolPrefs.putString("callsign", callsign);
     cwschoolPrefs.putString("display", displayName);

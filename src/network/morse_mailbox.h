@@ -197,7 +197,10 @@ bool refreshMailboxIdToken() {
         JsonDocument respDoc;
         if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
             String newIdToken = respDoc["id_token"].as<String>();
+            /* Firebase often omits refresh_token on refresh; keep the existing one. */
             String newRefreshToken = respDoc["refresh_token"].as<String>();
+            if (newRefreshToken.length() == 0)
+                newRefreshToken = getMailboxRefreshToken();
             int expiresIn = respDoc["expires_in"].as<int>();
 
             if (expiresIn == 0) expiresIn = 3600;
@@ -563,7 +566,10 @@ bool fetchMailboxInbox(int limit = 20, const String& status = "all") {
             inboxCacheCount++;
         }
 
-        mailboxUnreadCount = unreadCount;
+        /* Only replace global unread count when listing unread-only; "all" pages would undercount. */
+        if (status == "unread") {
+            mailboxUnreadCount = unreadCount;
+        }
         inboxCacheValid = true;
 
         Serial.printf("[Mailbox] Fetched %d messages, %d unread\n", inboxCacheCount, unreadCount);
@@ -742,9 +748,9 @@ void updateMailboxPolling() {
     if (now - lastPollTime < MAILBOX_POLL_INTERVAL_MS) return;
     lastPollTime = now;
 
-    // Quick poll - just get unread count
+    /* Poll unread inbox (limit 50 per API); count messages returned + has_more for lower bound. */
     JsonDocument requestData;
-    requestData["limit"] = 1;
+    requestData["limit"] = 50;
     requestData["status"] = "unread";
     requestData["device_id"] = getMailboxDeviceId();
 
@@ -752,19 +758,20 @@ void updateMailboxPolling() {
     int httpCode = mailboxCallableRequest("api_messages_inbox", requestData, result);
 
     if (httpCode == 200) {
-        // Count messages in response
         JsonArray messages = result["messages"].as<JsonArray>();
-        bool hasMore = result["has_more"].as<bool>();
-
-        // If has_more is true, there are more unread messages
-        // For now, just track if there are any unread
+        bool hasMore = result["has_more"].isNull() ? false : result["has_more"].as<bool>();
+        int n = (int)messages.size();
         int oldCount = mailboxUnreadCount;
-        mailboxUnreadCount = messages.size();
-        if (hasMore) mailboxUnreadCount++;  // At least 2+
+
+        if (hasMore) {
+            /* Another page exists; at least n+1 unread (exact when n < 50 and API contracts hold). */
+            mailboxUnreadCount = n + 1;
+        } else {
+            mailboxUnreadCount = n;
+        }
 
         if (mailboxUnreadCount > 0 && mailboxUnreadCount > oldCount) {
             Serial.printf("[Mailbox] New messages detected! Count: %d\n", mailboxUnreadCount);
-            // UI will detect this via hasUnreadMailboxMessages()
         }
     }
 }

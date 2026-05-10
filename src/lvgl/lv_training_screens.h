@@ -1,4 +1,4 @@
-/*
+﻿/*
  * VAIL SUMMIT - LVGL Training Screens
  * Provides LVGL UI for training modes
  * Audio-critical logic remains in original modules
@@ -193,7 +193,7 @@ lv_obj_t* createPracticeScreen() {
 
     practice_wpm_label = lv_label_create(speed_box);
     lv_label_set_text_fmt(practice_wpm_label, "%d WPM", cwSpeed);
-    lv_obj_set_style_text_color(practice_wpm_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(practice_wpm_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_text_font(practice_wpm_label, getThemeFonts()->font_subtitle, 0);
     lv_obj_align(practice_wpm_label, LV_ALIGN_BOTTOM_MID, 0, 0);
 
@@ -213,7 +213,7 @@ lv_obj_t* createPracticeScreen() {
 
     lv_obj_t* tone_val = lv_label_create(tone_box);
     lv_label_set_text_fmt(tone_val, "%d Hz", cwTone);
-    lv_obj_set_style_text_color(tone_val, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(tone_val, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_text_font(tone_val, getThemeFonts()->font_subtitle, 0);
     lv_obj_align(tone_val, LV_ALIGN_BOTTOM_MID, 0, 0);
 
@@ -235,7 +235,7 @@ lv_obj_t* createPracticeScreen() {
     int keyType = getCwKeyTypeAsInt();
     const char* key_type_str = (keyType == 0) ? "Straight" : ((keyType == 1) ? "Iambic A" : ((keyType == 2) ? "Iambic B" : "Ultimatic"));
     lv_label_set_text(practice_key_label, key_type_str);
-    lv_obj_set_style_text_color(practice_key_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(practice_key_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_text_font(practice_key_label, getThemeFonts()->font_subtitle, 0);
     lv_obj_align(practice_key_label, LV_ALIGN_BOTTOM_MID, 0, 0);
 
@@ -258,7 +258,7 @@ lv_obj_t* createPracticeScreen() {
 
     practice_decoder_text = lv_label_create(practice_decoder_box);
     lv_label_set_text(practice_decoder_text, "_");
-    lv_obj_set_style_text_color(practice_decoder_text, LV_COLOR_ACCENT_GREEN, 0);
+    lv_obj_set_style_text_color(practice_decoder_text, LV_COLOR_SUCCESS, 0);
     lv_obj_set_style_text_font(practice_decoder_text, getThemeFonts()->font_title, 0);
     lv_label_set_long_mode(practice_decoder_text, LV_LABEL_LONG_WRAP);  // Wrap with newlines
     lv_obj_set_width(practice_decoder_text, lv_pct(100));  // Use full width of parent content area
@@ -1029,13 +1029,13 @@ static void updatePresetPickerDisplay() {
 
                 // Style: cursor highlight and selection checkbox visual
                 if (isCursor) {
-                    lv_obj_set_style_bg_color(cell, LV_COLOR_ACCENT_CYAN, 0);
+                    lv_obj_set_style_bg_color(cell, LV_COLOR_ACCENT_PRIMARY, 0);
                     lv_obj_set_style_bg_opa(cell, LV_OPA_COVER, 0);
                     lv_obj_set_style_text_color(cell, LV_COLOR_BG_DEEP, 0);
                 } else if (isSelected) {
-                    lv_obj_set_style_bg_color(cell, LV_COLOR_CARD_TEAL, 0);
+                    lv_obj_set_style_bg_color(cell, LV_COLOR_BG_CARD, 0);
                     lv_obj_set_style_bg_opa(cell, LV_OPA_COVER, 0);
-                    lv_obj_set_style_text_color(cell, LV_COLOR_ACCENT_CYAN, 0);
+                    lv_obj_set_style_text_color(cell, LV_COLOR_ACCENT_PRIMARY, 0);
                 } else {
                     lv_obj_set_style_bg_opa(cell, LV_OPA_TRANSP, 0);
                     lv_obj_set_style_text_color(cell, LV_COLOR_TEXT_SECONDARY, 0);
@@ -1091,8 +1091,8 @@ static void updatePresetPickerDisplay() {
 
             // Style based on selection
             bool selected = (i == hear_it_submenu_selection);
-            lv_obj_set_style_text_color(item, selected ? LV_COLOR_ACCENT_CYAN : LV_COLOR_TEXT_PRIMARY, 0);
-            lv_obj_set_style_bg_color(item, LV_COLOR_CARD_TEAL, 0);
+            lv_obj_set_style_text_color(item, selected ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_TEXT_PRIMARY, 0);
+            lv_obj_set_style_bg_color(item, LV_COLOR_BG_CARD, 0);
             lv_obj_set_style_bg_opa(item, selected ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
             lv_obj_set_style_pad_all(item, 6, 0);
             lv_obj_set_width(item, lv_pct(100));
@@ -1105,8 +1105,8 @@ static void updatePresetPickerDisplay() {
 
             // Style based on selection
             bool selected = (i == hear_it_preset_selection);
-            lv_obj_set_style_text_color(item, selected ? LV_COLOR_ACCENT_CYAN : LV_COLOR_TEXT_PRIMARY, 0);
-            lv_obj_set_style_bg_color(item, LV_COLOR_CARD_TEAL, 0);
+            lv_obj_set_style_text_color(item, selected ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_TEXT_PRIMARY, 0);
+            lv_obj_set_style_bg_color(item, LV_COLOR_BG_CARD, 0);
             lv_obj_set_style_bg_opa(item, selected ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
             lv_obj_set_style_pad_all(item, 8, 0);
             lv_obj_set_width(item, lv_pct(100));
@@ -1130,7 +1130,7 @@ void showHearItPresetPicker() {
     lv_obj_center(hear_it_preset_modal);
     lv_obj_set_style_bg_color(hear_it_preset_modal, LV_COLOR_BG_LAYER2, 0);
     lv_obj_set_style_bg_opa(hear_it_preset_modal, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(hear_it_preset_modal, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_border_color(hear_it_preset_modal, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_border_width(hear_it_preset_modal, 2, 0);
     lv_obj_set_style_radius(hear_it_preset_modal, 12, 0);
     lv_obj_set_style_pad_all(hear_it_preset_modal, 12, 0);
@@ -1216,9 +1216,9 @@ static void hear_it_update_focus() {
     // Mode row styling (focus == 0)
     if (hear_it_mode_row) {
         if (hear_it_settings_focus == 0) {
-            lv_obj_set_style_bg_color(hear_it_mode_row, LV_COLOR_CARD_TEAL, 0);
+            lv_obj_set_style_bg_color(hear_it_mode_row, LV_COLOR_BG_CARD, 0);
             lv_obj_set_style_bg_opa(hear_it_mode_row, LV_OPA_COVER, 0);
-            lv_obj_set_style_border_color(hear_it_mode_row, LV_COLOR_ACCENT_CYAN, 0);
+            lv_obj_set_style_border_color(hear_it_mode_row, LV_COLOR_ACCENT_PRIMARY, 0);
             lv_obj_set_style_border_width(hear_it_mode_row, 2, 0);
         } else {
             lv_obj_set_style_bg_opa(hear_it_mode_row, LV_OPA_TRANSP, 0);
@@ -1227,15 +1227,15 @@ static void hear_it_update_focus() {
     }
     if (hear_it_mode_value) {
         lv_obj_set_style_text_color(hear_it_mode_value,
-            hear_it_settings_focus == 0 ? LV_COLOR_ACCENT_CYAN : LV_COLOR_TEXT_SECONDARY, 0);
+            hear_it_settings_focus == 0 ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_TEXT_SECONDARY, 0);
     }
 
     // Speed row styling (focus == 1)
     if (hear_it_speed_row) {
         if (hear_it_settings_focus == 1) {
-            lv_obj_set_style_bg_color(hear_it_speed_row, LV_COLOR_CARD_TEAL, 0);
+            lv_obj_set_style_bg_color(hear_it_speed_row, LV_COLOR_BG_CARD, 0);
             lv_obj_set_style_bg_opa(hear_it_speed_row, LV_OPA_COVER, 0);
-            lv_obj_set_style_border_color(hear_it_speed_row, LV_COLOR_ACCENT_CYAN, 0);
+            lv_obj_set_style_border_color(hear_it_speed_row, LV_COLOR_ACCENT_PRIMARY, 0);
             lv_obj_set_style_border_width(hear_it_speed_row, 2, 0);
         } else {
             lv_obj_set_style_bg_opa(hear_it_speed_row, LV_OPA_TRANSP, 0);
@@ -1253,9 +1253,9 @@ static void hear_it_update_focus() {
     // Length row styling (focus == 2)
     if (hear_it_length_row) {
         if (hear_it_settings_focus == 2) {
-            lv_obj_set_style_bg_color(hear_it_length_row, LV_COLOR_CARD_TEAL, 0);
+            lv_obj_set_style_bg_color(hear_it_length_row, LV_COLOR_BG_CARD, 0);
             lv_obj_set_style_bg_opa(hear_it_length_row, LV_OPA_COVER, 0);
-            lv_obj_set_style_border_color(hear_it_length_row, LV_COLOR_ACCENT_CYAN, 0);
+            lv_obj_set_style_border_color(hear_it_length_row, LV_COLOR_ACCENT_PRIMARY, 0);
             lv_obj_set_style_border_width(hear_it_length_row, 2, 0);
         } else {
             lv_obj_set_style_bg_opa(hear_it_length_row, LV_OPA_TRANSP, 0);
@@ -1273,9 +1273,9 @@ static void hear_it_update_focus() {
     // Characters row styling (focus == 3) - only visible in Custom mode
     if (hear_it_chars_row) {
         if (hear_it_settings_focus == 3) {
-            lv_obj_set_style_bg_color(hear_it_chars_row, LV_COLOR_CARD_TEAL, 0);
+            lv_obj_set_style_bg_color(hear_it_chars_row, LV_COLOR_BG_CARD, 0);
             lv_obj_set_style_bg_opa(hear_it_chars_row, LV_OPA_COVER, 0);
-            lv_obj_set_style_border_color(hear_it_chars_row, LV_COLOR_ACCENT_CYAN, 0);
+            lv_obj_set_style_border_color(hear_it_chars_row, LV_COLOR_ACCENT_PRIMARY, 0);
             lv_obj_set_style_border_width(hear_it_chars_row, 2, 0);
         } else {
             lv_obj_set_style_bg_opa(hear_it_chars_row, LV_OPA_TRANSP, 0);
@@ -1284,7 +1284,7 @@ static void hear_it_update_focus() {
     }
     if (hear_it_chars_value) {
         lv_obj_set_style_text_color(hear_it_chars_value,
-            hear_it_settings_focus == 3 ? LV_COLOR_ACCENT_CYAN : LV_COLOR_TEXT_SECONDARY, 0);
+            hear_it_settings_focus == 3 ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_TEXT_SECONDARY, 0);
     }
 
     // Button styling (focus == 4)
@@ -1501,7 +1501,7 @@ lv_obj_t* createHearItTypeItScreen() {
     // Score display (hidden initially - shown in training mode)
     hear_it_score_label = lv_label_create(screen);
     lv_label_set_text(hear_it_score_label, "Score: 0/0");
-    lv_obj_set_style_text_color(hear_it_score_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(hear_it_score_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_text_font(hear_it_score_label, getThemeFonts()->font_input, 0);
     lv_obj_align(hear_it_score_label, LV_ALIGN_TOP_RIGHT, -20, HEADER_HEIGHT + 10);
     lv_obj_add_flag(hear_it_score_label, LV_OBJ_FLAG_HIDDEN);
@@ -1561,7 +1561,7 @@ lv_obj_t* createHearItTypeItScreen() {
     // Mode value - shows "< Callsigns >" style selector
     hear_it_mode_value = lv_label_create(hear_it_mode_row);
     lv_label_set_text_fmt(hear_it_mode_value, "< %s >", hear_it_mode_names[tempSettings.mode]);
-    lv_obj_set_style_text_color(hear_it_mode_value, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(hear_it_mode_value, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_text_font(hear_it_mode_value, getThemeFonts()->font_subtitle, 0);
 
     // Speed row (WPM setting) - container wraps header and slider for focus styling
@@ -1592,7 +1592,7 @@ lv_obj_t* createHearItTypeItScreen() {
 
     hear_it_speed_value = lv_label_create(speed_header);
     lv_label_set_text_fmt(hear_it_speed_value, "%d", tempSettings.wpm);
-    lv_obj_set_style_text_color(hear_it_speed_value, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(hear_it_speed_value, LV_COLOR_ACCENT_PRIMARY, 0);
 
     // Speed slider - inside speed container (compact size)
     hear_it_speed_slider = lv_slider_create(hear_it_speed_row);
@@ -1633,7 +1633,7 @@ lv_obj_t* createHearItTypeItScreen() {
 
     hear_it_length_value = lv_label_create(length_header);
     lv_label_set_text_fmt(hear_it_length_value, "%d", tempSettings.groupLength);
-    lv_obj_set_style_text_color(hear_it_length_value, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(hear_it_length_value, LV_COLOR_ACCENT_PRIMARY, 0);
 
     // Group Length slider - inside length container (compact size)
     hear_it_length_slider = lv_slider_create(hear_it_length_row);
@@ -1674,13 +1674,13 @@ lv_obj_t* createHearItTypeItScreen() {
     // Start Training button
     hear_it_start_btn = lv_btn_create(hear_it_settings_container);
     lv_obj_set_size(hear_it_start_btn, lv_pct(100), 40);
-    lv_obj_set_style_bg_color(hear_it_start_btn, LV_COLOR_CARD_TEAL, 0);
-    lv_obj_set_style_bg_color(hear_it_start_btn, LV_COLOR_CARD_TEAL, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(hear_it_start_btn, LV_COLOR_BG_CARD, 0);
+    lv_obj_set_style_bg_color(hear_it_start_btn, LV_COLOR_BG_CARD, LV_STATE_FOCUSED);
     lv_obj_set_style_radius(hear_it_start_btn, 8, 0);
     lv_obj_set_style_border_width(hear_it_start_btn, 1, 0);
     lv_obj_set_style_border_color(hear_it_start_btn, LV_COLOR_BORDER_SUBTLE, 0);
     lv_obj_set_style_border_width(hear_it_start_btn, 2, LV_STATE_FOCUSED);
-    lv_obj_set_style_border_color(hear_it_start_btn, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+    lv_obj_set_style_border_color(hear_it_start_btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
 
     lv_obj_t* btn_label = lv_label_create(hear_it_start_btn);
     lv_label_set_text(btn_label, "Start Training");
@@ -1765,7 +1765,7 @@ void updateHearItDisplay(const char* prompt, bool show_prompt) {
         if (show_prompt && prompt != NULL) {
             // Training mode with prompt visible
             lv_label_set_text(hear_it_prompt, prompt);
-            lv_obj_set_style_text_color(hear_it_prompt, LV_COLOR_ACCENT_CYAN, 0);
+            lv_obj_set_style_text_color(hear_it_prompt, LV_COLOR_ACCENT_PRIMARY, 0);
         } else {
             // Training mode - listening
             lv_label_set_text(hear_it_prompt, "Type what you hear:");
@@ -2013,12 +2013,7 @@ lv_obj_t* createCWAcademySessionSelectScreen() {
     lv_obj_add_style(title_bar, getStyleStatusBar(), 0);
     lv_obj_clear_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t* title = lv_label_create(title_bar);
-    char title_text[48];
-    snprintf(title_text, sizeof(title_text), "CW ACADEMY - %s", cwaTrackNames[cwaSelectedTrack]);
-    lv_label_set_text(title, title_text);
-    lv_obj_add_style(title, getStyleLabelTitle(), 0);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 15, 0);
+    createSplitTitleLabel(title_bar, "CW ACADEMY", cwaTrackNames[cwaSelectedTrack]);
 
     // Status bar
     createCompactStatusBar(screen);
@@ -2118,12 +2113,9 @@ lv_obj_t* createCWAcademyPracticeTypeSelectScreen() {
     lv_obj_add_style(title_bar, getStyleStatusBar(), 0);
     lv_obj_clear_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t* title = lv_label_create(title_bar);
-    char title_text[48];
-    snprintf(title_text, sizeof(title_text), "SESSION %d - PRACTICE TYPE", cwaSelectedSession);
-    lv_label_set_text(title, title_text);
-    lv_obj_add_style(title, getStyleLabelTitle(), 0);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 15, 0);
+    char session_str[16];
+    snprintf(session_str, sizeof(session_str), "SESSION %d", cwaSelectedSession);
+    createSplitTitleLabel(title_bar, session_str, "PRACTICE TYPE");
 
     // Status bar
     createCompactStatusBar(screen);
@@ -2222,12 +2214,7 @@ lv_obj_t* createCWAcademyMessageTypeSelectScreen() {
     lv_obj_add_style(title_bar, getStyleStatusBar(), 0);
     lv_obj_clear_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t* title = lv_label_create(title_bar);
-    char title_text[48];
-    snprintf(title_text, sizeof(title_text), "%s - MESSAGE TYPE", cwaPracticeTypeNames[cwaSelectedPracticeType]);
-    lv_label_set_text(title, title_text);
-    lv_obj_add_style(title, getStyleLabelTitle(), 0);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 15, 0);
+    createSplitTitleLabel(title_bar, cwaPracticeTypeNames[cwaSelectedPracticeType], "MESSAGE TYPE");
 
     // Status bar
     createCompactStatusBar(screen);
@@ -2482,13 +2469,14 @@ static void cwaCopySubmitAnswer() {
         if (cwaCopyRound >= 10) {
             cwaCopyUIState = CWA_COPY_COMPLETE;
         } else {
-            cwaCopyInput = "";
-            cwaCopyUIState = CWA_COPY_WAITING;
+            // Show CORRECT feedback briefly so the user sees their final input
+            // before the next round begins.
+            cwaCopyUIState = CWA_COPY_FEEDBACK;
             updateCWACopyPracticeUI();
             if (cwa_copy_autoplay_timer) {
                 lv_timer_del(cwa_copy_autoplay_timer);
             }
-            cwa_copy_autoplay_timer = lv_timer_create(cwa_copy_autoplay_timer_cb, 1000, NULL);
+            cwa_copy_autoplay_timer = lv_timer_create(cwa_copy_autoplay_timer_cb, 800, NULL);
         }
     } else {
         beep(400, 300);  // Error beep
@@ -2706,10 +2694,7 @@ lv_obj_t* createCWAcademyCopyPracticeScreen() {
     lv_obj_add_style(title_bar, getStyleStatusBar(), 0);
     lv_obj_clear_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t* title = lv_label_create(title_bar);
-    lv_label_set_text(title, "CW ACADEMY - COPY PRACTICE");
-    lv_obj_add_style(title, getStyleLabelTitle(), 0);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 15, 0);
+    createSplitTitleLabel(title_bar, "CW ACADEMY", "COPY PRACTICE");
 
     createCompactStatusBar(screen);
 
@@ -2735,7 +2720,7 @@ lv_obj_t* createCWAcademyCopyPracticeScreen() {
     cwa_copy_chars_label = lv_label_create(stats_bar);
     lv_label_set_text_fmt(cwa_copy_chars_label, "Chars: %d", cwaCopyCharCount);
     lv_obj_set_style_text_font(cwa_copy_chars_label, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(cwa_copy_chars_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(cwa_copy_chars_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(cwa_copy_chars_label, LV_ALIGN_RIGHT_MID, -10, 0);
 
     // Prompt label
@@ -2833,7 +2818,13 @@ static bool cwa_send_in_spacing = false;
 static bool cwa_send_dit_memory = false;
 static bool cwa_send_dah_memory = false;
 static int cwa_send_dit_duration = 0;
-static MorseDecoderAdaptive* cwa_send_decoder_ptr = NULL;
+static MorseDecoder* cwa_send_decoder_ptr = NULL;
+static esp_timer_handle_t cwaSendLVGLTickTimer = nullptr;
+static volatile bool cwaSendLVGLTickPending = false;
+
+static void cwaSendLVGLTickCallback(void*) {
+    cwaSendLVGLTickPending = true;
+}
 
 /*
  * Initialize sending practice state for LVGL mode
@@ -2862,12 +2853,25 @@ void initCWASendingPractice() {
     // Set up timing for 15 WPM sending speed
     cwa_send_dit_duration = DIT_DURATION(15);
 
-    // Initialize decoder
-    if (cwa_send_decoder_ptr == NULL) {
+    // Recreate decoder so decoderType changes take effect
+    if (cwaSendLVGLTickTimer != nullptr) {
+        esp_timer_stop(cwaSendLVGLTickTimer);
+        esp_timer_delete(cwaSendLVGLTickTimer);
+        cwaSendLVGLTickTimer = nullptr;
+    }
+    cwaSendLVGLTickPending = false;
+    delete cwa_send_decoder_ptr;
+    if (decoderType == DECODER_DIRECT) {
+        cwa_send_decoder_ptr = new MorseDecoderDirect(15, 15, 30);
+        esp_timer_create_args_t timerArgs = {};
+        timerArgs.callback = cwaSendLVGLTickCallback;
+        timerArgs.name = "cwa_lvgl_tick";
+        esp_timer_create(&timerArgs, &cwaSendLVGLTickTimer);
+        esp_timer_start_periodic(cwaSendLVGLTickTimer, 5000);
+    } else {
         cwa_send_decoder_ptr = new MorseDecoderAdaptive(15, 15, 30);
     }
     cwa_send_decoder_ptr->reset();
-    cwa_send_decoder_ptr->setWPM(15);
 
     // Set up decoder callback - uses thread-safe queue
     cwa_send_decoder_ptr->messageCallback = [](String morse, String text) {
@@ -3045,6 +3049,12 @@ void updateCWASendingPracticeLVGL() {
     if (cwa_send_state != CWA_SEND_SENDING) return;
     if (!cwa_send_screen) return;
 
+    // Service direct decoder tick
+    if (cwaSendLVGLTickPending) {
+        cwaSendLVGLTickPending = false;
+        if (cwa_send_decoder_ptr) cwa_send_decoder_ptr->tick();
+    }
+
     // Handle keyer based on type
     if (cwKeyType == KEY_STRAIGHT) {
         handleCWASendingStraightKeyDualCore();
@@ -3124,7 +3134,7 @@ void updateCWASendPracticeUI() {
         switch (cwa_send_state) {
             case CWA_SEND_READY:
                 lv_label_set_text(cwa_send_feedback_label, "Press SPACE to hear target, then key your response");
-                lv_obj_set_style_text_color(cwa_send_feedback_label, LV_COLOR_ACCENT_CYAN, 0);
+                lv_obj_set_style_text_color(cwa_send_feedback_label, LV_COLOR_ACCENT_PRIMARY, 0);
                 break;
             case CWA_SEND_SENDING:
                 lv_label_set_text(cwa_send_feedback_label, "");
@@ -3288,7 +3298,7 @@ lv_obj_t* createCWAcademySendingPracticeScreen() {
     cwa_send_target_label = lv_label_create(target_card);
     lv_label_set_text(cwa_send_target_label, "Press any key to start");
     lv_obj_set_style_text_font(cwa_send_target_label, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(cwa_send_target_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(cwa_send_target_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_center(cwa_send_target_label);
 
     // Decoded display card
@@ -3319,7 +3329,7 @@ lv_obj_t* createCWAcademySendingPracticeScreen() {
     cwa_send_feedback_label = lv_label_create(screen);
     lv_label_set_text(cwa_send_feedback_label, "Press any key to start");
     lv_obj_set_style_text_font(cwa_send_feedback_label, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(cwa_send_feedback_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(cwa_send_feedback_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_pos(cwa_send_feedback_label, 20, HEADER_HEIGHT + 180);
     lv_obj_set_width(cwa_send_feedback_label, SCREEN_WIDTH - 40);
     lv_obj_set_style_text_align(cwa_send_feedback_label, LV_TEXT_ALIGN_CENTER, 0);
@@ -3635,7 +3645,7 @@ lv_obj_t* createCWAcademyQSOPracticeScreen() {
     cwa_qso_station_label = lv_label_create(screen);
     lv_label_set_text(cwa_qso_station_label, "Station: W1AW (JOHN)");
     lv_obj_set_style_text_font(cwa_qso_station_label, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(cwa_qso_station_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(cwa_qso_station_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_pos(cwa_qso_station_label, 20, HEADER_HEIGHT + 35);
 
     // Prompt label
@@ -3660,7 +3670,7 @@ lv_obj_t* createCWAcademyQSOPracticeScreen() {
     cwa_qso_input_label = lv_label_create(input_card);
     lv_label_set_text(cwa_qso_input_label, "_");
     lv_obj_set_style_text_font(cwa_qso_input_label, getThemeFonts()->font_title, 0);
-    lv_obj_set_style_text_color(cwa_qso_input_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(cwa_qso_input_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_center(cwa_qso_input_label);
 
     // Feedback label
@@ -3911,21 +3921,22 @@ lv_obj_t* createLicenseSelectScreen() {
         lv_obj_set_size(stats_card, lv_pct(100), 55);  // Stats card height
         lv_obj_set_style_bg_color(stats_card, getThemeColors()->card_secondary, 0);  // Theme card
         lv_obj_set_style_bg_opa(stats_card, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_color(stats_card, LV_COLOR_ACCENT_CYAN, 0);
-        lv_obj_set_style_border_width(stats_card, 2, 0);
+        lv_obj_set_style_border_color(stats_card, LV_COLOR_BORDER_SUBTLE, 0);
+        lv_obj_set_style_border_width(stats_card, 1, 0);
         lv_obj_set_style_radius(stats_card, 10, 0);
         lv_obj_set_style_pad_all(stats_card, 10, 0);
         // Focused state
-        lv_obj_set_style_bg_color(stats_card, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+        lv_obj_set_style_bg_color(stats_card, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
         lv_obj_set_style_border_color(stats_card, LV_COLOR_BORDER_ACCENT, LV_STATE_FOCUSED);
+        lv_obj_set_style_border_width(stats_card, 2, LV_STATE_FOCUSED);
         lv_obj_set_style_shadow_width(stats_card, 20, LV_STATE_FOCUSED);
-        lv_obj_set_style_shadow_color(stats_card, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+        lv_obj_set_style_shadow_color(stats_card, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
         lv_obj_set_style_shadow_opa(stats_card, LV_OPA_50, LV_STATE_FOCUSED);
 
         lv_obj_t* stats_title = lv_label_create(stats_card);
         lv_label_set_text(stats_title, "View Statistics");
         lv_obj_set_style_text_font(stats_title, getThemeFonts()->font_input, 0);
-        lv_obj_set_style_text_color(stats_title, LV_COLOR_ACCENT_CYAN, 0);
+        lv_obj_set_style_text_color(stats_title, LV_COLOR_TEXT_PRIMARY, 0);
         lv_obj_set_style_text_color(stats_title, getThemeColors()->text_on_accent, LV_STATE_FOCUSED);
         lv_obj_align(stats_title, LV_ALIGN_TOP_LEFT, 0, 0);
 
@@ -3947,17 +3958,17 @@ lv_obj_t* createLicenseSelectScreen() {
     for (int i = 0; i < 3; i++) {
         lv_obj_t* card = lv_btn_create(content);
         lv_obj_set_size(card, lv_pct(100), 60);  // License type card height
-        lv_obj_set_style_bg_color(card, LV_COLOR_CARD_TEAL, 0);
+        lv_obj_set_style_bg_color(card, LV_COLOR_BG_CARD, 0);
         lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
         lv_obj_set_style_border_color(card, LV_COLOR_BORDER_SUBTLE, 0);
         lv_obj_set_style_border_width(card, 2, 0);
         lv_obj_set_style_radius(card, 10, 0);
         lv_obj_set_style_pad_all(card, 10, 0);
         // Focused state
-        lv_obj_set_style_bg_color(card, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+        lv_obj_set_style_bg_color(card, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
         lv_obj_set_style_border_color(card, LV_COLOR_BORDER_ACCENT, LV_STATE_FOCUSED);
         lv_obj_set_style_shadow_width(card, 20, LV_STATE_FOCUSED);
-        lv_obj_set_style_shadow_color(card, LV_COLOR_ACCENT_CYAN, LV_STATE_FOCUSED);
+        lv_obj_set_style_shadow_color(card, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
         lv_obj_set_style_shadow_opa(card, LV_OPA_50, LV_STATE_FOCUSED);
 
         lv_obj_t* card_title = lv_label_create(card);
@@ -4067,7 +4078,7 @@ void updateLicenseQuizDisplay() {
                 }
             } else {
                 // Normal state - reset all feedback styling to menu card defaults
-                lv_obj_set_style_bg_color(license_answer_btns[i], LV_COLOR_CARD_TEAL, 0);
+                lv_obj_set_style_bg_color(license_answer_btns[i], LV_COLOR_BG_CARD, 0);
                 lv_obj_set_style_bg_opa(license_answer_btns[i], LV_OPA_COVER, 0);
                 lv_obj_set_style_border_color(license_answer_btns[i], LV_COLOR_BORDER_SUBTLE, 0);
                 lv_obj_set_style_border_width(license_answer_btns[i], 2, 0);
@@ -4362,7 +4373,7 @@ lv_obj_t* createLicenseQuizScreen() {
     lv_obj_set_pos(license_stats_overlay, 10, 180);  // Bottom-left area
     lv_obj_set_style_bg_color(license_stats_overlay, getThemeColors()->bg_deep, 0);
     lv_obj_set_style_bg_opa(license_stats_overlay, LV_OPA_90, 0);
-    lv_obj_set_style_border_color(license_stats_overlay, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_border_color(license_stats_overlay, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_border_width(license_stats_overlay, 2, 0);
     lv_obj_set_style_radius(license_stats_overlay, 8, 0);
     lv_obj_set_style_pad_all(license_stats_overlay, 8, 0);
@@ -4434,7 +4445,7 @@ lv_obj_t* createLicenseStatsScreen() {
     lv_obj_t* license_lbl = lv_label_create(content);
     lv_label_set_text_fmt(license_lbl, "License: %s", licenseNames[licenseSession.selectedLicense]);
     lv_obj_set_style_text_font(license_lbl, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(license_lbl, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(license_lbl, LV_COLOR_ACCENT_PRIMARY, 0);
 
     // Session stats
     lv_obj_t* session_lbl = lv_label_create(content);
@@ -4584,7 +4595,7 @@ lv_obj_t* createLicenseDownloadScreen() {
     lv_obj_t* status_label = lv_label_create(content);
     lv_label_set_text(status_label, "Downloading Question Files...");
     lv_obj_set_style_text_font(status_label, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(status_label, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(status_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 20);
 
     lv_obj_t* subtitle = lv_label_create(content);
@@ -4808,7 +4819,7 @@ lv_obj_t* createLicenseWiFiRequiredScreen() {
     lv_obj_t* line3 = lv_label_create(content);
     lv_label_set_text(line3, "Settings > WiFi Setup");
     lv_obj_set_style_text_font(line3, getThemeFonts()->font_input, 0);
-    lv_obj_set_style_text_color(line3, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(line3, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(line3, LV_ALIGN_TOP_MID, 0, 145);
 
     // Create invisible focus container for ESC handling
@@ -4940,7 +4951,7 @@ void updateLicenseAllStatsContent() {
     lv_obj_t* license_title = lv_label_create(license_stats_content);
     lv_label_set_text(license_title, licenseNames[tab]);
     lv_obj_set_style_text_font(license_title, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(license_title, LV_COLOR_ACCENT_CYAN, 0);
+    lv_obj_set_style_text_color(license_title, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(license_title, LV_ALIGN_TOP_LEFT, 10, 5);
 
     // Pool info
@@ -4959,7 +4970,7 @@ void updateLicenseAllStatsContent() {
     lv_obj_align(bar, LV_ALIGN_TOP_LEFT, 10, 55);
     lv_bar_set_value(bar, masteryPct, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(bar, getThemeColors()->bg_layer2, 0);
-    lv_obj_set_style_bg_color(bar, masteryPct >= 70 ? LV_COLOR_SUCCESS : LV_COLOR_ACCENT_CYAN, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(bar, masteryPct >= 70 ? LV_COLOR_SUCCESS : LV_COLOR_ACCENT_PRIMARY, LV_PART_INDICATOR);
 
     lv_obj_t* mastery_lbl = lv_label_create(license_stats_content);
     lv_label_set_text_fmt(mastery_lbl, "Pool Mastery: %d%%", masteryPct);
@@ -5005,7 +5016,7 @@ void updateLicenseTabStyles() {
 
         if (i == license_stats_selected_tab) {
             // Selected tab
-            lv_obj_set_style_bg_color(license_stats_tab_btns[i], LV_COLOR_ACCENT_CYAN, 0);
+            lv_obj_set_style_bg_color(license_stats_tab_btns[i], LV_COLOR_ACCENT_PRIMARY, 0);
             lv_obj_set_style_text_color(lv_obj_get_child(license_stats_tab_btns[i], 0),
                 getThemeColors()->text_on_accent, 0);
         } else {
@@ -5103,7 +5114,7 @@ lv_obj_t* createLicenseAllStatsScreen() {
         lv_obj_set_size(tab_btn, 120, 30);
         lv_obj_set_style_radius(tab_btn, 5, 0);
         lv_obj_set_style_border_width(tab_btn, 1, 0);
-        lv_obj_set_style_border_color(tab_btn, LV_COLOR_ACCENT_CYAN, 0);
+        lv_obj_set_style_border_color(tab_btn, LV_COLOR_ACCENT_PRIMARY, 0);
 
         lv_obj_t* tab_label = lv_label_create(tab_btn);
         lv_label_set_text(tab_label, tabLabels[i]);

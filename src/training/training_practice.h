@@ -9,8 +9,11 @@
 
 #include "../core/config.h"
 #include "../settings/settings_cw.h"
+#include "../settings/settings_decoder.h"
 #include "../audio/morse_decoder_adaptive.h"
+#include "../audio/morse_decoder_direct.h"
 #include "../keyer/keyer.h"
+#include <esp_timer.h>
 
 
 // Practice mode state
@@ -33,8 +36,16 @@ int ditDuration = 0;
 // Statistics
 unsigned long practiceStartTime = 0;
 
-// Decoder state
-MorseDecoderAdaptive decoder(20, 20, 30);  // Initial 20 WPM, buffer size 30
+// Decoder state — pointer selects Adaptive or Direct at runtime
+static MorseDecoder* practiceDecoder = nullptr;
+
+// Timer for direct decoder tick (only used when DECODER_DIRECT is active)
+static esp_timer_handle_t decoderTickTimer = nullptr;
+static volatile bool decoderTickPending = false;
+
+static void decoderTickCallback(void*) {
+  decoderTickPending = true;
+}
 String decodedText = "";
 String decodedMorse = "";
 bool showDecoding = true;
@@ -112,10 +123,30 @@ void startPracticeMode(LGFX &display) {
   // Reset statistics
   practiceStartTime = millis();
 
-  // Reset decoder and clear any buffered state
-  decoder.reset();
-  decoder.flush();  // Clear any pending timings
-  decoder.setWPM(cwSpeed);
+  // Stop any existing tick timer
+  if (decoderTickTimer != nullptr) {
+    esp_timer_stop(decoderTickTimer);
+    esp_timer_delete(decoderTickTimer);
+    decoderTickTimer = nullptr;
+  }
+  decoderTickPending = false;
+
+  // Instantiate the selected decoder
+  delete practiceDecoder;
+  if (decoderType == DECODER_DIRECT) {
+    practiceDecoder = new MorseDecoderDirect(cwSpeed, cwSpeed, 30);
+    // Start 5ms periodic timer to drive direct decoder tick
+    esp_timer_create_args_t timerArgs = {};
+    timerArgs.callback = decoderTickCallback;
+    timerArgs.name = "decoder_tick";
+    esp_timer_create(&timerArgs, &decoderTickTimer);
+    esp_timer_start_periodic(decoderTickTimer, 5000);  // 5000 µs = 5ms
+  } else {
+    practiceDecoder = new MorseDecoderAdaptive(cwSpeed, cwSpeed, 30);
+  }
+  practiceDecoder->reset();
+  practiceDecoder->flush();
+  practiceDecoder->setWPM(cwSpeed);
   decodedText = "";
   decodedMorse = "";
   lastStateChangeTime = 0;  // Don't initialize until first key press
@@ -125,7 +156,7 @@ void startPracticeMode(LGFX &display) {
   needsUIUpdate = false;
 
   // Setup decoder callbacks
-  decoder.messageCallback = [](String morse, String text) {
+  practiceDecoder->messageCallback = [](String morse, String text) {
     // Process each character in the decoded text individually
     for (int i = 0; i < text.length(); i++) {
       decodedText += text[i];
@@ -147,7 +178,7 @@ void startPracticeMode(LGFX &display) {
     Serial.println(")");
   };
 
-  decoder.speedCallback = [](float wpm, float fwpm) {
+  practiceDecoder->speedCallback = [](float wpm, float fwpm) {
     Serial.print("Speed detected: ");
     Serial.print(wpm);
     Serial.println(" WPM");
@@ -182,7 +213,7 @@ void practiceKeyerCallback(bool txOn, int element) {
       if (lastStateChangeTime > 0) {
         float silenceDuration = currentTime - lastStateChangeTime;
         if (silenceDuration > 0) {
-          decoder.addTiming(-silenceDuration);
+          practiceDecoder->addTiming(-silenceDuration);
         }
       }
       lastStateChangeTime = currentTime;
@@ -195,7 +226,7 @@ void practiceKeyerCallback(bool txOn, int element) {
       // Send tone duration to decoder (positive)
       float toneDuration = currentTime - lastStateChangeTime;
       if (toneDuration > 0) {
-        decoder.addTiming(toneDuration);
+        practiceDecoder->addTiming(toneDuration);
         lastElementTime = currentTime;  // Update timeout tracker
       }
       lastStateChangeTime = currentTime;
@@ -218,15 +249,19 @@ void updatePracticeOscillator() {
     return;
   }
 
-  // Check for decoder timeout (flush if no activity for word gap duration)
+  // Service direct decoder tick (fires every 5ms via esp_timer)
+  if (decoderTickPending) {
+    decoderTickPending = false;
+    if (showDecoding) practiceDecoder->tick();
+  }
+
+  // Flush buffered data after word gap silence
   if (showDecoding && lastElementTime > 0 && !ditPressed && !dahPressed) {
     unsigned long timeSinceLastElement = millis() - lastElementTime;
-    float wordGapDuration = MorseWPM::wordGap(decoder.getWPM());
-
-    // Flush buffered data after word gap silence (backup timeout)
+    float wordGapDuration = MorseWPM::wordGap(practiceDecoder->getWPM());
     if (timeSinceLastElement > wordGapDuration) {
-      decoder.flush();
-      lastElementTime = 0;  // Reset timeout
+      practiceDecoder->flush();
+      lastElementTime = 0;
     }
   }
 
@@ -267,10 +302,16 @@ void updatePracticeOscillator() {
 void practiceHandleEsc() {
   practiceActive = false;
   stopTone();
+  if (decoderTickTimer != nullptr) {
+    esp_timer_stop(decoderTickTimer);
+    esp_timer_delete(decoderTickTimer);
+    decoderTickTimer = nullptr;
+  }
+  decoderTickPending = false;
   if (practiceKeyer) {
     practiceKeyer->reset();
   }
-  decoder.flush();  // Decode any remaining buffered timings
+  practiceDecoder->flush();  // Decode any remaining buffered timings
 
   // Save any pending settings before exit
   if (settingSavePending) {
@@ -286,8 +327,8 @@ void practiceHandleEsc() {
 void practiceHandleClear() {
   decodedText = "";
   decodedMorse = "";
-  decoder.reset();
-  decoder.flush();
+  practiceDecoder->reset();
+  practiceDecoder->flush();
   needsUIUpdate = true;  // Signal LVGL to update display
   beep(TONE_MENU_NAV, BEEP_SHORT);
   Serial.println("[Practice] Cleared decoder text");
@@ -299,7 +340,7 @@ void practiceAdjustSpeed(int delta) {
   if (newSpeed >= WPM_MIN && newSpeed <= WPM_MAX) {
     cwSpeed = newSpeed;
     ditDuration = DIT_DURATION(cwSpeed);
-    decoder.setWPM(cwSpeed);
+    practiceDecoder->setWPM(cwSpeed);
     if (practiceKeyer) {
       practiceKeyer->setDitDuration(ditDuration);
     }

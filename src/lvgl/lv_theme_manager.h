@@ -11,6 +11,8 @@
 #define LV_THEME_MANAGER_H
 
 #include <lvgl.h>
+/* FA menu icons: LVGL 8.3 — see extra_font_awesome_icons.h / docs/EXTRA_FONT_AWESOME_ICONS.md */
+#include "../fonts/extra_font_awesome_icons.h"
 
 // Forward declarations for custom fonts (defined in src/fonts/*.c)
 // These are compiled separately - do NOT #include the .c files
