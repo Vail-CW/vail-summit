@@ -4,12 +4,11 @@ This project embeds a subset of **Font Awesome** icons as an LVGL **bitmap font*
 
 | File | Role |
 |------|------|
-| **`extra_font_awesome_icons_shell.h`** | **Stable** — Arduino/LVGL includes and `EXTRAFONTAWESOMEICONS`. **Do not replace** from the font converter. (It does **not** `#include` the generated fragment — see `.c`.) |
-| **`extra_font_awesome_icons_generated.h`** | **Replaceable** — paste only the **font body** from [LVGL Font Converter](https://lvgl.io/tools/fontconverter) or `lv_font_conv` here (see [what to strip](#what-to-paste-into-extra_font_awesome_icons_generatedh) below). Must live **next to** `extra_font_awesome_icons.c`. Uses **`.h`** so Arduino’s sketch copy step picks it up (`.inc` was often missing in the build temp tree). |
-| **`extra_font_awesome_icons.c`** | Includes `shell.h`, then `#include "extra_font_awesome_icons_generated.h"` (with legacy fallback to `.inc`) inside `#if EXTRAFONTAWESOMEICONS`. **Do not paste** a full converter `.c` over this file. |
-| **`extra_font_awesome_icons.h`** | UTF-8 `FA_EXTRA_*` macros + `LV_FONT_DECLARE` — edit when you add/remove icons. |
+| **`extra_font_awesome_icons_shell.h`** | **Stable** — Arduino/LVGL includes and `EXTRAFONTAWESOMEICONS`. **Do not replace** from the font converter. |
+| **`extra_font_awesome_icons_generated.h`** | **Replaceable** — paste only the **font body** from [LVGL Font Converter](https://lvgl.io/tools/fontconverter) or `lv_font_conv` here (see [what to strip](#what-to-paste-into-extra_font_awesome_icons_generatedh) below). Must live **next to** `extra_font_awesome_icons.h`. Uses **`.h`** so Arduino’s sketch copy step picks it up (`.inc` was often missing in the build temp tree). |
+| **`extra_font_awesome_icons.h`** | UTF-8 `FA_EXTRA_*` macros + `LV_FONT_DECLARE`, plus the include of `shell.h` and `generated.h` that instantiates the bitmap data. The whole font lives inside the `EXTRA_FONT_AWESOME_ICONS_H` include guard so the data is defined exactly once per translation unit (project is single-TU header-only — see CLAUDE.md). |
 
-**Include rule:** `extra_font_awesome_icons_shell.h` may be included only from `extra_font_awesome_icons.c` (same as today). Only that `.c` pulls in `extra_font_awesome_icons_generated.h`, so `ExtraFontAwesomeIcons` is not duplicated.
+**Include rule:** `extra_font_awesome_icons.h` may be included transitively by any header that uses an `FA_EXTRA_*` macro or refers to `&ExtraFontAwesomeIcons`. The standard include guard prevents duplicate instantiation. **Do NOT add a `.c` file** alongside these headers — the project's single-TU build expects everything in headers.
 
 **Canonical instructions** for regen live in this Markdown file.
 

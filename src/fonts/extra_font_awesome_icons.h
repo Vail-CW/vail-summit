@@ -14,6 +14,25 @@
 
 LV_FONT_DECLARE(ExtraFontAwesomeIcons);
 
+/*
+ * Header-only data block. Per project convention (CLAUDE.md "header-only
+ * build"), the bitmap + glyph metadata + lv_font_t definition live inside
+ * the include guard above so they are instantiated exactly once per
+ * translation unit. The single-TU build means this happens exactly once
+ * project-wide. Replaces the previous src/fonts/extra_font_awesome_icons.c.
+ */
+#include "extra_font_awesome_icons_shell.h"
+
+#if EXTRAFONTAWESOMEICONS
+#if defined(__has_include) && __has_include("extra_font_awesome_icons_generated.h")
+#include "extra_font_awesome_icons_generated.h"
+#elif defined(__has_include) && __has_include("extra_font_awesome_icons_generated.inc")
+#include "extra_font_awesome_icons_generated.inc"
+#else
+#error "Missing extra_font_awesome_icons_generated.h (or legacy .inc). See docs/EXTRA_FONT_AWESOME_ICONS.md"
+#endif
+#endif
+
 /* U+F0AC — FA5 "globe" (Americas-style globe in older sets) */
 #define FA_EXTRA_GLOBE "\xEF\x82\xAC"
 
