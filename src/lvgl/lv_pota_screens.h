@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - POTA Screens
  * Parks On The Air feature screens
  */

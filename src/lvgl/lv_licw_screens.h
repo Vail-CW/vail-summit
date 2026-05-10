@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - LVGL LICW Training Screens
  *
  * LVGL screens for the Long Island CW Club (LICW) training implementation.

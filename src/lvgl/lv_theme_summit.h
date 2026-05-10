@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - LVGL Theme
  * Dynamic theme system supporting multiple color schemes
  * Uses Theme Manager for color/font switching

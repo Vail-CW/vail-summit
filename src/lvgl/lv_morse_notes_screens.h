@@ -1,4 +1,4 @@
-﻿#ifndef LV_MORSE_NOTES_SCREENS_H
+#ifndef LV_MORSE_NOTES_SCREENS_H
 #define LV_MORSE_NOTES_SCREENS_H
 
 #include "lv_screen_manager.h"

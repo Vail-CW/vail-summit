@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - Morse Story Time LVGL Screens
  * Provides all UI screens for the Story Time game
  */

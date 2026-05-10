@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - LVGL Spark Watch Screens
  * Provides LVGL UI for the Spark Watch maritime morse training game
  */

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - Morse Mailbox LVGL Screens
  * Device linking, inbox, playback, and compose screens
  */

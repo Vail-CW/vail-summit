@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - LVGL WiFi Configuration Screen
  * Full on-device WiFi setup with network scanning, password entry, and AP mode
  */

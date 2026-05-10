@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - LVGL Widget Factory
  * Reusable widget creation functions for consistent UI
  */

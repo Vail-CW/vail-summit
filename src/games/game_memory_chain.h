@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Memory Chain Game - Fresh Implementation
  *
  * A simple memory game where players listen to and repeat

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - Vail CW Course LVGL Screens
  * Module selection, lesson screens, and practice UI for CW School training
  */

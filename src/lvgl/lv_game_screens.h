@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - LVGL Game Screens
  * Provides LVGL UI for games (Morse Shooter, Memory Chain)
  */

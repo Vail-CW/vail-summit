@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - LVGL Training Screens
  * Provides LVGL UI for training modes
  * Audio-critical logic remains in original modules

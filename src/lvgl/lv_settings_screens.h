@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VAIL SUMMIT - LVGL Settings Screens
  * Replaces LovyanGFX settings rendering with LVGL
  */
