@@ -1538,6 +1538,9 @@ static lv_obj_t* vail_chat_textarea = NULL;
 static lv_obj_t* vail_status_label = NULL;  // Kept for compatibility but may be NULL
 static lv_obj_t* vail_status_indicator = NULL;  // Small colored dot for status
 static lv_obj_t* vail_loading_overlay = NULL;  // Loading overlay with spinner
+// vail_room_label is the room name shown in the title bar (next to the
+// receiver-lamp dot), so the current room is always glanceable without
+// having to look at the chat panel header.
 static lv_obj_t* vail_room_label = NULL;
 static lv_obj_t* vail_wpm_label = NULL;
 static lv_obj_t* vail_footer_label = NULL;
@@ -2510,8 +2513,9 @@ lv_obj_t* createVailRepeaterScreen() {
     vail_decoded_row_bg = NULL;
     vail_decoded_row_label = NULL;
     vail_users_label = NULL;
+    vail_room_label = NULL;
 
-    // Title bar
+    // Title bar — VAIL REPEATER * <room name> ... [WiFi][Battery]
     lv_obj_t* title_bar = lv_obj_create(screen);
     lv_obj_set_size(title_bar, SCREEN_WIDTH, HEADER_HEIGHT);
     lv_obj_set_pos(title_bar, 0, 0);
@@ -2519,7 +2523,7 @@ lv_obj_t* createVailRepeaterScreen() {
     lv_obj_set_flex_flow(title_bar, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(title_bar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_hor(title_bar, 15, 0);
-    lv_obj_set_style_pad_gap(title_bar, 10, 0);
+    lv_obj_set_style_pad_gap(title_bar, 8, 0);
     lv_obj_add_style(title_bar, getStyleStatusBar(), 0);
     lv_obj_clear_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -2527,7 +2531,7 @@ lv_obj_t* createVailRepeaterScreen() {
     lv_label_set_text(title, "VAIL REPEATER");
     lv_obj_add_style(title, getStyleLabelTitle(), 0);
 
-    // Status indicator (small colored circle)
+    // Status indicator (receiver lamp dot)
     vail_status_indicator = lv_obj_create(title_bar);
     lv_obj_set_size(vail_status_indicator, 14, 14);
     lv_obj_set_style_radius(vail_status_indicator, LV_RADIUS_CIRCLE, 0);
@@ -2535,6 +2539,12 @@ lv_obj_t* createVailRepeaterScreen() {
     lv_obj_set_style_bg_opa(vail_status_indicator, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(vail_status_indicator, 0, 0);
     lv_obj_clear_flag(vail_status_indicator, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Current room name (always-visible in title bar so it's glanceable)
+    vail_room_label = lv_label_create(title_bar);
+    lv_label_set_text(vail_room_label, vailChannel.c_str());
+    lv_obj_set_style_text_color(vail_room_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_style_text_font(vail_room_label, getThemeFonts()->font_small, 0);
 
     // Status bar (WiFi + battery)
     createCompactStatusBar(screen);
@@ -2714,16 +2724,11 @@ lv_obj_t* createVailRepeaterScreen() {
     lv_obj_set_style_pad_hor(footer, 10, 0);
 
     vail_footer_label = lv_label_create(footer);
-    lv_label_set_text(vail_footer_label, "L/R Select  ENTER Open  ESC Exit");
+    lv_label_set_text(vail_footer_label, "");  // Filled in by updateVailFooter() below
     lv_obj_set_style_text_color(vail_footer_label, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(vail_footer_label, getThemeFonts()->font_small, 0);
-
-    lv_obj_t* char_limit_label = lv_label_create(footer);
-    char limit_str[24];
-    snprintf(limit_str, sizeof(limit_str), "Max: %d chars", VAIL_MAX_INPUT_LEN);
-    lv_label_set_text(char_limit_label, limit_str);
-    lv_obj_set_style_text_color(char_limit_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(char_limit_label, getThemeFonts()->font_small, 0);
+    // (Max-chars hint moved into the chat compose modal where it's relevant.)
+    updateVailFooter();
 
     // Invisible focus container for keyboard input
     lv_obj_t* focus_container = lv_obj_create(screen);
@@ -2781,8 +2786,10 @@ void updateVailScreenLVGL() {
 
     // Detect connection drop and reset overlay state
     if (vailState == VAIL_DISCONNECTED && lastKnownVailState != VAIL_DISCONNECTED) {
-        // Connection dropped - close any open overlays and reset view mode
-        vail_view_mode = 0;
+        // Connection dropped — close any open overlays and reset back to the
+        // operating view so the next key press is handled and the user sees
+        // the up-to-date footer hints.
+        vail_view_mode = 1;
         vail_custom_room_mode = false;
         if (vail_room_overlay != NULL) {
             lv_obj_add_flag(vail_room_overlay, LV_OBJ_FLAG_HIDDEN);
