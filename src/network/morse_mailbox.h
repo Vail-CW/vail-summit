@@ -11,6 +11,7 @@
 #include <WiFi.h>
 #include "../settings/settings_mailbox.h"
 #include "../core/secrets.h"
+#include "../core/firebase_availability.h"
 #include "internet_check.h"
 
 // ============================================
@@ -223,6 +224,16 @@ bool refreshMailboxIdToken() {
 // Returns HTTP status code, response body in 'response' parameter
 // Note: endpoint should be the full function name, e.g., "api_device_requestCode"
 int mailboxHttpRequest(const String& method, const String& functionName, const String& body, String& response) {
+    // Refuse to hit the network if Firebase keys are still placeholders.
+    // Without this guard the request would still reach the URL and fail at
+    // HTTP layer; failing fast here keeps the logs cleaner and avoids any
+    // accidental traffic to a placeholder endpoint.
+    if (!morseMailboxFirebaseConfigured()) {
+        Serial.println("[Mailbox] Firebase keys not configured — refusing request");
+        response = "";
+        return -1;
+    }
+
     HTTPClient http;
     String url = String(MAILBOX_FUNCTIONS_BASE) + "/" + functionName;
 

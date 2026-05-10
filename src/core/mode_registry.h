@@ -263,6 +263,10 @@ static const ModeFlags flagTable[] = {
     { MODE_SYSTEM_INFO,          MODE_FLAG_SETTINGS },
     { MODE_MORSE_NOTES_SETTINGS, MODE_FLAG_SETTINGS },
 
+    // Morse Notes browse screens (pure-nav menu screens, not audio-critical)
+    { MODE_MORSE_NOTES_LIBRARY,  MODE_FLAG_MENU | MODE_FLAG_PURE_NAV },
+    { MODE_MORSE_NOTES_LIST,     MODE_FLAG_MENU | MODE_FLAG_PURE_NAV },
+
     // Audio-critical modes (need 1ms polling)
     { MODE_PRACTICE,                    MODE_FLAG_AUDIO_CRITICAL | MODE_FLAG_NO_STATUS },
     { MODE_CW_ACADEMY_SENDING_PRACTICE, MODE_FLAG_AUDIO_CRITICAL | MODE_FLAG_NO_STATUS },
