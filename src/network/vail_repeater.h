@@ -128,10 +128,37 @@ int64_t clockSkew = 0;  // Offset to convert millis() to server time
 int clockSkewSamples = 0;  // Number of clock skew samples received
 const float CLOCK_SKEW_ALPHA = 0.3f;  // Exponential moving average weight
 
-// TX morse compose state
-String vailTxMorseSymbols = "";       // current char being keyed: ". - ." etc
-// RX morse-row visualization (incoming durations classified by length).
-String vailRxMorseSymbols = "";
+// TX morse compose state — fixed char buffers (not Arduino String) per
+// CLAUDE.md HARD REQUIREMENT 3. These are mutated on every keyed element
+// in an audio-critical screen, so we cannot afford heap churn.
+#define VAIL_MORSE_BUF_SIZE 80
+char vailTxMorseSymbols[VAIL_MORSE_BUF_SIZE] = {0};   // current char being keyed: ". - ." etc
+char vailRxMorseSymbols[VAIL_MORSE_BUF_SIZE] = {0};   // RX visualization
+
+// Append `s` to `buf`, capped at VAIL_MORSE_BUF_SIZE. Silently truncates if
+// the result would overflow — caller is expected to trim periodically.
+static inline void vailMorseAppend(char* buf, const char* s) {
+    size_t len = strlen(buf);
+    size_t add = strlen(s);
+    if (len + add + 1 > VAIL_MORSE_BUF_SIZE) add = VAIL_MORSE_BUF_SIZE - 1 - len;
+    if (add > 0) {
+        memcpy(buf + len, s, add);
+        buf[len + add] = '\0';
+    }
+}
+
+// Drop `dropFront` bytes from the front of `buf`, sliding the rest down.
+// If dropFront >= length, buffer becomes empty.
+static inline void vailMorseDropFront(char* buf, size_t dropFront) {
+    size_t len = strlen(buf);
+    if (dropFront >= len) { buf[0] = '\0'; return; }
+    memmove(buf, buf + dropFront, len - dropFront + 1);
+}
+
+static inline bool vailMorseEndsWith(const char* buf, const char* suffix) {
+    size_t bl = strlen(buf), sl = strlen(suffix);
+    return bl >= sl && memcmp(buf + bl - sl, suffix, sl) == 0;
+}
 
 // RX decoding (incoming morse -> text) is only allowed on the dedicated
 // "Decoder" room, matching vailmorse.com behavior. On all other rooms the
@@ -147,15 +174,16 @@ static inline bool vailIsOnDecoderChannel() {
 static void vailRxAppendTone(uint16_t toneMs) {
     if (!vailShowDecoded || !vailIsOnDecoderChannel()) return;
     float ditMs = 1200.0f / (float)cwSpeed;
-    if (vailRxMorseSymbols.length() > 0 && !vailRxMorseSymbols.endsWith(" /") && !vailRxMorseSymbols.endsWith(" //"))
-        vailRxMorseSymbols += " ";
-    vailRxMorseSymbols += (toneMs <= ditMs * 2.0f) ? "." : "-";
-    if ((int)vailRxMorseSymbols.length() > 72) {
-        int slashPos = vailRxMorseSymbols.indexOf('/', 15);
-        if (slashPos >= 0 && slashPos + 3 < (int)vailRxMorseSymbols.length())
-            vailRxMorseSymbols = vailRxMorseSymbols.substring(slashPos + 2);
+    size_t curLen = strlen(vailRxMorseSymbols);
+    if (curLen > 0 && !vailMorseEndsWith(vailRxMorseSymbols, " /") && !vailMorseEndsWith(vailRxMorseSymbols, " //"))
+        vailMorseAppend(vailRxMorseSymbols, " ");
+    vailMorseAppend(vailRxMorseSymbols, (toneMs <= ditMs * 2.0f) ? "." : "-");
+    if ((int)strlen(vailRxMorseSymbols) > 72) {
+        const char* slashPos = strchr(vailRxMorseSymbols + 15, '/');
+        if (slashPos != nullptr && (slashPos - vailRxMorseSymbols) + 3 < (int)strlen(vailRxMorseSymbols))
+            vailMorseDropFront(vailRxMorseSymbols, (slashPos - vailRxMorseSymbols) + 2);
         else
-            vailRxMorseSymbols = vailRxMorseSymbols.substring(vailRxMorseSymbols.length() - 50);
+            vailMorseDropFront(vailRxMorseSymbols, strlen(vailRxMorseSymbols) - 50);
     }
 }
 
@@ -165,9 +193,9 @@ static void vailRxAppendSilence(uint16_t silenceMs) {
     if (!vailShowDecoded || !vailIsOnDecoderChannel()) return;
     float ditMs = 1200.0f / (float)cwSpeed;
     if (silenceMs >= ditMs * 5.0f) {
-        vailRxMorseSymbols += " //";
+        vailMorseAppend(vailRxMorseSymbols, " //");
     } else if (silenceMs >= ditMs * 2.0f) {
-        vailRxMorseSymbols += " /";
+        vailMorseAppend(vailRxMorseSymbols, " /");
     }
 }
 volatile bool vailTxDecodedReady = false;  // set when TX decoder emits a char
@@ -198,7 +226,7 @@ static void vailTxOnDecoded(String morse, String text) {
         vailTxLastDecodedChar = text[i];
         vailTxDecodedReady = true;
     }
-    vailTxMorseSymbols += " /";
+    vailMorseAppend(vailTxMorseSymbols, " /");
 }
 
 static void vailOnDecoded(String morse, String text) {
@@ -431,7 +459,7 @@ void connectToVail(String channel) {
 
   // Clear any stale decoded state from a previous room — decoded text only
   // appears on the dedicated "Decoder" room.
-  vailRxMorseSymbols = "";
+  vailRxMorseSymbols[0] = '\0';
   vailDecodedCount = 0;
   vailDecodedNeedsUpdate = true;
 
@@ -507,7 +535,7 @@ void disconnectFromVail() {
   rxQueue.clear();
   vailTxDurations.clear();
   recentTxTimestamps.clear();
-  vailRxMorseSymbols = "";
+  vailRxMorseSymbols[0] = '\0';
   chatHistory.clear();
   connectedUsers.clear();
   activeRooms.clear();
@@ -833,14 +861,14 @@ void vailKeyerCallback(bool txOn, int element) {
 
         // Live morse row (dot/dash per element)
         float ditMs = 1200.0f / (float)cwSpeed;
-        if (vailTxMorseSymbols.length() > 0) vailTxMorseSymbols += " ";
-        vailTxMorseSymbols += (toneDuration <= ditMs * 2.0f) ? "." : "-";
-        if ((int)vailTxMorseSymbols.length() > 72) {
-          int slashPos = vailTxMorseSymbols.indexOf('/', 15);
-          if (slashPos >= 0 && slashPos + 3 < (int)vailTxMorseSymbols.length())
-            vailTxMorseSymbols = vailTxMorseSymbols.substring(slashPos + 2);
+        if (strlen(vailTxMorseSymbols) > 0) vailMorseAppend(vailTxMorseSymbols, " ");
+        vailMorseAppend(vailTxMorseSymbols, (toneDuration <= ditMs * 2.0f) ? "." : "-");
+        if ((int)strlen(vailTxMorseSymbols) > 72) {
+          const char* slashPos = strchr(vailTxMorseSymbols + 15, '/');
+          if (slashPos != nullptr && (slashPos - vailTxMorseSymbols) + 3 < (int)strlen(vailTxMorseSymbols))
+            vailMorseDropFront(vailTxMorseSymbols, (slashPos - vailTxMorseSymbols) + 2);
           else
-            vailTxMorseSymbols = vailTxMorseSymbols.substring(vailTxMorseSymbols.length() - 50);
+            vailMorseDropFront(vailTxMorseSymbols, strlen(vailTxMorseSymbols) - 50);
         }
 
         // Send to network

@@ -1950,7 +1950,7 @@ static void vail_key_event_cb(lv_event_t* e) {
                 case LV_KEY_UP:
                 case LV_KEY_PREV:
                     vail_chat_input_text = "";
-                    vailTxMorseSymbols = "";
+                    vailTxMorseSymbols[0] = '\0';
                     if (vail_chat_input_label != NULL) {
                         lv_label_set_text(vail_chat_input_label, "_");
                         lv_obj_set_style_text_color(vail_chat_input_label, LV_COLOR_TEXT_SECONDARY, 0);
@@ -1965,7 +1965,7 @@ static void vail_key_event_cb(lv_event_t* e) {
                         addChatMessage(vailCallsign, vail_chat_input_text);
                         sendChatMessage(vail_chat_input_text);
                         vail_chat_input_text = "";
-                        vailTxMorseSymbols = "";
+                        vailTxMorseSymbols[0] = '\0';
                         if (vail_chat_input_label != NULL) {
                             lv_label_set_text(vail_chat_input_label, "_");
                             lv_obj_set_style_text_color(vail_chat_input_label, LV_COLOR_TEXT_SECONDARY, 0);
@@ -1979,8 +1979,7 @@ static void vail_key_event_cb(lv_event_t* e) {
                         vail_chat_input_text.remove(vail_chat_input_text.length() - 1);
                         if (vail_chat_input_label != NULL) {
                             if (vail_chat_input_text.length() > 0) {
-                                String display = vail_chat_input_text;
-                                lv_label_set_text(vail_chat_input_label, display.c_str());
+                                lv_label_set_text(vail_chat_input_label, vail_chat_input_text.c_str());
                                 lv_obj_set_style_text_color(vail_chat_input_label, LV_COLOR_TEXT_PRIMARY, 0);
                             } else {
                                 lv_label_set_text(vail_chat_input_label, "_");
@@ -1993,7 +1992,7 @@ static void vail_key_event_cb(lv_event_t* e) {
                 case 'C':
                     // Clear compose row
                     vail_chat_input_text = "";
-                    vailTxMorseSymbols = "";
+                    vailTxMorseSymbols[0] = '\0';
                     if (vail_chat_input_label != NULL) {
                         lv_label_set_text(vail_chat_input_label, "_");
                         lv_obj_set_style_text_color(vail_chat_input_label, LV_COLOR_TEXT_SECONDARY, 0);
@@ -2006,8 +2005,7 @@ static void vail_key_event_cb(lv_event_t* e) {
                         if ((int)vail_chat_input_text.length() < VAIL_MAX_INPUT_LEN) {
                             vail_chat_input_text += (char)key;
                             if (vail_chat_input_label != NULL) {
-                                String display = vail_chat_input_text;
-                                lv_label_set_text(vail_chat_input_label, display.c_str());
+                                lv_label_set_text(vail_chat_input_label, vail_chat_input_text.c_str());
                                 lv_obj_set_style_text_color(vail_chat_input_label, LV_COLOR_TEXT_PRIMARY, 0);
                             }
                         } else {
@@ -2955,21 +2953,26 @@ void updateVailScreenLVGL() {
         vail_last_chat_count = chatHistory.size();
     }
 
-    // Update morse history row (full accumulated symbols)
+    // Update morse history row (full accumulated symbols).
+    // No String allocations: compare via strcmp + cache last value in a fixed
+    // char buffer so this loop has zero heap activity on the audio-critical
+    // Vail Repeater screen.
     if (vail_morse_row_label != NULL && vail_current_view == 1) {
-        static String lastMorse = "";
-        if (vailTxMorseSymbols != lastMorse) {
-            lastMorse = vailTxMorseSymbols;
-            lv_label_set_text(vail_morse_row_label, vailTxMorseSymbols.c_str());
+        static char lastMorse[VAIL_MORSE_BUF_SIZE] = {0};
+        if (strcmp(vailTxMorseSymbols, lastMorse) != 0) {
+            strncpy(lastMorse, vailTxMorseSymbols, VAIL_MORSE_BUF_SIZE - 1);
+            lastMorse[VAIL_MORSE_BUF_SIZE - 1] = '\0';
+            lv_label_set_text(vail_morse_row_label, vailTxMorseSymbols);
         }
     }
 
     // Update RX decoded row (dits/dahs from incoming durations)
     if (vail_decoded_row_label != NULL && vail_current_view == 1) {
-        static String lastRxMorse = "";
-        if (vailRxMorseSymbols != lastRxMorse) {
-            lastRxMorse = vailRxMorseSymbols;
-            lv_label_set_text(vail_decoded_row_label, vailRxMorseSymbols.c_str());
+        static char lastRxMorse[VAIL_MORSE_BUF_SIZE] = {0};
+        if (strcmp(vailRxMorseSymbols, lastRxMorse) != 0) {
+            strncpy(lastRxMorse, vailRxMorseSymbols, VAIL_MORSE_BUF_SIZE - 1);
+            lastRxMorse[VAIL_MORSE_BUF_SIZE - 1] = '\0';
+            lv_label_set_text(vail_decoded_row_label, vailRxMorseSymbols);
         }
     }
 
@@ -2986,27 +2989,39 @@ void updateVailScreenLVGL() {
         }
     }
 
-    // Compose row: decoded text + symbols of the character currently being keyed
+    // Compose row: decoded text + symbols of the character currently being keyed.
+    // All composition done in fixed char buffers — no per-frame heap churn.
     if (vail_chat_input_label != NULL && vail_current_view == 1) {
-        // Derive current-char symbols: everything after the last '/'
-        String currentMorse = "";
-        int lastSlash = vailTxMorseSymbols.lastIndexOf('/');
-        if (lastSlash < 0) {
-            currentMorse = vailTxMorseSymbols;  // no separator yet — still on first char
-        } else if (lastSlash + 2 < (int)vailTxMorseSymbols.length()) {
-            currentMorse = vailTxMorseSymbols.substring(lastSlash + 2);
+        // Derive current-char symbols: pointer into vailTxMorseSymbols,
+        // everything after the last '/'. (No copy needed; stable for the
+        // duration of this scope since vailTxMorseSymbols is updated only
+        // from the keyer callback in the same loop iteration.)
+        const char* currentMorse = vailTxMorseSymbols;
+        const char* lastSlash = strrchr(vailTxMorseSymbols, '/');
+        if (lastSlash != nullptr && (size_t)(lastSlash + 2 - vailTxMorseSymbols) < strlen(vailTxMorseSymbols)) {
+            currentMorse = lastSlash + 2;
+        } else if (lastSlash != nullptr) {
+            currentMorse = "";
         }
 
-        static String lastDisplayed = "";
-        String display = vail_chat_input_text + currentMorse;
-        if (display != lastDisplayed) {
-            lastDisplayed = display;
-            // Trim from left so the cursor at the end is always visible
-            String visible = display;
-            if ((int)visible.length() > 40) visible = visible.substring(visible.length() - 40);
-            lv_label_set_text(vail_chat_input_label, (visible + "_").c_str());
+        // Build display = vail_chat_input_text + currentMorse + "_", trimmed
+        // to last 41 chars so the cursor stays visible.
+        char display[64];
+        snprintf(display, sizeof(display), "%s%s", vail_chat_input_text.c_str(), currentMorse);
+        size_t dlen = strlen(display);
+        const char* visible = display;
+        if (dlen > 40) visible = display + (dlen - 40);
+
+        char rendered[48];
+        snprintf(rendered, sizeof(rendered), "%s_", visible);
+
+        static char lastRendered[48] = {0};
+        if (strcmp(rendered, lastRendered) != 0) {
+            strncpy(lastRendered, rendered, sizeof(lastRendered) - 1);
+            lastRendered[sizeof(lastRendered) - 1] = '\0';
+            lv_label_set_text(vail_chat_input_label, rendered);
             lv_obj_set_style_text_color(vail_chat_input_label,
-                (!vail_chat_input_text.isEmpty() || !currentMorse.isEmpty())
+                (!vail_chat_input_text.isEmpty() || currentMorse[0] != '\0')
                     ? LV_COLOR_TEXT_PRIMARY : LV_COLOR_TEXT_SECONDARY, 0);
         }
     }
