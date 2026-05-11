@@ -77,17 +77,17 @@ You *can* use it, but:
 
 ## What to paste into extra_font_awesome_icons_generated.h
 
-`extra_font_awesome_icons_shell.h` provides `lvgl.h` and the `EXTRAFONTAWESOMEICONS` default. **`extra_font_awesome_icons.c`** wraps the fragment with **`#if EXTRAFONTAWESOMEICONS` … `#endif`**. Your paste must be **only the font implementation** — the same block the converter would put **inside** its `#if EXTRAFONTAWESOMEICONS`.
+`extra_font_awesome_icons_shell.h` provides `lvgl.h` and the `EXTRAFONTAWESOMEICONS` default. **`extra_font_awesome_icons.h`** includes the shell, then includes the generated fragment inside `#if EXTRAFONTAWESOMEICONS … #endif` — all guarded by the standard `EXTRA_FONT_AWESOME_ICONS_H` include guard so the bitmap data is instantiated exactly once per translation unit (the project is single-TU header-only). Your paste into the generated header must be **only the font implementation** — the same block the converter would put **inside** its `#if EXTRAFONTAWESOMEICONS`.
 
 **Remove from the top of the converter output before pasting:**
 
 - The generator comment block (optional; you may keep it for traceability).
 - `#ifdef LV_LVGL_H_INCLUDE_SIMPLE` … `#include "lvgl.h"` … (duplicate of the shell).
-- `#ifndef EXTRAFONTAWESOMEICONS` / `#define EXTRAFONTAWESOMEICONS 1` / `#if EXTRAFONTAWESOMEICONS` — the shell already opened `#if EXTRAFONTAWESOMEICONS`.
+- `#ifndef EXTRAFONTAWESOMEICONS` / `#define EXTRAFONTAWESOMEICONS 1` / `#if EXTRAFONTAWESOMEICONS` — `extra_font_awesome_icons.h` already opens `#if EXTRAFONTAWESOMEICONS` around the include.
 
 **Remove from the bottom after pasting:**
 
-- The final **`#endif`** that matches the converter’s **`#if EXTRAFONTAWESOMEICONS`** (the **`.c` file** supplies the closing `#endif`, not the fragment).
+- The final **`#endif`** that matches the converter's **`#if EXTRAFONTAWESOMEICONS`** (`extra_font_awesome_icons.h` supplies the closing `#endif`, not the fragment).
 
 **Keep in the paste:**
 
@@ -117,7 +117,7 @@ Edit **`src/fonts/extra_font_awesome_icons.h`** whenever codepoints change:
 - [ ] **`lv_font_conv`** command line in git / notes uses **`-r`** per icon (or equivalent proven Range), not a broken **`--symbols`** comma list for PUA.
 - [ ] **`extra_font_awesome_icons.h`** macros match every exported codepoint you use in C.
 - [ ] Build with **LVGL 8.3.x**; `LV_USE_FONT_COMPRESSED` matches **`--no-compress`**.
-- [ ] **`extra_font_awesome_icons_shell.h`** / **`extra_font_awesome_icons.c`** were not overwritten by a full converter dump, and **`extra_font_awesome_icons_generated.h`** exists beside the `.c` (otherwise you get “No such file or directory”).
+- [ ] **`extra_font_awesome_icons_shell.h`** / **`extra_font_awesome_icons.h`** were not overwritten by a full converter dump, and **`extra_font_awesome_icons_generated.h`** exists beside them (otherwise the `__has_include` check in `extra_font_awesome_icons.h` errors with "No such file or directory").
 
 ---
 

@@ -138,36 +138,42 @@ VAIL SUMMIT firmware can be updated via:
 
 ### Repository Integration
 
-**Important:** This is the Vail Summit source code in the Vail-CW/vail-summit repository.
+**Important:** This is the Vail Summit source code in the Vail-CW/vail-summit repository. The default branch is `main`.
 
-**Branch Structure:**
-- **`main` branch**: Summit ESP32-S3 firmware source code and compiled firmware binaries
+**How users get firmware:**
 
-**Deployment Workflow:**
-1. Code is developed and tested on the `main` branch
-2. Firmware is compiled using GitHub Actions workflow (recommended) or Arduino CLI manually
-3. Binary files (`bootloader.bin`, `partitions.bin`, `vail-summit.bin`) are committed to `main` branch at `firmware_files/`
-4. Users can flash firmware via web updater at `https://update.vailadapter.com`
+The web flasher at `https://update.vailadapter.com` reads its dropdown from this repository's GitHub Releases via the GitHub API:
+- "Latest" entry = most recent non-prerelease
+- "Test Release" entry = most recent prerelease (visible when "Show test release" is checked)
+
+To make a build appear in the flasher, a corresponding GitHub Release must exist on `Vail-CW/vail-summit` with the three binaries (`vail-summit.bin`, `bootloader.bin`, `partitions.bin`) attached as assets.
 
 ### Building Firmware for Distribution
 
-#### Option 1: GitHub Actions Workflow (Recommended)
+#### Option 1: Build-and-Release Workflow (Recommended)
 
-The repository includes a GitHub Actions workflow that automates the build and deployment process:
+The repository includes a GitHub Actions workflow that builds the firmware AND publishes a GitHub Release in a single dispatch. The release is what the flasher reads.
 
 1. Go to the **Actions** tab on GitHub
-2. Select **"Build and Deploy Summit Firmware"**
+2. Select **"Build and Release Summit Firmware"**
 3. Click **"Run workflow"**
-4. Choose the source branch (default: `vail-summit`)
-5. Click **"Run workflow"** button
+4. Set inputs:
+   - **`source_branch`** (default: `main`) — the branch to build from
+   - **`release_type`** (default: `prerelease`):
+     - `prerelease` — appears as the **Test Release** entry in the flasher dropdown
+     - `release` — appears as **Latest** in the flasher dropdown
+     - `none` — build only, attach artifacts to the workflow run, no release
+   - **`release_title`** (optional) — custom title; defaults to `vX.YZ - Test Release` / `Release`
+   - **`release_notes`** (optional) — body markdown; defaults to a minimal template
+5. Click the green **"Run workflow"** button
 
-The workflow will:
-- Build firmware using Arduino CLI for ESP32-S3 Feather
-- Generate `bootloader.bin`, `partitions.bin`, and `vail-summit.bin`
-- Automatically switch to `master` branch
-- Copy binaries to `docs/firmware_files/summit/`
-- Commit and push to `master` (with `[skip ci]` to avoid loops)
-- Upload build artifacts for 30-day retention
+The workflow:
+- Installs the pinned ESP32 core 2.0.14 and the pinned third-party libraries (LovyanGFX 1.1.16, lvgl 8.3.11, NimBLE-Arduino 1.4.2, ArduinoJson 7.0.4, ESP Async WebServer 3.6.0, etc. — versions live as `env:` vars at the top of the workflow file)
+- Copies the in-repo `lv_conf.h` next to the lvgl library so LVGL finds its config
+- Compiles with `--clean` and `-mtext-section-literals` for a clean reproducible build
+- Captures `FIRMWARE_VERSION` from `src/core/config.h` and uses it to derive the tag (e.g. `v0.529`)
+- If a release with that tag already exists, deletes and re-publishes it with the new binaries (useful for iterative test builds at the same `FIRMWARE_VERSION`)
+- Uploads build artifacts to the workflow run for 30-day retention regardless of release type
 
 #### Option 2: Manual Build (Windows - Recommended Method)
 
@@ -180,6 +186,10 @@ New-Item -ItemType Junction -Path 'C:\vs' -Target 'C:\Users\brett\Documents\Codi
 
 # Copy arduino-cli to short path (required - arduino-cli resolves real paths internally)
 Copy-Item -Path 'C:\vs\arduino-cli\*' -Destination 'C:\acli' -Recurse -Force
+
+# Sync lv_conf.h next to the lvgl library so LVGL finds its config (must repeat
+# any time the repo's lv_conf.h changes)
+Copy-Item -Force 'C:\vs\lv_conf.h' 'C:\acli\user\libraries\lv_conf.h'
 ```
 
 **Compiling:**
@@ -188,12 +198,7 @@ cd C:\acli
 .\arduino-cli.exe compile --config-file arduino-cli.yaml --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M,USBMode=hwcdc" --output-dir C:\vs\build --export-binaries C:\vs
 ```
 
-**Copy to firmware directory:**
-```powershell
-Copy-Item C:\vs\build\vail-summit.ino.bootloader.bin C:\vs\firmware_files\bootloader.bin
-Copy-Item C:\vs\build\vail-summit.ino.partitions.bin C:\vs\firmware_files\partitions.bin
-Copy-Item C:\vs\build\vail-summit.ino.bin C:\vs\firmware_files\vail-summit.bin
-```
+The compiled binaries land in `C:\vs\build\` as `vail-summit.ino.bin`, `vail-summit.ino.bootloader.bin`, and `vail-summit.ino.partitions.bin`. To distribute via the flasher, attach them to a GitHub Release on `Vail-CW/vail-summit` (or use Option 1 instead, which does this for you).
 
 #### Option 3: Manual Build (Linux/macOS)
 
@@ -201,20 +206,18 @@ No path length issues on Linux/macOS:
 
 ```bash
 cd arduino-cli
+# Sync lv_conf.h next to the lvgl library
+cp ../lv_conf.h user/libraries/lv_conf.h
+
 ./arduino-cli compile --config-file arduino-cli.yaml \
   --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M,USBMode=hwcdc" \
   --output-dir ../build --export-binaries ..
-
-# Copy to firmware directory
-cp ../build/vail-summit.ino.bootloader.bin ../firmware_files/bootloader.bin
-cp ../build/vail-summit.ino.partitions.bin ../firmware_files/partitions.bin
-cp ../build/vail-summit.ino.bin ../firmware_files/vail-summit.bin
 ```
 
 **Firmware Stats:**
-- Bootloader: ~23KB
+- Bootloader: ~15KB
 - Partitions: ~3KB
-- Application: ~1.3MB
+- Application: ~2.4MB
 - Total flash time: ~30 seconds
 
 ### Web-Based Flasher Details

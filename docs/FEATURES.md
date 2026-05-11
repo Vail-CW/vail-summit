@@ -153,17 +153,24 @@ The Morse Shooter is an arcade-style game where falling letters descend from the
 - 36 characters: E, T, I, A, N, M, S, U, R, W, D, K, G, O, H, V, F, L, P, J, B, X, C, Y, Z, Q, 0-9
 - Ordered by common morse patterns (easier letters first)
 
-### Adaptive Decoder Integration
+### Decoder Integration
 
-The game uses `MorseDecoderAdaptive` (same as Practice Mode) for real-time morse code decoding:
+The game uses the user-selected morse decoder (Adaptive or Direct, set in CW Settings) for real-time decoding. Decoder is allocated dynamically based on `decoderType`:
 
 **Decoder State:**
 ```cpp
-MorseDecoderAdaptive shooterDecoder(20, 20, 30);  // Initial 20 WPM, buffer 30
+MorseDecoder* shooterDecoder = nullptr;            // Allocated in setup based on decoderType
 String shooterDecodedText = "";                    // Captured decoded characters
 unsigned long shooterLastStateChangeTime = 0;      // Timing state
 bool shooterLastToneState = false;                 // Tone on/off tracking
 unsigned long shooterLastElementTime = 0;          // Timeout tracking
+```
+
+**Setup:**
+```cpp
+shooterDecoder = (decoderType == DECODER_DIRECT)
+    ? (MorseDecoder*) new MorseDecoderDirect(cwSpeed, cwSpeed, 30)
+    : (MorseDecoder*) new MorseDecoderAdaptive(cwSpeed, cwSpeed, 30);
 ```
 
 **Key Features:**
@@ -365,9 +372,11 @@ Full integration with existing CW settings:
 
 ### Decoder Integration
 
-**Real-time Adaptive Decoder:**
+**Real-time decoder (Adaptive or Direct based on user setting):**
 ```cpp
-MorseDecoderAdaptive memoryDecoder(15, 20, 30);
+MorseDecoder* mcDecoder = (decoderType == DECODER_DIRECT)
+    ? (MorseDecoder*) new MorseDecoderDirect(15, 20, 30)
+    : (MorseDecoder*) new MorseDecoderAdaptive(15, 20, 30);
 ```
 
 **Character Detection:**
@@ -1159,18 +1168,28 @@ String generateCharacterGroup() {
 - ⏳ Timed challenge mode (X correct answers in Y minutes)
 - ⏳ Leaderboard for web users
 
-## Morse Code Decoder (Adaptive)
+## Morse Code Decoder
 
 ### Overview
 
-The morse decoder provides real-time decoding of paddle/key input with adaptive speed tracking. Based on the open-source [morse-pro](https://github.com/scp93ch/morse-pro) JavaScript library by Stephen C Phillips, ported to C++ for ESP32.
+The morse decoder provides real-time decoding of paddle/key input. Two decoder algorithms are bundled and runtime-selectable from CW Settings ("Decoder Type"):
 
-### Architecture: Three-Module Design
+- **Adaptive** — adapts WPM estimate from incoming timings using a weighted moving average. Best when the operator's speed varies or for decoding incoming morse from another op (Vail Repeater Decoder room).
+- **Direct** — timer-driven, fixed-WPM. Faster character flush at the cost of not auto-adjusting to speed drift. Best when the operator keys at a known consistent WPM.
+
+The selected decoder is used everywhere morse needs to be decoded on-device: Practice, CW Academy, LICW, Vail Master, Memory Chain, Morse Shooter, CW Speeder, Morse Notes, web Practice/Memory, and the Vail Repeater Decoder room.
+
+Based on the open-source [morse-pro](https://github.com/scp93ch/morse-pro) JavaScript library by Stephen C Phillips, ported to C++ for ESP32.
+
+### Architecture: Four-Module Design
 
 **Module Structure:**
 - **`morse_wpm.h`** - WPM timing utilities (PARIS standard formulas)
-- **`morse_decoder.h`** - Base decoder class (timings → morse patterns → text)
+- **`morse_decoder.h`** - Base decoder class (timings → morse patterns → text), virtual methods for `addTiming` / `reset` / `tick`
 - **`morse_decoder_adaptive.h`** - Adaptive speed tracking with weighted averaging
+- **`morse_decoder_direct.h`** - Timer-driven flush at fixed WPM (subclass of `MorseDecoderAdaptive` for the timing classification, but overrides flush behavior)
+
+The base class is virtual so callers can hold a `MorseDecoder*` and let the concrete class be selected at runtime via `decoderType` (defined in `src/settings/settings_decoder.h`).
 
 ### How It Works
 
@@ -1252,14 +1271,14 @@ The morse decoder modules are licensed under **EUPL v1.2** (European Union Publi
 - **Must keep decoder modules open source** if modified
 - Compatible with GPL, LGPL, MPL
 
-Main VAIL SUMMIT firmware can remain under any license. Only the three decoder modules (`morse_wpm.h`, `morse_decoder.h`, `morse_decoder_adaptive.h`) are EUPL-licensed.
+Main VAIL SUMMIT firmware can remain under any license. Only the four decoder modules (`morse_wpm.h`, `morse_decoder.h`, `morse_decoder_adaptive.h`, `morse_decoder_direct.h`) are EUPL-licensed.
 
 ### Future Applications
 
 The decoder is designed as a reusable component for:
 
-1. **CW Academy validation** - Auto-check student answers
-2. **Vail repeater decoding** - Decode incoming morse from others
-3. **Receive training** - Decode audio from I2S microphone (requires tone detection)
-4. **Accuracy metrics** - Compare intended vs. decoded patterns
-5. **Contest logging** - Real-time callsign/exchange capture
+1. **Receive training** - Decode audio from I2S microphone (requires tone detection)
+2. **Accuracy metrics** - Compare intended vs. decoded patterns
+3. **Contest logging** - Real-time callsign/exchange capture
+
+(CW Academy validation and Vail Repeater Decoder-room decoding are already shipping as of v0.527+.)
