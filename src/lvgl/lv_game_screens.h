@@ -25,6 +25,10 @@ lv_obj_t* createGameOverOverlay(lv_obj_t* parent, int final_score, bool is_high_
 // Morse Shooter Game Screen
 // ============================================
 
+// External game state (declared early so the key callback can end the game)
+extern bool gameOver;
+extern void showShooterGameOver();
+
 // Key event callback for Morse Shooter keyboard input
 static void shooter_key_event_cb(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
@@ -34,7 +38,14 @@ static void shooter_key_event_cb(lv_event_t* e) {
     Serial.printf("[Shooter LVGL] Key event: %lu (0x%02lX)\n", key, key);
 
     if (key == LV_KEY_ESC) {
-        onLVGLBackNavigation();
+        if (!gameOver) {
+            // First ESC ends the game and shows results (final score + high score).
+            // The overlay then handles ENTER (restart) / ESC (exit to menu).
+            gameOver = true;
+            showShooterGameOver();
+        } else {
+            onLVGLBackNavigation();
+        }
         lv_event_stop_processing(e);  // Prevent global ESC handler from also firing
     }
 }
@@ -236,6 +247,13 @@ lv_obj_t* createMorseShooterScreen() {
     lv_label_set_text(shooter_decoded_label, "_");
     lv_obj_set_style_text_color(shooter_decoded_label, LV_COLOR_SUCCESS, 0);
     lv_obj_set_style_text_font(shooter_decoded_label, getThemeFonts()->font_subtitle, 0);
+
+    // ESC hint (bottom-right) so players know how to end the game and see results
+    lv_obj_t* esc_hint = lv_label_create(screen);
+    lv_label_set_text(esc_hint, "ESC: End");
+    lv_obj_set_style_text_color(esc_hint, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_style_text_font(esc_hint, getThemeFonts()->font_small, 0);
+    lv_obj_align(esc_hint, LV_ALIGN_BOTTOM_RIGHT, -10, -12);
 
     // Invisible focus container for keyboard input (ESC to exit)
     lv_obj_t* focus_container = lv_obj_create(screen);
@@ -763,6 +781,7 @@ extern bool gameOver;
 
 // Forward declaration for game restart
 extern void resetGame();
+void startShooterFromSettings();  // Defined later; recreates the game screen cleanly
 
 // Key callback for game over screen
 static void shooter_gameover_key_cb(lv_event_t* e) {
@@ -772,15 +791,16 @@ static void shooter_gameover_key_cb(lv_event_t* e) {
     uint32_t key = lv_event_get_key(e);
 
     if (key == LV_KEY_ENTER) {
-        // Restart game
+        // Restart by recreating the game screen. This rebuilds a fresh focus
+        // container (so ESC works) and routes through startMorseShooter() which
+        // reattaches the decoder callback (so keying registers). Calling
+        // resetGame() directly here would lose both.
         if (shooter_game_over_overlay != NULL) {
             lv_obj_del(shooter_game_over_overlay);
             shooter_game_over_overlay = NULL;
         }
-        extern LGFX tft;
-        resetGame();
-        drawShooterScenery();
         beep(TONE_SELECT, BEEP_MEDIUM);
+        startShooterFromSettings();
     } else if (key == LV_KEY_ESC) {
         // Exit to games menu
         if (shooter_game_over_overlay != NULL) {
@@ -1229,7 +1249,7 @@ lv_obj_t* createGameOverOverlay(lv_obj_t* parent, int final_score, bool is_high_
     }
 
     lv_obj_t* restart_hint = lv_label_create(card);
-    lv_label_set_text(restart_hint, "Press ENTER to restart");
+    lv_label_set_text(restart_hint, "ENTER restart    ESC exit");
     lv_obj_add_style(restart_hint, getStyleLabelBody(), 0);
 
     return overlay;

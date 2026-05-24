@@ -1184,6 +1184,43 @@ void updateFallingWords() {
 }
 
 /*
+ * Advance a word/callsign by one already-matched character.
+ * Handles completion (scoring, effects, high score). Always a hit.
+ * Clears the decoded-text buffer before returning.
+ */
+static bool shooterAdvanceWord(int j) {
+  fallingWords[j].lettersTyped++;
+  beep(1200, 30);  // Partial hit beep
+
+  updateShooterWord(j, fallingWords[j].word, fallingWords[j].lettersTyped,
+                    (int)fallingWords[j].x, (int)fallingWords[j].y + 40, true);
+
+  if (fallingWords[j].lettersTyped >= fallingWords[j].length) {
+    // WORD COMPLETE!
+    int targetX = (int)fallingWords[j].x;
+    int targetY = (int)fallingWords[j].y;
+    float wordY = fallingWords[j].y;
+
+    fallingWords[j].active = false;
+    updateShooterWord(j, NULL, 0, 0, 0, false);
+
+    beep(1200, 80);  // Completion sound
+    showShooterHitEffect(targetX, targetY + 40);
+
+    // Score: base points * word length * combo multiplier
+    int pointsEarned = recordHit(wordY) * fallingWords[j].length;
+    gameScore += pointsEarned;
+    updateShooterScore(gameScore);
+
+    updateShooterCombo(comboCount, getComboMultiplier());
+    updateCurrentModeHighScore(gameScore);
+  }
+
+  shooterDecodedText = "";
+  return true;
+}
+
+/*
  * Check decoded text and try to shoot matching letter/word
  */
 bool checkMorseShoot(LGFX& tft) {
@@ -1199,67 +1236,59 @@ bool checkMorseShoot(LGFX& tft) {
     decodedChar = decodedChar - 'a' + 'A';
   }
 
-  // Word/Callsign modes: match character against next expected letter in words
+  // Word/Callsign modes: match character against next expected letter in words.
+  // Once a word is started it is "committed" - subsequent characters apply to it
+  // until it completes or you mistype. This prevents callsigns that share a prefix
+  // from stealing each other's keystrokes. When no word is in progress, the closest
+  // to the ground (most urgent) matching word is started.
   if (shooterSettings.gameMode == SHOOTER_MODE_WORD ||
       shooterSettings.gameMode == SHOOTER_MODE_CALLSIGN) {
 
-    // Find a word where the next expected character matches
+    // 1. A word already in progress has priority (you committed to it).
+    int inProgress = -1;
     for (int j = 0; j < MAX_FALLING_LETTERS; j++) {
-      if (!fallingWords[j].active) continue;
+      if (fallingWords[j].active && fallingWords[j].lettersTyped > 0) {
+        inProgress = j;
+        break;  // Only one word is ever in progress at a time
+      }
+    }
 
-      char expected = fallingWords[j].word[fallingWords[j].lettersTyped];
-      // Convert to uppercase for comparison
+    if (inProgress >= 0) {
+      char expected = fallingWords[inProgress].word[fallingWords[inProgress].lettersTyped];
       if (expected >= 'a' && expected <= 'z') expected = expected - 'a' + 'A';
 
       if (decodedChar == expected) {
-        fallingWords[j].lettersTyped++;
-        beep(1200, 30);  // Partial hit beep
-
-        // Update display to show progress
-        updateShooterWord(j, fallingWords[j].word, fallingWords[j].lettersTyped,
-                          (int)fallingWords[j].x, (int)fallingWords[j].y + 40, true);
-
-        // Check if word is complete
-        if (fallingWords[j].lettersTyped >= fallingWords[j].length) {
-          // WORD COMPLETE!
-          int targetX = (int)fallingWords[j].x;
-          int targetY = (int)fallingWords[j].y;
-          float wordY = fallingWords[j].y;
-
-          fallingWords[j].active = false;
-          updateShooterWord(j, NULL, 0, 0, 0, false);
-
-          beep(1200, 80);  // Completion sound
-          showShooterHitEffect(targetX, targetY + 40);
-
-          // Score: base 10 * word length * combo multiplier
-          int pointsEarned = recordHit(wordY);
-          pointsEarned = pointsEarned * fallingWords[j].length;
-          gameScore += pointsEarned;
-          updateShooterScore(gameScore);
-
-          int currentMultiplier = getComboMultiplier();
-          updateShooterCombo(comboCount, currentMultiplier);
-
-          updateCurrentModeHighScore(gameScore);
-        }
-
-        shooterDecodedText = "";
-        return true;
+        return shooterAdvanceWord(inProgress);
       }
+
+      // Mistyped the committed word - abandon its progress and fall through so
+      // this character can instead start a different word (more forgiving).
+      fallingWords[inProgress].lettersTyped = 0;
+      updateShooterWord(inProgress, fallingWords[inProgress].word, 0,
+                        (int)fallingWords[inProgress].x,
+                        (int)fallingWords[inProgress].y + 40, true);
     }
 
-    // No match found - reset progress on all partially typed words
-    bool hadProgress = false;
+    // 2. No committed word matched - start the closest matching word to the ground.
+    int bestIdx = -1;
+    float bestY = -1.0f;
     for (int j = 0; j < MAX_FALLING_LETTERS; j++) {
-      if (fallingWords[j].active && fallingWords[j].lettersTyped > 0) {
-        fallingWords[j].lettersTyped = 0;
-        updateShooterWord(j, fallingWords[j].word, 0,
-                          (int)fallingWords[j].x, (int)fallingWords[j].y + 40, true);
-        hadProgress = true;
+      if (!fallingWords[j].active) continue;
+
+      char first = fallingWords[j].word[0];
+      if (first >= 'a' && first <= 'z') first = first - 'a' + 'A';
+
+      if (decodedChar == first && fallingWords[j].y > bestY) {
+        bestY = fallingWords[j].y;
+        bestIdx = j;
       }
     }
 
+    if (bestIdx >= 0) {
+      return shooterAdvanceWord(bestIdx);
+    }
+
+    // 3. No match at all - miss.
     beep(600, 100);  // Miss sound
     resetCombo();
     updateShooterCombo(0, 1);
