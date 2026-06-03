@@ -609,11 +609,16 @@ void initializeModeInt(int mode) {
  *   V/v - Quick Settings overlay (only from pure navigation menus, not input screens)
  */
 bool handleGlobalHotkey(char key) {
-    int currentModeInt = getCurrentModeAsInt();
+    // While the quick-settings overlay is open it owns ALL keys: route them
+    // straight to it (arrows adjust/select, ESC/ENTER close) and consume them so
+    // LVGL never processes them. This bypasses LVGL's keypad-group/editing-mode
+    // semantics, which otherwise swallow ESC and the arrow keys on a slider.
+    if (isQuickSettingsOpen()) {
+        quickSettingsHandleKey(key);
+        return true;
+    }
 
-    // If the quick-settings overlay is open, it owns the keypad; let LVGL route
-    // keys to it (it handles its own ESC/ENTER close).
-    if (isQuickSettingsOpen()) return false;
+    int currentModeInt = getCurrentModeAsInt();
 
     // V key = Quick Settings overlay (only from pure navigation menus).
     // Do NOT intercept V in modes that accept text input (training, games, etc.)
