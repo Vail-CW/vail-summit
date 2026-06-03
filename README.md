@@ -1,154 +1,151 @@
 # VAIL SUMMIT
 
-**Learn Morse code from zero — then take it on the air.** A pocket-sized CW trainer and
-ham radio companion with a bright color screen, a built-in paddle and speaker, and a
-friendly course that meets you wherever you are.
+A pocket-sized Morse code (CW) trainer and ham radio tool. Learn code from scratch, keep your
+skills sharp, and use it on the air. It has a color screen, a built-in paddle and speaker, and
+runs on its own battery, so you don't need a computer.
 
 ![Version](https://img.shields.io/badge/version-0.7-blue)
 ![For](https://img.shields.io/badge/for-CW%20%26%20ham%20radio-green)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-orange)
 
-> **Now in testing — official release expected July 2026.** Want one early? You can buy a
-> Summit during the testing phase at **[shop.ke9bos.com](https://shop.ke9bos.com)** or by
-> contacting Brett (KE9BOS) at [ke9bos@pigletradio.org](mailto:ke9bos@pigletradio.org).
-
----
+> **Now in testing. Official release is planned for July 2026.** You can get one early during the
+> testing phase at [shop.ke9bos.com](https://shop.ke9bos.com), or email me (Brett, KE9BOS) at
+> [ke9bos@pigletradio.org](mailto:ke9bos@pigletradio.org).
 
 ## What is it?
 
-VAIL SUMMIT is a standalone device for learning and enjoying Morse code (CW). Whether you've
-never sent a dit in your life or you're a seasoned op looking to sharpen your fist, it's built
-to be your everyday CW practice partner — no computer required.
+VAIL SUMMIT is a standalone device for learning and practicing Morse code. New to CW? It will take
+you from your first character to real copy. Been at it a while? Use it to warm up, log contacts,
+and get on the air.
 
-Turn it on and you land on a simple home screen that shows your progress and the day's band
-conditions. From there you can take a lesson, run a quick drill, play a game, key a real radio,
-or jump on the internet Morse repeater to ragchew with other operators in code.
+Turn it on and you start at a home screen with your training progress and the day's band
+conditions. From there you can take a lesson, run a quick drill, play a game, key a real radio, or
+hop on the internet Morse repeater and ragchew with other ops in code.
 
-It's two things at once, on purpose:
+It does two jobs:
 
-- **A patient CW teacher** — a proven, step-by-step course that introduces characters at full
-  speed and grows with you.
-- **A pocket ham-shack tool** — log your contacts, look up POTA parks, check propagation, key
-  your rig, and store your favorite CW messages.
-
----
+- It teaches CW with a structured course that starts at full character speed.
+- It works as a portable ham tool for logging contacts, POTA, propagation, keying your rig, and
+  storing CW messages.
 
 ## What you can do with it
 
-### 📚 Learn CW
-One clear path from your very first character to confident copy. Built on the time-tested
-**Koch method** — you hear letters at full speed from day one and build real instincts, not
-a counting habit. Each lesson walks you from introduction to solo practice to mixed copy to
-real words and callsigns, and remembers exactly where you left off.
+### Learn CW
 
-Plus three ways to keep your skills sharp:
-- **Daily practice** — a short, adaptive warm-up over everything you've learned.
-- **Copy practice** — open-ended listen-and-type, as long as you like.
-- **Send practice** — key the paddle and watch the device decode your sending in real time.
+One course that takes you from your first character to solid copy. It uses the Koch method: you
+hear letters at full speed from the start, so you learn the sound of each character instead of
+counting dits and dahs. Each lesson moves from a quick intro to solo practice, then mixed copy,
+then real words and callsigns. It saves your place, so you pick up where you left off.
 
-### 🎯 Practice & decode
-A built-in **practice oscillator** with a live decoder. Key away on the paddle (or a straight
-key) and see your Morse turned into text on screen, with your speed in words-per-minute — a
-great way to hear and check your own fist.
+Three ways to practice once you're going:
 
-### 🕹️ Play
-Learning sticks when it's fun. Arcade-style **Morse Shooter**, **Memory Chain**, the maritime-
-themed **Spark Watch**, a speed challenge, and more — all with scoring to chase.
+- **Daily practice:** a short warm-up that mixes in everything you've learned.
+- **Copy practice:** open-ended listen-and-type, for as long as you want.
+- **Send practice:** key the paddle and the device decodes your sending as you go.
 
-### 📡 On the air
-- **Key your radio** — a 3.5 mm jack lets the Summit key an external transceiver, as a keyer or
-  a straight-through key.
-- **CW message memories** — store your go-to calls and exchanges and send them at the touch of a button.
-- **QSO logger** — log contacts on the device or in your browser, see them on a map, and export
-  to **ADIF/CSV** for your favorite logging program.
-- **POTA** — Parks On The Air lookups and activation tracking for portable operating.
-- **Band conditions & band plans** — live solar/propagation data and frequency privileges by
-  license class, so you know where (and when) to call CQ.
+### Practice and decode
 
-### 🌐 Vail internet repeater
-Connect over WiFi to the **Vail Morse repeater** (vailmorse.com) and send and receive real,
-hand-keyed Morse with other operators around the world — a fun, low-pressure way to get on the
-"air" without a radio.
+There's a practice oscillator with a live decoder built in. Key on the paddle (or a straight key)
+and the device shows your Morse as text on screen, along with your speed in words per minute. It's
+a handy way to check your own fist.
 
-### 🔗 Connect it
-- **WiFi web interface** — open the device in any browser on your network to practice, log
-  contacts, manage files, and tweak settings from a big screen. (Protected by a password — yours
-  is shown on the device under *System Info*.)
-- **Bluetooth** — acts as a wireless keyer for contest/training software like MorseRunner, speaks
-  standard BLE MIDI, and can host an external Bluetooth keyboard.
+### Games
 
----
+A few games to make practice less of a chore: **Morse Shooter** (arcade-style falling characters),
+**Memory Chain**, the maritime-themed **Spark Watch**, a speed challenge, and more. Each one keeps
+score.
+
+### On the air
+
+- **Key your radio:** a 3.5 mm jack keys an external transceiver, either as a keyer or a
+  straight-through key.
+- **CW memories:** store your common calls and exchanges and send them with one button.
+- **QSO logger:** log contacts on the device or in your browser, view them on a map, and export to
+  ADIF or CSV for your main logging program.
+- **POTA:** Parks On The Air lookups and activation tracking for portable operating.
+- **Band conditions and band plans:** live solar and propagation numbers, plus frequency
+  privileges by license class, so you know where and when to call CQ.
+
+### Vail internet repeater
+
+Connect over WiFi to the Vail Morse repeater (vailmorse.com) and send and receive real, hand-keyed
+Morse with other operators around the world. It's an easy way to get on the "air" when you don't
+have a radio in front of you.
+
+### Connect it
+
+- **WiFi web interface:** open the device in any browser on your network to practice, log contacts,
+  manage files, and change settings on a bigger screen. It's password-protected, and your password
+  shows on the device under System Info.
+- **Bluetooth:** works as a wireless keyer for software like MorseRunner, speaks standard BLE MIDI,
+  and can connect to a Bluetooth keyboard.
 
 ## Getting started
 
 ### 1. Put firmware on it
-The easiest way — no software to install:
+
+No software to install:
 
 1. Open the [web flasher](https://update.vailadapter.com) in Chrome or Edge.
 2. Plug the device into your computer with a USB cable.
-3. Choose **VAIL SUMMIT** and click **Flash**, then follow the prompts.
+3. Pick **VAIL SUMMIT**, click **Flash**, and follow the prompts.
 
 ### 2. First steps
-1. Power on — you'll arrive at the home screen.
-2. Use the **arrow keys** to move, **Enter** to select, **Esc** to go back.
-3. Pick **Learn CW** and start your first lesson, or explore the menus.
-4. Want WiFi (for the repeater, logging, and the web interface)? Go to **More → Settings →
-   WiFi** and join your network.
 
-### 3. Day-to-day handiness
-- **Quick settings:** press **V** from any menu to pop up volume, brightness, CW speed, and
-  tone — adjust on the fly without digging through menus.
-- **Web access:** once on WiFi, visit `http://vail-summit.local/` from a browser on the same network.
-- **Start fresh:** a factory reset lives in **Settings → Device Settings**, or hold both paddle
-  levers while powering on.
+1. Power on. You'll land on the home screen.
+2. Move with the **arrow keys**, select with **Enter**, go back with **Esc**.
+3. Pick **Learn CW** to start your first lesson, or look around the menus.
+4. For WiFi (needed for the repeater, logging, and the web interface), go to
+   **More > Settings > WiFi** and join your network.
 
----
+### 3. Handy to know
 
-## What's in the device
+- **Quick settings:** press **V** from a menu to adjust volume, brightness, CW speed, and tone
+  without leaving what you're doing.
+- **Web access:** once you're on WiFi, open `http://vail-summit.local/` from a browser on the same
+  network.
+- **Start over:** there's a factory reset under **Settings > Device Settings**, or hold both paddle
+  levers while you power on.
 
-A capable little computer tuned for CW, all battery-powered and portable:
+## What's in it
 
-- **4-inch color LCD** with a clean, card-based menu
-- **Built-in speaker** and a real **iambic paddle / capacitive touch** input (straight key supported too)
-- **Rechargeable battery** with on-screen charge level
+A small, battery-powered computer set up for CW:
+
+- **4-inch color LCD** with a card-style menu
+- **Built-in speaker**, plus a real **iambic paddle and capacitive touch pads** (straight key works too)
+- **Rechargeable battery** with a charge readout on screen
 - **WiFi and Bluetooth** built in
 - **microSD card** slot for logs and files
-- **3.5 mm jack** to key an external radio
+- **3.5 mm jack** for keying an external radio
 
----
-
-## Help & community
+## Help and community
 
 - **Buy a Summit (testing phase):** [shop.ke9bos.com](https://shop.ke9bos.com) or [ke9bos@pigletradio.org](mailto:ke9bos@pigletradio.org)
 - **Questions or ideas:** [GitHub Discussions](https://github.com/Vail-CW/vail-summit/discussions)
 - **Found a bug?** [GitHub Issues](https://github.com/Vail-CW/vail-summit/issues)
 
----
+## For tinkerers and developers
 
-## For tinkerers & developers
+VAIL SUMMIT runs on an ESP32-S3, and the firmware source is open for noncommercial use. If you want
+to build it, change it, or just look around:
 
-VAIL SUMMIT runs on an ESP32-S3 and the firmware is open for noncommercial use. If you'd like to
-build it yourself, modify it, or peek under the hood:
-
-- [Building from source](docs/BUILDING.md) — toolchain setup and compiling
-- [Hardware reference](docs/HARDWARE.md) — board, pins, and interfaces
+- [Building from source](docs/BUILDING.md): toolchain setup and compiling
+- [Hardware reference](docs/HARDWARE.md): board, pins, and interfaces
 - [Architecture](docs/ARCHITECTURE.md) and [development notes](docs/DEVELOPMENT.md)
 
 ## License
 
-Copyright © 2025 Brett Hollifield (KE9BOS) / Vail-CW.
+Copyright (c) 2025 Brett Hollifield (KE9BOS) / Vail-CW.
 
-Licensed under the **PolyForm Noncommercial License 1.0.0** ([LICENSE.md](LICENSE.md)) — free to
-use, modify, and share for **noncommercial** purposes; selling devices that run this firmware
-requires a license from the copyright holder. Built with several open-source libraries; see
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for credits.
+The firmware is licensed under the **PolyForm Noncommercial License 1.0.0** (see
+[LICENSE.md](LICENSE.md)). You're free to use, modify, and share it for noncommercial purposes.
+Selling devices that run this firmware needs a license from me. It's built with several
+open-source libraries; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for credits.
 
 ## Thanks
 
 - The [Vail Morse Repeater](https://vailmorse.com) community for the internet CW connection
 - [morse-pro](https://github.com/scp93ch/morse-pro) by Stephen C Phillips for the decoding foundation
-- The CW clubs and Elmers who keep the code alive
+- The CW clubs and Elmers who keep new hams getting on the air
 
----
-
-*73 de KE9BOS — Brett Hollifield · [ke9bos@pigletradio.org](mailto:ke9bos@pigletradio.org)*
+*73 de KE9BOS, Brett Hollifield, [ke9bos@pigletradio.org](mailto:ke9bos@pigletradio.org)*
