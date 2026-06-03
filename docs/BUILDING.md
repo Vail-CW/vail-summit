@@ -1,0 +1,301 @@
+# Building and Development
+
+This document covers build setup, compilation, upload, and firmware updates for the VAIL SUMMIT morse code trainer.
+
+## Arduino IDE Setup
+
+### Board Configuration
+
+Select **Adafruit Feather ESP32-S3 2MB PSRAM** from the boards menu, then configure:
+
+| Setting | Value | Notes |
+|---------|-------|-------|
+| **Board** | Adafruit Feather ESP32-S3 2MB PSRAM | Not "No PSRAM" variant |
+| **USB CDC On Boot** | Enabled | Required for serial output |
+| **USB Mode** | Hardware CDC and JTAG | **NOT TinyUSB** - TinyUSB causes boot failures |
+| **Upload Mode** | UART0 / Hardware CDC | |
+| **Flash Size** | 4MB (32Mb) | |
+| **PSRAM** | QSPI PSRAM | **NOT OPI** - OPI causes PSRAM detection failures |
+| **Partition Scheme** | Huge APP (3MB No OTA/1MB SPIFFS) | Provides 3MB app space + 1MB storage |
+| **Upload Speed** | 921600 | |
+
+**⚠️ Critical Settings:**
+- **USB Mode must be "Hardware CDC and JTAG"** - Using "USB-OTG (TinyUSB)" will cause the device to crash before any serial output appears
+- **PSRAM must be "QSPI PSRAM"** - The Adafruit Feather ESP32-S3 2MB PSRAM uses QSPI, not OPI. Using OPI will cause PSRAM detection to fail with error: `E (360) opi psram: PSRAM ID read error`
+
+### ESP32 Core Version
+
+**IMPORTANT:** This project requires **Arduino ESP32 core version 2.0.14** for display compatibility (especially for 4" ST7796S displays).
+
+**To install/verify in Arduino IDE:**
+1. Go to Tools → Board → Boards Manager
+2. Search for "esp32"
+3. Find "esp32 by Espressif Systems"
+4. Select version **2.0.14** from dropdown
+5. Click "Install" or verify current version
+
+**Note:** Newer core versions (2.0.15+, 3.0.x) have compatibility issues with the ST7796S display driver that cause boot loops. Always use 2.0.14 for this project.
+
+### Required Libraries
+
+Install via Arduino Library Manager:
+
+1. **LovyanGFX by lovyan03** - Advanced display graphics library for ST7796S 4.0" display
+2. **lvgl v8.3.x** - UI framework (**must be v8.3.x, NOT v9.x** - API incompatible)
+3. **Adafruit MAX1704X** - Battery monitoring for MAX17048
+4. **Adafruit LC709203F** - Backup battery monitor support
+5. **WebSockets by Markus Sattler** - WebSocket client for Vail repeater
+6. **ArduinoJson by Benoit Blanchon** - JSON parsing/serialization
+7. **NimBLE-Arduino** - Bluetooth Low Energy for BLE HID/MIDI
+
+**Install from GitHub** (not in Library Manager):
+- **ESPAsyncWebServer** - `https://github.com/me-no-dev/ESPAsyncWebServer`
+- **AsyncTCP** - `https://github.com/me-no-dev/AsyncTCP` (dependency for ESPAsyncWebServer)
+
+**⚠️ LVGL Version:** This project requires LVGL 8.3.x. LVGL 9.x has breaking API changes and will not compile. If using Arduino Library Manager, ensure you install version 8.3.11 or similar 8.3.x version.
+
+**Note:** This project uses a 4.0" ST7796S display (480×320) with LovyanGFX library instead of the older Adafruit ST7789 library.
+
+### Compilation and Upload
+
+**Arduino IDE:**
+```bash
+# Open the main sketch in Arduino IDE
+arduino morse_trainer/morse_trainer_menu.ino
+```
+
+**Arduino CLI:**
+```bash
+# Compile with required board options
+arduino-cli compile \
+  --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M" \
+  vail-summit/
+
+# Upload (replace COM<X> with your port)
+arduino-cli upload -p COM<X> \
+  --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M" \
+  vail-summit/
+```
+
+**FQBN Options Explained:**
+- `CDCOnBoot=cdc` - Enable USB CDC for serial output
+- `PartitionScheme=huge_app` - 3MB app space, 1MB SPIFFS
+- `PSRAM=enabled` - Enable PSRAM (auto-detects QSPI/OPI)
+- `FlashSize=4M` - 4MB flash
+
+### Serial Monitor
+
+```bash
+# Connect at 115200 baud for debug output
+arduino-cli monitor -p COM<X> --config baudrate=115200
+```
+
+Debug output includes:
+- I2C device detection (CardKB, battery monitor)
+- WiFi connection status
+- File system operations
+- QSO logging activity
+- Web server lifecycle events
+
+## Firmware Version Management
+
+### Version Information Location
+
+`config.h` (lines 9-14):
+
+```cpp
+#define FIRMWARE_VERSION "1.0.0"
+#define FIRMWARE_DATE "2025-01-30"  // Update this date each time you build new firmware
+#define FIRMWARE_NAME "VAIL SUMMIT"
+```
+
+### When to Update
+
+**FIRMWARE_VERSION:** Increment for major releases
+- **Major version** (1.x.x → 2.x.x): Breaking changes or major new features
+- **Minor version** (x.1.x → x.2.x): New features, backward compatible
+- **Patch version** (x.x.1 → x.x.2): Bug fixes only
+
+**FIRMWARE_DATE:** Update to current date (YYYY-MM-DD) **every time** you build firmware for distribution
+
+**FIRMWARE_NAME:** Should remain "VAIL SUMMIT" unless device name changes
+
+### Where Version Appears
+
+- Web dashboard footer
+- System Info page (version + build date)
+- Serial output on startup
+- ADIF export headers
+
+**Important:** Always update FIRMWARE_DATE before building firmware, even if FIRMWARE_VERSION stays the same. This helps track when a specific build was created.
+
+## Firmware Updates
+
+VAIL SUMMIT firmware can be updated via:
+
+1. **Web-based flasher** at `https://update.vailadapter.com` (recommended for users)
+2. **Arduino IDE** (for developers)
+
+### Repository Integration
+
+**Important:** This is the Vail Summit source code in the Vail-CW/vail-summit repository. The default branch is `main`.
+
+**How users get firmware:**
+
+The web flasher at `https://update.vailadapter.com` reads its dropdown from this repository's GitHub Releases via the GitHub API:
+- "Latest" entry = most recent non-prerelease
+- "Test Release" entry = most recent prerelease (visible when "Show test release" is checked)
+
+To make a build appear in the flasher, a corresponding GitHub Release must exist on `Vail-CW/vail-summit` with the three binaries (`vail-summit.bin`, `bootloader.bin`, `partitions.bin`) attached as assets.
+
+### Building Firmware for Distribution
+
+#### Option 1: Build-and-Release Workflow (Recommended)
+
+The repository includes a GitHub Actions workflow that builds the firmware AND publishes a GitHub Release in a single dispatch. The release is what the flasher reads.
+
+1. Go to the **Actions** tab on GitHub
+2. Select **"Build and Release Summit Firmware"**
+3. Click **"Run workflow"**
+4. Set inputs:
+   - **`source_branch`** (default: `main`) — the branch to build from
+   - **`release_type`** (default: `prerelease`):
+     - `prerelease` — appears as the **Test Release** entry in the flasher dropdown
+     - `release` — appears as **Latest** in the flasher dropdown
+     - `none` — build only, attach artifacts to the workflow run, no release
+   - **`release_title`** (optional) — custom title; defaults to `vX.YZ - Test Release` / `Release`
+   - **`release_notes`** (optional) — body markdown; defaults to a minimal template
+5. Click the green **"Run workflow"** button
+
+The workflow:
+- Installs the pinned ESP32 core 2.0.14 and the pinned third-party libraries (LovyanGFX 1.1.16, lvgl 8.3.11, NimBLE-Arduino 1.4.2, ArduinoJson 7.0.4, ESP Async WebServer 3.6.0, etc. — versions live as `env:` vars at the top of the workflow file)
+- Copies the in-repo `lv_conf.h` next to the lvgl library so LVGL finds its config
+- Compiles with `--clean` and `-mtext-section-literals` for a clean reproducible build
+- Captures `FIRMWARE_VERSION` from `src/core/config.h` and uses it to derive the tag (e.g. `v0.529`)
+- If a release with that tag already exists, deletes and re-publishes it with the new binaries (useful for iterative test builds at the same `FIRMWARE_VERSION`)
+- Uploads build artifacts to the workflow run for 30-day retention regardless of release type
+
+#### Option 2: Manual Build (Windows - Recommended Method)
+
+Due to Windows path length limitations (260 char limit), use the short-path method:
+
+**One-Time Setup:**
+```powershell
+# Create junction for project (short path)
+New-Item -ItemType Junction -Path 'C:\vs' -Target 'C:\Users\brett\Documents\Coding Projects\vail-summit'
+
+# Copy arduino-cli to short path (required - arduino-cli resolves real paths internally)
+Copy-Item -Path 'C:\vs\arduino-cli\*' -Destination 'C:\acli' -Recurse -Force
+
+# Sync lv_conf.h next to the lvgl library so LVGL finds its config (must repeat
+# any time the repo's lv_conf.h changes)
+Copy-Item -Force 'C:\vs\lv_conf.h' 'C:\acli\user\libraries\lv_conf.h'
+```
+
+**Compiling:**
+```powershell
+cd C:\acli
+.\arduino-cli.exe compile --config-file arduino-cli.yaml --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M,USBMode=hwcdc" --output-dir C:\vs\build --export-binaries C:\vs
+```
+
+The compiled binaries land in `C:\vs\build\` as `vail-summit.ino.bin`, `vail-summit.ino.bootloader.bin`, and `vail-summit.ino.partitions.bin`. To distribute via the flasher, attach them to a GitHub Release on `Vail-CW/vail-summit` (or use Option 1 instead, which does this for you).
+
+#### Option 3: Manual Build (Linux/macOS)
+
+No path length issues on Linux/macOS:
+
+```bash
+cd arduino-cli
+# Sync lv_conf.h next to the lvgl library
+cp ../lv_conf.h user/libraries/lv_conf.h
+
+./arduino-cli compile --config-file arduino-cli.yaml \
+  --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M,USBMode=hwcdc" \
+  --output-dir ../build --export-binaries ..
+```
+
+**Firmware Stats:**
+- Bootloader: ~15KB
+- Partitions: ~3KB
+- Application: ~2.4MB
+- Total flash time: ~30 seconds
+
+### Web-Based Flasher Details
+
+The web updater at `https://update.vailadapter.com` uses **esptool-js** for browser-based flashing.
+
+**Two-Step Process:**
+
+1. **Step 1: Enter Bootloader Mode**
+   - User selects device in normal mode (e.g., COM31)
+   - Tool triggers 1200 baud reset to enter bootloader
+   - Device reconnects with new COM port (e.g., COM32)
+
+2. **Step 2: Connect and Flash**
+   - User selects device in bootloader mode
+   - Tool flashes all three binary files with progress indicators
+   - User unplugs/replugs device after flashing completes
+
+**Technical Implementation:**
+- Uses Web Serial API (Chrome/Edge/Opera only)
+- Converts firmware to binary strings for esptool-js compatibility
+- MD5 verification disabled to avoid format issues
+- Real-time progress indicators for each file
+- Dark mode UI matching site theme
+
+See `SUMMIT_INTEGRATION.md` in the vail-summit repository for complete technical details.
+
+## Deep Sleep Power Management
+
+**Entering sleep:** Triple-tap ESC in main menu within 2 seconds
+
+**Wake source:** DIT paddle press (GPIO 6)
+
+**Power consumption:**
+- Active (WiFi on): ~200mA
+- Active (WiFi off): ~100mA
+- Deep sleep: ~20µA
+
+Device performs full restart from `setup()` after wake.
+
+## Troubleshooting
+
+### Device won't boot / No serial output
+
+**Symptom:** Device flashes successfully but crashes immediately with no serial output. COM port disappears until using physical boot/reset buttons.
+
+**Cause:** Wrong USB Mode setting.
+
+**Fix:** In Arduino IDE, change Tools → USB Mode to **"Hardware CDC and JTAG"** (not "USB-OTG (TinyUSB)").
+
+### PSRAM detection failure
+
+**Symptom:** Serial output shows `E (360) opi psram: PSRAM ID read error: 0x00000000` and device fails to boot properly.
+
+**Cause:** Wrong PSRAM type selected.
+
+**Fix:** In Arduino IDE, change Tools → PSRAM to **"QSPI PSRAM"** (not "OPI PSRAM"). The Adafruit Feather ESP32-S3 2MB PSRAM board uses QSPI PSRAM.
+
+### LVGL display buffer allocation failed
+
+**Symptom:** Serial output shows `[LVGL] ERROR: Failed to allocate display buffers!`
+
+**Cause:** PSRAM not properly initialized, usually due to wrong PSRAM setting in build options.
+
+**Fix:** Ensure firmware is compiled with correct PSRAM setting. For GitHub Actions builds, the workflow uses `PSRAM=enabled`. For Arduino IDE, use "QSPI PSRAM".
+
+### Build errors with LVGL 9.x
+
+**Symptom:** Compilation fails with errors like `'getLVGLInputGroup' was not declared`, `lv_msgbox_create` wrong number of arguments, or `LV_INDEV_STATE_PRESSED` not found.
+
+**Cause:** LVGL 9.x installed instead of 8.3.x.
+
+**Fix:** Uninstall LVGL 9.x and install LVGL 8.3.11 (or any 8.3.x version). The APIs changed significantly between v8 and v9.
+
+### Display shows wrong colors or garbled output
+
+**Symptom:** Display works but colors are inverted or image is corrupted.
+
+**Cause:** Wrong ESP32 core version or display configuration.
+
+**Fix:** Ensure Arduino ESP32 core version 2.0.14 is installed. Newer versions (2.0.15+, 3.x) have compatibility issues with the ST7796S display.

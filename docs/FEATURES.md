@@ -1,0 +1,1284 @@
+# Features
+
+This document covers detailed documentation for major features including CW Academy, Morse Shooter, Memory Chain, Radio Mode, and Morse Decoder.
+
+## CW Academy Training Mode
+
+### Overview
+
+The CW Academy mode implements the official CW Academy curriculum across **four training tracks**. Each track is a comprehensive 16-session program with progressive difficulty.
+
+### Training Tracks
+
+1. **Beginner** - Learn CW from zero (4 → 44 characters over Sessions 1-10)
+2. **Fundamental** - Build solid foundation (assumes basic CW knowledge)
+3. **Intermediate** - Increase speed & skill (higher WPM targets)
+4. **Advanced** - Master advanced CW techniques
+
+### Module Architecture: `training_cwa.h`
+
+**Track Structure:**
+```cpp
+enum CWATrack {
+  TRACK_BEGINNER = 0,
+  TRACK_FUNDAMENTAL = 1,
+  TRACK_INTERMEDIATE = 2,
+  TRACK_ADVANCED = 3
+};
+```
+
+**Session Data Structure:**
+```cpp
+struct CWASession {
+  int sessionNum;           // Session number (1-16)
+  int charCount;            // Total characters learned by this session
+  const char* newChars;     // New characters introduced
+  const char* description;  // Session description
+};
+```
+
+### Beginner Track Session Progression
+
+**Sessions 1-10:** Progressive character introduction (4 chars → 44 chars)
+- Session 1: A, E, N, T (4 chars) - Foundation
+- Session 2: + S, I, O, 1, 4 (9 chars) - Numbers Begin
+- Session 10: + X, Z, ., <BK>, <SK> (44 chars) - Complete!
+
+**Sessions 11-13:** QSO (conversation) practice with all 44 characters
+
+**Sessions 14-16:** On-air preparation and encouragement
+
+### Practice Types
+
+```cpp
+enum CWAPracticeType {
+  PRACTICE_COPY = 0,           // Listen and type what you hear
+  PRACTICE_SENDING = 1,        // Send with physical key
+  PRACTICE_DAILY_DRILL = 2     // Warm-up drills
+};
+```
+
+**Practice Type Locking:**
+- **Sessions 1-10:** Only Copy Practice available (advanced types locked)
+- **Sessions 11+:** All practice types unlocked
+- Visual lock indicators with "Unlocks at Session 11" hint
+- Error beep feedback when attempting to access locked content
+
+### Message Types
+
+```cpp
+enum CWAMessageType {
+  MESSAGE_CHARACTERS = 0,      // Random character practice
+  MESSAGE_WORDS = 1,           // Common words
+  MESSAGE_ABBREVIATIONS = 2,   // CW abbreviations (73, QSL, etc.)
+  MESSAGE_NUMBERS = 3,         // Number sequences
+  MESSAGE_CALLSIGNS = 4,       // Random callsigns
+  MESSAGE_PHRASES = 5          // Full sentences
+};
+```
+
+### Navigation Flow
+
+1. Training Menu → **CW Academy**
+2. **Track Selection** (MODE_CW_ACADEMY_TRACK_SELECT)
+3. **Session Selection** (MODE_CW_ACADEMY_SESSION_SELECT)
+4. **Practice Type Selection** (MODE_CW_ACADEMY_PRACTICE_TYPE_SELECT)
+5. **Message Type Selection** (MODE_CW_ACADEMY_MESSAGE_TYPE_SELECT)
+6. **Copy Practice** (MODE_CW_ACADEMY_COPY_PRACTICE) - Fully implemented
+
+### State Management
+
+- Progress saved to ESP32 Preferences namespace "cwa"
+- Current track, session, practice type, and message type persisted across reboots
+- Functions: `loadCWAProgress()`, `saveCWAProgress()`
+- Variables: `cwaSelectedTrack`, `cwaSelectedSession`, `cwaSelectedPracticeType`, `cwaSelectedMessageType`
+
+### Implementation Status
+
+**Chunk 1.1 - Track and Session Selection (Complete):**
+- ✅ Menu integration: "CW Academy" added to Training menu
+- ✅ Track selection screen with 4 tracks
+- ✅ Session selection screen with 16 sessions (Beginner track defined)
+- ✅ Two-level navigation with ESC back navigation
+- ✅ Progress persistence
+
+**Chunk 1.2 - Practice and Message Type Selection (Complete):**
+- ✅ Practice type selection screen with 3 types
+- ✅ Message type selection screen with 6 types
+- ✅ Complete navigation flow
+- ✅ Practice type locking for Sessions 1-10
+- ✅ Visual lock indicators
+- ✅ Error beep feedback
+
+**Chunk 1.3 - Copy Practice Mode (Complete):**
+- ✅ MODE_CW_ACADEMY_COPY_PRACTICE mode added
+- ✅ Complete character sets for all 16 Beginner sessions
+- ✅ 10-round copy practice sessions with score tracking
+- ✅ Adjustable character count (1-10)
+- ✅ Replay functionality (SPACE bar)
+- ✅ Context-aware help text
+- ✅ State machine (listening → input → feedback)
+
+**Future Chunks:**
+- ⏳ Session content for Fundamental/Intermediate/Advanced tracks
+- ⏳ Proper word lists for word practice
+- ⏳ Abbreviations content (73, QSL, QTH, etc.)
+- ⏳ Number sequences
+- ⏳ Realistic callsign generation
+- ⏳ Common phrases and QSO exchanges
+- ⏳ Sending practice mode
+- ⏳ Daily Drill mode
+- ⏳ ICR (Instant Character Recognition) mode
+- ⏳ QSO practice mode
+
+## Morse Shooter Game
+
+### Overview
+
+The Morse Shooter is an arcade-style game where falling letters descend from the top of the screen. The player uses morse code (straight key, iambic paddle, or capacitive touch) to shoot matching letters. The game uses the **adaptive morse decoder** from Practice Mode for accurate real-time decoding.
+
+### Game Architecture: `game_morse_shooter.h`
+
+**Game Constants:**
+```cpp
+#define MAX_FALLING_LETTERS 5           // Maximum simultaneous letters
+#define LETTER_FALL_SPEED 1             // Pixels per update
+#define LETTER_SPAWN_INTERVAL 3000      // ms between new letter spawns
+#define GROUND_Y 225                    // Y position of ground
+#define MAX_LIVES 5                     // Lives before game over
+#define GAME_UPDATE_INTERVAL 1000       // ms between game physics updates
+```
+
+**Character Set:**
+- 36 characters: E, T, I, A, N, M, S, U, R, W, D, K, G, O, H, V, F, L, P, J, B, X, C, Y, Z, Q, 0-9
+- Ordered by common morse patterns (easier letters first)
+
+### Decoder Integration
+
+The game uses the user-selected morse decoder (Adaptive or Direct, set in CW Settings) for real-time decoding. Decoder is allocated dynamically based on `decoderType`:
+
+**Decoder State:**
+```cpp
+MorseDecoder* shooterDecoder = nullptr;            // Allocated in setup based on decoderType
+String shooterDecodedText = "";                    // Captured decoded characters
+unsigned long shooterLastStateChangeTime = 0;      // Timing state
+bool shooterLastToneState = false;                 // Tone on/off tracking
+unsigned long shooterLastElementTime = 0;          // Timeout tracking
+```
+
+**Setup:**
+```cpp
+shooterDecoder = (decoderType == DECODER_DIRECT)
+    ? (MorseDecoder*) new MorseDecoderDirect(cwSpeed, cwSpeed, 30)
+    : (MorseDecoder*) new MorseDecoderAdaptive(cwSpeed, cwSpeed, 30);
+```
+
+**Key Features:**
+- **Adaptive speed tracking** - Automatically adjusts to your sending speed
+- **Straight key support** - Tracks actual key-down/key-up timings
+- **Iambic keyer support** - Perfect dit/dah timing (Mode A/B)
+- **Word gap timeout** - Uses 7-dit word gap (more forgiving than 3-dit character gap)
+- **Real-time decoding** - Characters appear immediately when decoded
+
+### Keyer Integration
+
+**Straight Key Mode** (`KEY_STRAIGHT`):
+- Uses DIT_PIN as straight key input
+- Captures tone-on and silence durations
+- Sends timing data to decoder via `addTiming()`
+- More forgiving timeout (word gap vs character gap)
+
+**Iambic Keyer Mode** (`KEY_IAMBIC_A` / `KEY_IAMBIC_B`):
+- Full state machine: IDLE → SENDING → SPACING → IDLE
+- Memory paddles for squeeze keying
+- Precise WPM timing from device settings
+- Decoder receives perfect dit/dah timing
+
+**Screen Freeze During Keying:**
+- Screen updates blocked while keying to prevent audio glitches
+- Checks: `keyerActive`, `inSpacing`, `ditPressed`, `dahPressed`, `shooterDecodedText.length() > 0`
+
+### Game Loop Architecture
+
+**Dual Update System:**
+
+1. **`updateMorseShooterInput(tft)`** - Called every main loop iteration
+   - Straight key: Captures key-up/key-down timings
+   - Iambic keyer: Runs state machine with memory paddles
+   - Decoder: Feeds timing data, checks timeout (word gap)
+   - On timeout: Flushes decoder and checks for shot
+
+2. **`updateMorseShooterVisuals(tft)`** - Called every main loop iteration
+   - Checks if keying is active
+   - If keying: returns immediately (screen frozen)
+   - If idle: updates game physics once per second
+   - Spawns letters, updates positions, redraws HUD
+
+**Timeout Logic (Word Gap = 7 dits):**
+```cpp
+float wordGapDuration = MorseWPM::wordGap(shooterDecoder.getWPM());
+if (timeSinceLastElement > wordGapDuration) {
+  shooterDecoder.flush();  // Decode buffered character
+  checkMorseShoot(tft);    // Attempt to shoot
+}
+```
+
+### Character Decoding and Shooting
+
+**Decoding Flow:**
+1. User keys morse code (straight key or iambic paddle)
+2. Decoder captures timing data in real-time
+3. After word gap timeout (7 dits), decoder flushes → character decoded
+4. Decoder callback appends character to `shooterDecodedText`
+5. `checkMorseShoot()` finds matching falling letter
+6. If found: shoots letter, plays effects, clears decoded text
+7. If no match: miss sound, clears decoded text
+
+**Decoder Callback:**
+```cpp
+shooterDecoder.messageCallback = [](String morse, String text) {
+  for (int i = 0; i < text.length(); i++) {
+    shooterDecodedText += text[i];
+  }
+};
+```
+
+**Shooting Logic:**
+- Get last decoded character from `shooterDecodedText`
+- Convert to uppercase (if needed)
+- Search active falling letters for match
+- On match: laser/explosion animation, score +10, clear decoded text
+- On miss: error beep (600 Hz), clear decoded text
+
+**Collision Avoidance:**
+- When spawning new letters, system checks existing letters
+- Avoids placing new letters within 30px horizontally and 40px vertically
+- Up to 20 placement attempts before giving up
+
+### Visual Effects
+
+**Ground Scenery (GROUND_Y = 225):**
+- Houses with roofs (rectangles and triangles)
+- Trees (triangles for foliage, rectangles for trunks)
+- Turret at center bottom (tank-like shape with barrel)
+- Retro arcade color palette
+
+**Shooting Animations:**
+1. Laser shot: Lines from turret to target (cyan/white)
+2. Beep 1200 Hz for 50ms
+3. Explosion: Concentric circles with radiating rays (yellow/red/white)
+4. Beep 1000 Hz for 100ms
+5. Clear play area and redraw all elements
+
+**Cleanup Sequence (Critical):**
+```cpp
+fallingLetters[j].active = false;  // Mark inactive FIRST
+drawLaserShot();                    // Visual effects
+drawExplosion();
+tft.fillRect(0, 42, SCREEN_WIDTH, GROUND_Y - 42, COLOR_BACKGROUND);
+drawGroundScenery(tft);            // Redraw ground
+drawFallingLetters(tft);           // Redraw active letters only
+```
+
+**Why order matters:** Letter must be marked inactive BEFORE redraw, or it will briefly reappear as a "ghost" after being shot.
+
+### HUD Display
+
+**Top Left Corner:**
+- Score: Current points (10 points per letter)
+- Lives: Remaining lives (red if ≤2, green otherwise)
+
+**Bottom (Above Ground):**
+- Current morse pattern being entered (cyan text, size 2)
+- Cleared when pattern is empty
+
+### Game Over and Restart
+
+**Game Over Triggers:**
+- Lives reach 0 (letters hit ground)
+
+**Game Over Screen:**
+- Large "GAME OVER" text (red)
+- Final score
+- High score (persisted across sessions)
+- Instructions: ENTER to play again, ESC to exit
+
+## Memory Chain Game
+
+### Overview
+
+Memory Chain is a progressive memory training game that challenges players to remember and reproduce increasingly long sequences of morse code characters. Similar to the classic "Simon Says" game but using CW, it tests both character recognition and short-term memory skills.
+
+### Module: `game_morse_memory.h`
+
+**Game Flow:**
+1. Device plays a morse code sequence
+2. Player must reproduce the exact sequence using their key
+3. On success: sequence grows by one character
+4. On failure: game over (Standard mode) or lose a life (Practice mode)
+
+### Game Modes
+
+**Standard Mode:**
+- One mistake = game over
+- Pure score chase for maximum chain length
+- High pressure, tests focus and accuracy
+
+**Practice Mode:**
+- 3 lives/hearts per game
+- Mistakes cost one life but game continues
+- Allows recovery and continued practice
+- Better for learning and improvement
+
+**Timed Challenge:**
+- Complete as many rounds as possible in 60 seconds
+- No game over on mistakes
+- Score = total successful chains completed
+
+### Difficulty Levels
+
+**Beginner:**
+- Letters only (A-Z)
+- 26 character pool
+- Ideal for character recognition practice
+
+**Intermediate:**
+- Letters + Numbers (A-Z, 0-9)
+- 36 character pool
+- Increased complexity
+
+**Advanced:**
+- Letters + Numbers + Prosigns
+- Includes: SK, AR, BT, BK, AS, SN, SOS, HH, CT
+- Full morse code challenge
+
+### Settings
+
+**Speed:** 5-40 WPM (adjustable in 5 WPM increments)
+**Sound:** ON/OFF (controls sequence playback audio)
+**Show Hints:** ON/OFF (default OFF)
+- OFF: True memory training - no visual hints
+- ON: Display character sequence on screen for reference
+
+All settings persist across power cycles via ESP32 Preferences.
+
+### Keyer Support
+
+Full integration with existing CW settings:
+- **Straight Key Mode:** Uses DIT pin only
+- **Iambic A/B Mode:** Full paddle squeeze support
+- Uses same keyer implementation as Practice Mode and Morse Shooter
+- Respects global key type setting from CW Settings menu
+
+### Decoder Integration
+
+**Real-time decoder (Adaptive or Direct based on user setting):**
+```cpp
+MorseDecoder* mcDecoder = (decoderType == DECODER_DIRECT)
+    ? (MorseDecoder*) new MorseDecoderDirect(15, 20, 30)
+    : (MorseDecoder*) new MorseDecoderAdaptive(15, 20, 30);
+```
+
+**Character Detection:**
+- Automatic character gap detection (5× dit duration)
+- Decoder flush after character gap for immediate recognition
+- Callback-based character processing
+- Immediate feedback on correct/incorrect input
+
+**Timing States:**
+- Tracks tone-on/tone-off transitions
+- Sends positive timing for tone duration
+- Sends negative timing for silence duration
+- Decoder adapts to player's sending speed
+
+### Visual Feedback
+
+**Game States:**
+- **READY:** Green - Game starting (1 second countdown)
+- **LISTEN:** Blue - Device playing sequence
+- **YOUR TURN:** Yellow/Orange - Awaiting player input
+- **CORRECT!:** Green - Successful sequence reproduction
+- **WRONG!:** Red - Incorrect character sent
+
+**Display Elements:**
+- Chain length (top right): "Chain: X"
+- Current score and all-time best (bottom)
+- Lives remaining (Practice mode only)
+- Optional character hints (if enabled)
+- Instructions: "ESC=Menu  S=Settings"
+
+### Audio Feedback
+
+**Success Sounds:**
+- Correct answer: High beep (1000 Hz, 200ms)
+- New high score: Victory fanfare (3 ascending tones)
+
+**Error Sounds:**
+- Wrong answer: Low buzz (200 Hz, 300ms)
+
+**Sidetone:**
+- Always plays during keying (regardless of Sound setting)
+- Uses global CW tone setting
+- Provides immediate audio feedback
+
+### Data Persistence
+
+**Saved Settings (ESP32 Preferences "memory" namespace):**
+- Difficulty level
+- Game mode
+- WPM speed
+- Sound enabled/disabled
+- Show hints enabled/disabled
+- All-time high score
+
+**High Score Tracking:**
+- Session high score (resets on game start)
+- All-time best (persists across power cycles)
+- Separate high scores per difficulty level (future enhancement)
+
+### State Machine
+
+```cpp
+enum MemoryGameState {
+  MEMORY_STATE_READY,      // Countdown before first round
+  MEMORY_STATE_PLAYING,    // Device playing sequence
+  MEMORY_STATE_LISTENING,  // Player's turn to reproduce
+  MEMORY_STATE_FEEDBACK,   // Show correct/wrong feedback
+  MEMORY_STATE_GAME_OVER   // Final score display
+};
+```
+
+**State Transitions:**
+1. READY → PLAYING (after 1 second)
+2. PLAYING → LISTENING (after sequence playback)
+3. LISTENING → FEEDBACK (on complete sequence or error)
+4. FEEDBACK → LISTENING (correct, next round) or GAME_OVER (out of lives)
+5. GAME_OVER → READY (ENTER to play again)
+
+### In-Game Menu (Press 'S')
+
+Navigate settings without exiting the game:
+- Up/Down arrows: Navigate menu
+- Left/Right arrows: Change values
+- Enter: Save & Return
+
+Allows quick adjustment of difficulty, mode, speed, and hints during practice sessions.
+
+### Technical Implementation
+
+**Character Pool Management:**
+```cpp
+const char* getMemoryCharacterSet(MemoryDifficulty difficulty);
+```
+Returns appropriate character set based on difficulty.
+
+**Sequence Generation:**
+```cpp
+void startNextRound() {
+  memoryGame.sequenceLength++;
+  char newChar = characterSet[random(0, setSize)];
+  memoryGame.sequence[memoryGame.sequenceLength - 1] = newChar;
+}
+```
+Adds one random character each round.
+
+**Input Validation:**
+```cpp
+bool checkPlayerSequence(char inputChar) {
+  char expected = memoryGame.sequence[memoryGame.playerPosition];
+  bool correct = (inputChar == expected);
+  memoryGame.playerPosition++;
+  return correct;
+}
+```
+Validates each character as it's decoded.
+
+### Menu Integration
+
+**Location:** Games Menu → Memory Chain
+**Menu Icon:** "C" (for Chain)
+**Menu Navigation:** Same as other game modes
+
+Access from main menu via right arrow on "Memory Chain" card.
+
+## Radio Mode
+
+### Overview
+
+The Radio Mode provides integration with external ham radios via 3.5mm jack outputs. It allows keying a connected radio using the Summit's paddle inputs with two distinct operating modes.
+
+### Architecture: `radio_output.h`
+
+**Radio Mode Types:**
+```cpp
+enum RadioMode {
+  RADIO_MODE_SUMMIT_KEYER,   // Summit does keying logic, outputs straight key format
+  RADIO_MODE_RADIO_KEYER     // Passthrough dit/dah contacts to radio's internal keyer
+};
+```
+
+**Output Pins:**
+- **DIT output:** GPIO 18 (A0) - `RADIO_KEY_DIT_PIN`
+- **DAH output:** GPIO 17 (A1) - `RADIO_KEY_DAH_PIN`
+- **Format:** 3.5mm TRS jack (Tip = Dit, Ring = Dah, Sleeve = GND)
+- **Logic:** Active HIGH (pin goes HIGH when keying)
+
+### Summit Keyer Mode
+
+Device performs all keying logic internally and outputs a straight key format signal:
+
+**Straight Key:**
+- DIT pin outputs key-down/key-up timing
+- DAH pin remains LOW
+- Timing follows physical paddle presses directly
+
+**Iambic (A or B):**
+- Summit's iambic keyer generates dit/dah elements with proper timing
+- DIT pin outputs composite keyed signal (straight key format)
+- DAH pin remains LOW
+- Timing based on configured WPM speed (`cwSpeed`)
+- Full memory paddle support (squeeze keying)
+
+**No Audio Output:**
+- Radio output mode does not play sidetone through Summit's speaker
+- External radio provides sidetone
+
+### Radio Keyer Mode
+
+Device passes paddle contacts directly to the radio:
+
+**Straight Key:**
+- DIT pin mirrors DIT paddle state (HIGH when pressed)
+- DAH pin remains LOW
+
+**Iambic:**
+- DIT pin mirrors DIT paddle state
+- DAH pin mirrors DAH paddle state
+- Radio's internal keyer interprets squeeze keying and timing
+- Radio's WPM setting controls speed (Summit's WPM ignored)
+
+### Radio Output UI
+
+The Radio Output screen displays three configurable settings:
+
+1. **Speed (WPM):** 5-40 WPM
+   - Only affects Summit Keyer mode
+   - Ignored in Radio Keyer mode (radio controls speed)
+   - Shares global `cwSpeed` setting with Practice mode
+
+2. **Key Type:** Straight / Iambic A / Iambic B
+   - Determines paddle input interpretation
+   - Affects both modes
+   - Shares global `cwKeyType` setting
+
+3. **Radio Mode:** Summit Keyer / Radio Keyer
+   - Toggles between internal and external keying logic
+   - Persisted in Preferences namespace "radio"
+
+**Navigation:**
+- UP/DOWN: Select setting
+- LEFT/RIGHT: Adjust value
+- ESC: Exit to Radio menu
+
+### Input Sources
+
+Radio Output accepts input from multiple sources simultaneously (OR logic):
+
+1. **Physical Paddle** (GPIO 6 for DIT, GPIO 9 for DAH)
+2. **Capacitive Touch** (GPIO 8 for DIT, GPIO 5 for DAH)
+
+Both checked every loop iteration for responsive keying.
+
+### Use Cases
+
+**Contest Operation:**
+- Summit Keyer mode for consistent sending at configured speed
+- Memory messages for exchanges (future feature)
+- Physical paddle for flexibility
+
+**Casual QSOs:**
+- Radio Keyer mode to use radio's built-in keyer settings
+- Capacitive touch pads for portable operation
+- Radio provides sidetone and QSK
+
+**Training Aid:**
+- Practice sending at various speeds
+- Compare Summit Keyer vs. Radio Keyer behavior
+- Use with actual radio for on-air confidence
+
+### CW Memories
+
+The **CW Memories** feature allows storage and management of up to 10 reusable morse code message presets. Presets can be created, edited, deleted, and previewed on the device, or managed via the web interface. They integrate seamlessly with Radio Output mode for transmission.
+
+#### Architecture: `radio_cw_memories.h`
+
+**Preset Structure:**
+```cpp
+#define CW_MEMORY_MAX_SLOTS 10
+#define CW_MEMORY_LABEL_MAX_LENGTH 15
+#define CW_MEMORY_MESSAGE_MAX_LENGTH 100
+
+struct CWMemoryPreset {
+  char label[CW_MEMORY_LABEL_MAX_LENGTH + 1];     // Label (15 chars + null)
+  char message[CW_MEMORY_MESSAGE_MAX_LENGTH + 1]; // Message (100 chars + null)
+  bool isEmpty;
+};
+```
+
+**Storage:**
+- Persistent storage via ESP32 Preferences namespace `"cw_memories"`
+- Keys: `"label1"` through `"label10"`, `"message1"` through `"message10"`
+- Loaded at startup via `loadCWMemories()`
+- Saved immediately on create/edit/delete
+
+#### Device UI - CW Memories Mode
+
+Accessible from: **Radio Menu → CW Memories**
+
+**Main Screen:**
+- Scrollable list of all 10 preset slots (5 visible at a time)
+- Shows `[Slot #] Label` or `[Slot #] (empty)` for unused slots
+- Navigation: UP/DOWN to select, ENTER to open action menu, ESC to exit
+- Footer: `↑↓ Select  ENTER Menu  ESC Back`
+
+**Action Menu (Full-Screen):**
+When ENTER is pressed on a slot, a full-screen action menu appears:
+
+**Empty Slot Actions:**
+- **Create Preset** - Opens label entry screen
+- **Cancel** - Returns to main list
+
+**Occupied Slot Actions:**
+- **Preview** - Plays preset on device speaker
+- **Edit Preset** - Opens label/message editor
+- **Delete Preset** - Shows delete confirmation
+- **Cancel** - Returns to main list
+
+Navigation: UP/DOWN to select action, ENTER to confirm, ESC to cancel
+
+**Create/Edit Flow (Full-Screen):**
+1. **Label Entry Screen:**
+   - Title: "CREATE PRESET" or "EDIT PRESET"
+   - Input box with character counter (max 15 chars)
+   - Auto-uppercase text entry
+   - Blinking cursor indicator
+   - Footer: `Type text  ENTER Save  ESC Cancel`
+
+2. **Message Entry Screen:**
+   - Title: "CREATE PRESET" or "EDIT PRESET"
+   - Multi-line input box with word wrap (max 100 chars)
+   - Character counter showing current/max
+   - Validation for valid morse characters (A-Z, 0-9, space, `.`,`,`,`?`,`/`,`-`)
+   - Supports prosigns entered as `<AR>`, `<SK>`, etc.
+   - Footer: `Type text  ENTER Save  ESC Cancel`
+
+3. **Save:** ENTER advances from label → message → save, ESC cancels at any time
+
+**Delete Confirmation (Full-Screen):**
+- Title: "DELETE PRESET?" in red
+- Shows preset label being deleted
+- Warning: "This action cannot be undone"
+- Two large buttons: **Yes, Delete** (red highlight) and **No, Cancel** (blue highlight)
+- Navigation: UP/DOWN arrows to select, ENTER to confirm
+- Footer: `↑↓ Select  ENTER Confirm  ESC Cancel`
+
+**Preview:**
+- Plays preset message on device speaker using current WPM and tone settings
+- Does NOT transmit via radio output pins (GPIO 18/17 remain LOW)
+- Press ESC to stop playback early
+
+#### Radio Output Mode Integration
+
+In Radio Output mode, press the **'M'** key to open the memory selector:
+
+**Memory Selector Overlay:**
+- Modal overlay showing all 10 preset slots
+- Scrollable list (5 visible at a time)
+- Shows slot number and label (or "(empty)")
+- Navigation: UP/DOWN to select, ENTER to queue for transmission, ESC to cancel
+
+**Transmission:**
+- Selected preset message is queued via existing `queueRadioMessage()` function
+- Uses current WPM speed and Radio Mode settings
+- Transmitted via radio output pins (GPIO 18/17)
+- Queue limit: 5 messages (error beep if full)
+
+**UI Indicator:**
+- Footer in Radio Output mode shows: `M Memories` as hint
+
+#### Debugging and Troubleshooting
+
+**Debug Logging:**
+The CW Memories module includes comprehensive debug output via Serial (115200 baud) for troubleshooting:
+
+- `loadCWMemories()` - Prints each slot's label and message when loading from Preferences
+- `saveCWMemory()` - Prints label and message when saving to Preferences
+- `previewCWMemory()` - Prints label, message, and length before playback
+- `queueRadioMessage()` - Prints message and length when queuing for transmission
+- `processRadioMessageQueue()` - Prints message and length when transmitting via radio
+- `radioIambicKeyerHandler()` - Prints dit/dah duration values for timing verification
+
+**Known Issues:**
+
+1. **Summit Keyer Mode Timing:**
+   - In Summit Keyer mode, if `radioDitDuration` becomes corrupted or zero, both manual keying and memory transmission produce "random dits" (rapid/instant timing)
+   - Radio Keyer mode works correctly for manual keying (passthrough to radio's keyer)
+   - Memories may still sound incorrect in Radio Keyer mode if message queue conflicts with keyer state machine
+
+2. **State Machine Conflict:**
+   - `playMorseCharViaRadio()` uses blocking delays while `updateRadioOutput()` keyer state machine runs simultaneously
+   - Both functions control the same GPIO pins (18 and 17), causing interference
+   - Current mitigation: `processRadioMessageQueue()` waits for keyer state machine to be idle in Summit Keyer mode (checks `radioKeyerActive` and `radioInSpacing` flags)
+
+3. **Preview Crashes:**
+   - Preview function (`previewCWMemory()`) may crash and reset device halfway through playback
+   - Likely related to blocking audio playback conflicting with other system tasks
+   - Workaround: Keep preview messages short or use radio transmission instead
+
+**Troubleshooting Steps:**
+
+1. Enable Serial Monitor at 115200 baud
+2. Create a simple test memory (e.g., "TEST" → "SOS")
+3. Preview the memory and check serial output for:
+   - Correct label and message strings
+   - Correct message length
+   - Dit/dah duration values (should be non-zero and proportional to WPM)
+4. Compare behavior between Summit Keyer and Radio Keyer modes
+5. Check if manual keying works correctly in both modes (isolates keyer vs. message queue issues)
+
+#### Supported Characters
+
+**Valid Characters:**
+- Letters: A-Z (auto-uppercased)
+- Numbers: 0-9
+- Punctuation: `.` `,` `?` `/` `-`
+- Prosigns: Entered as text like `<AR>`, `<SK>`, `<BK>`, `<BT>`, `<CT>`, `<HH>`, `<SN>`, `<SOS>`
+- Spaces: Word spacing in morse code
+
+**Validation:**
+- Label and message cannot be empty
+- Message must contain only valid morse characters
+- Invalid characters trigger error beep and validation message
+
+#### Use Cases
+
+**Contest Operation:**
+- Store common exchanges: `"5NN CA"`, `"TU K6ABC"`, `"CQ CQ DE K6ABC K"`
+- Quick send via 'M' key in Radio Output mode
+- Consistent, error-free messaging
+
+**Casual Operation:**
+- Store callsign, standard sign-offs: `"73 ES CUL <SK>"`
+- CQ calls with proper prosigns
+- Frequently used phrases
+
+**Training:**
+- Pre-configured examples for learning proper formats
+- Practice sending stored messages
+
+#### State Variables
+
+```cpp
+CWMemoryPreset cwMemories[CW_MEMORY_MAX_SLOTS];  // Global array of presets
+int cwMemorySelection;                            // Currently selected slot in UI
+CWMemoryContextMenu contextMenuActive;            // Current context menu state
+CWMemoryEditMode editMode;                        // Current edit mode state
+bool memorySelectorActive;                        // True when selector active in Radio Output
+int memorySelectorSelection;                      // Selected slot in Radio Output selector
+```
+
+## Hear It Type It Training Mode
+
+### Overview
+
+Hear It Type It is a morse code receive training mode that plays random character groups (callsigns, letters, numbers, or custom sets) and challenges users to type what they hear. Available both on-device and via the web interface.
+
+### Module: `training_hear_it_type_it.h`
+
+**Training Workflow:**
+1. Device/browser plays a morse code character group
+2. User types what they heard
+3. System provides instant feedback (correct/incorrect)
+4. On success: new group plays
+5. On error: same group replays for practice
+
+### Training Modes
+
+**Five Training Modes:**
+```cpp
+enum HearItMode {
+  MODE_CALLSIGNS,        // Realistic ham radio callsigns (W1ABC format)
+  MODE_RANDOM_LETTERS,   // Random letters A-Z only
+  MODE_RANDOM_NUMBERS,   // Random numbers 0-9 only
+  MODE_LETTERS_NUMBERS,  // Mixed letters and numbers
+  MODE_CUSTOM_CHARS      // User-specified character set
+};
+```
+
+**Mode Details:**
+
+1. **Callsigns Mode (Default)**
+   - Generates realistic amateur radio callsigns
+   - Format follows FCC call patterns: 1-2 prefix letters + number + 1-4 suffix letters
+   - Examples: W1ABC, K6XYZ, VE3ABC, N7MNO
+   - Prepares users for on-air copy work
+
+2. **Random Letters**
+   - Pure alphabet practice (A-Z)
+   - Variable length groups (3-10 characters)
+   - Tests letter recognition skills
+
+3. **Random Numbers**
+   - Number-only practice (0-9)
+   - Variable length groups (3-10 characters)
+   - Useful for contest exchanges and signal reports
+
+4. **Letters + Numbers**
+   - Mixed alphanumeric groups
+   - Variable length (3-10 characters)
+   - Full character set practice
+
+5. **Custom Characters**
+   - User specifies exact character set
+   - Can practice specific problem characters
+   - Examples: "ETI" (common letters), "QZ" (difficult letters), "0189" (similar numbers)
+   - Groups randomly selected from custom set
+
+### Settings
+
+**Group Length:** 3-10 characters (adjustable)
+- Callsigns mode: Fixed length based on callsign format (5-7 characters typical)
+- All other modes: User-configurable length
+
+**Custom Character Set:** (Custom mode only)
+- Specify exact characters to practice
+- Max 36 characters (A-Z, 0-9)
+- Must contain at least 1 character
+- Groups randomly generated from this set
+
+**Speed:** Uses global CW speed setting (5-40 WPM)
+
+**Persistence:** Settings stored in ESP32 Preferences namespace `"hear_it"` with keys:
+- `"mode"` - Selected training mode (0-4)
+- `"groupLength"` - Character count (3-10)
+- `"customChars"` - Custom character string
+
+### Device Implementation
+
+**Navigation:** Training Menu → Hear It Type It
+
+**UI Display:**
+```
+┌─────────────────────────┐
+│  Hear It, Type It       │
+│                         │
+│  Mode: Letters+Numbers  │
+│  Length: 5 chars        │
+│  Speed: 20 WPM          │
+│                         │
+│  [Listening...]         │
+│                         │
+│  Your input:            │
+│  ABC█                   │
+│                         │
+│  S Settings  ESC Menu   │
+└─────────────────────────┘
+```
+
+**Settings Overlay (Press 'S'):**
+- Full-screen settings menu
+- Navigate with UP/DOWN arrows
+- Adjust mode with 'M' key (cycles through 5 modes)
+- Adjust length with '+' and '-' keys (3-10 range)
+- Enter custom characters when Custom mode selected
+- ESC to close and return to training
+- Settings saved immediately to Preferences
+
+**Input Handling:**
+- Type characters as you decode them
+- BACKSPACE to correct mistakes
+- ENTER to submit answer
+- SPACE bar to replay current group
+- 'S' key to open settings overlay
+- ESC to return to menu
+
+**Feedback:**
+- Green highlight + success beep for correct answers
+- Red highlight + error beep for incorrect answers
+- Automatic replay on errors for reinforcement
+- New group generated on success
+
+### Web Interface Implementation
+
+**Access:** `http://vail-summit.local/hear-it`
+
+**Files:**
+- `web_pages_hear_it_type_it.h` - Complete HTML/CSS/JavaScript interface
+- `web_hear_it_mode.h` - Device-side mode handler
+- `web_hear_it_socket.h` - WebSocket communication handler
+
+**Architecture:**
+
+```
+Browser (Computer)
+├── Settings Panel (Mode, Length, Custom Chars)
+├── Audio Playback (Web Audio API - browser plays morse)
+├── Input Field (Type what you hear)
+└── WebSocket Client (Submit answers, receive results)
+        ↕ WebSocket (/ws/hear-it)
+VAIL SUMMIT Device
+├── Character Generation (generateCharacterGroup)
+├── Answer Validation (check correctness)
+└── Device Display (Static "Web Hear It Mode Active")
+```
+
+**Key Design Decision - Browser Audio:**
+- Audio playback handled entirely in browser using Web Audio API
+- Device sends morse pattern (e.g., ".- -... -.-.") via WebSocket
+- Browser plays morse tones using OscillatorNode with PARIS timing
+- Prevents device crashes from audio conflicts
+- Provides cleaner, more reliable audio playback
+
+**Settings Panel:**
+- **Mode Dropdown:** Callsigns, Random Letters, Random Numbers, Letters+Numbers, Custom
+- **Length Input:** Number selector (3-10), hidden for Callsigns mode
+- **Custom Characters Input:** Text field, visible only in Custom mode
+- Settings sent to device via POST before starting training
+- Device applies settings and generates groups accordingly
+
+**Training Flow:**
+1. User opens `/hear-it` in browser
+2. Selects mode, length, custom characters
+3. Clicks "Start Training"
+   - Browser sends POST `/api/hear-it/start` with settings
+   - Device applies settings to `hearItSettings` struct
+   - Device switches to `MODE_WEB_HEAR_IT`
+   - Browser opens WebSocket to `/ws/hear-it`
+4. Device generates character group using selected mode
+5. Device sends morse pattern to browser via WebSocket
+6. Browser plays morse code audio using Web Audio API
+7. Browser shows input field when audio completes
+8. User types answer and submits
+9. Browser sends answer to device
+10. Device validates and sends result (correct/incorrect)
+11. On correct: device generates new group after 2s delay
+12. On incorrect: device replays same group after 2s delay
+13. User can click "Replay" or "Skip" buttons at any time
+
+**WebSocket Protocol:**
+
+**Device → Browser Messages:**
+```json
+// New character group
+{
+  "type": "new_callsign",
+  "callsign": "W1ABC",
+  "wpm": 18,
+  "morse": ".- -.-- .---- .- -... -.-."
+}
+
+// Start audio playback
+{
+  "type": "playing"
+}
+
+// Ready for user input
+{
+  "type": "ready_for_input"
+}
+
+// Validation result
+{
+  "type": "result",
+  "correct": true,
+  "answer": "W1ABC"
+}
+```
+
+**Browser → Device Messages:**
+```json
+// Submit answer
+{
+  "type": "submit",
+  "answer": "W1ABC"
+}
+
+// Replay request
+{
+  "type": "replay"
+}
+
+// Skip to next
+{
+  "type": "skip"
+}
+```
+
+**Audio Implementation (Web Audio API):**
+```javascript
+async function playMorsePattern(patterns, wpm) {
+  const audioContext = new AudioContext();
+  const ditDuration = 1200 / wpm;  // PARIS standard
+
+  for (const pattern of patterns.split(' ')) {
+    for (const symbol of pattern) {
+      if (symbol === '.') {
+        playTone(audioContext, 700, ditDuration);
+      } else if (symbol === '-') {
+        playTone(audioContext, 700, ditDuration * 3);
+      }
+      await sleep(ditDuration);  // Inter-element gap
+    }
+    await sleep(ditDuration * 3);  // Letter gap
+  }
+}
+
+function playTone(context, frequency, duration) {
+  const oscillator = context.createOscillator();
+  const gainNode = context.createGain();
+
+  oscillator.frequency.value = frequency;
+  gainNode.gain.value = 0.3;  // Constant volume (matches Memory Chain)
+
+  oscillator.connect(gainNode);
+  gainNode.connect(context.destination);
+  oscillator.start(context.currentTime);
+  oscillator.stop(context.currentTime + duration / 1000);
+}
+```
+
+**State Management:**
+```javascript
+let ws = null;
+let currentTrainingState = 'idle';  // idle, playing, waiting_input, replay, skip
+let currentCallsign = '';
+let currentWPM = 0;
+```
+
+### API Endpoints
+
+**`POST /api/hear-it/start`**
+- Starts web-based Hear It Type It mode
+- Body: `{"mode": 0-4, "length": 3-10, "customChars": "ABC..."}`
+- Device applies settings to `hearItSettings` struct
+- Switches device to `MODE_WEB_HEAR_IT`
+- Returns: `{"status": "active", "endpoint": "ws://vail-summit.local/ws/hear-it"}`
+
+**WebSocket: `/ws/hear-it`**
+- Bidirectional communication for training session
+- Device sends morse patterns and validation results
+- Browser sends answers and control commands (replay/skip)
+
+### Character Generation Algorithm
+
+**Callsigns Mode:**
+```cpp
+String generateCharacterGroup() {
+  String prefix = randomPrefix();         // 1-2 letters (e.g., "W", "K", "VE")
+  String number = String(random(0, 10));  // 0-9
+  String suffix = randomSuffix();         // 1-4 letters
+  return prefix + number + suffix;        // e.g., "W1ABC"
+}
+```
+
+**Other Modes:**
+```cpp
+String generateCharacterGroup() {
+  String pool = getCharacterPool();  // Based on mode setting
+  String group = "";
+  for (int i = 0; i < hearItSettings.groupLength; i++) {
+    group += pool[random(0, pool.length())];
+  }
+  return group;
+}
+```
+
+**Character Pools:**
+- Random Letters: `"ABCDEFGHIJKLMNOPQRSTUVWXYZ"`
+- Random Numbers: `"0123456789"`
+- Letters+Numbers: `"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"`
+- Custom: `hearItSettings.customChars`
+
+### Use Cases
+
+**Beginner Training:**
+- Start with MODE_RANDOM_LETTERS, length 3-4
+- Focus on common letters ("ETIANMSURWDKGO")
+- Use custom mode to practice specific problem characters
+- Gradually increase length as proficiency improves
+
+**Number Practice:**
+- Use MODE_RANDOM_NUMBERS for contest exchanges
+- Practice RST reports (599, 579, etc.)
+- Build confidence with number recognition
+
+**Callsign Copy:**
+- Use MODE_CALLSIGNS to prepare for on-air work
+- Realistic patterns match FCC/international formats
+- Essential for contesting and casual QSOs
+
+**Advanced Training:**
+- Use MODE_LETTERS_NUMBERS with length 8-10
+- Increase WPM speed (30+ WPM)
+- Custom mode for procedural signs and punctuation
+
+**Remote Training:**
+- Use web interface to practice from computer
+- Larger display easier to read than device LCD
+- Settings adjustable without touching device
+- Browser audio quality excellent for recognition
+
+### Advantages of Web vs Device Mode
+
+**Web Interface:**
+- ✅ Larger display (computer monitor vs 240px LCD)
+- ✅ Full keyboard for fast typing
+- ✅ Settings panel always visible
+- ✅ Better audio quality (dedicated speakers)
+- ✅ Can train while device is across room
+- ⚠️ Requires WiFi connection (battery drain)
+- ⚠️ 10-50ms network latency for validation
+
+**Device Mode:**
+- ✅ Fully offline (no WiFi required)
+- ✅ Portable and self-contained
+- ✅ No computer needed
+- ✅ Settings overlay available via 'S' key
+- ⚠️ Small screen (harder to read)
+- ⚠️ CardKB keyboard less comfortable for extended typing
+
+### Implementation Status
+
+**Completed Features:**
+- ✅ 5 training modes with configurable settings
+- ✅ Device implementation with settings overlay
+- ✅ Web interface with full settings panel
+- ✅ WebSocket bidirectional communication
+- ✅ Browser audio playback using Web Audio API
+- ✅ Persistent settings (ESP32 Preferences)
+- ✅ Answer validation and feedback
+- ✅ Replay and skip functionality
+- ✅ Group length configuration (3-10 chars)
+- ✅ Custom character set support
+
+**Future Enhancements:**
+- ⏳ Session statistics (accuracy percentage, average WPM)
+- ⏳ Difficulty progression (auto-increase length/speed)
+- ⏳ Prosign support (<AR>, <SK>, etc.)
+- ⏳ Timed challenge mode (X correct answers in Y minutes)
+- ⏳ Leaderboard for web users
+
+## Morse Code Decoder
+
+### Overview
+
+The morse decoder provides real-time decoding of paddle/key input. Two decoder algorithms are bundled and runtime-selectable from CW Settings ("Decoder Type"):
+
+- **Adaptive** — adapts WPM estimate from incoming timings using a weighted moving average. Best when the operator's speed varies or for decoding incoming morse from another op (Vail Repeater Decoder room).
+- **Direct** — timer-driven, fixed-WPM. Faster character flush at the cost of not auto-adjusting to speed drift. Best when the operator keys at a known consistent WPM.
+
+The selected decoder is used everywhere morse needs to be decoded on-device: Practice, CW Academy, LICW, Vail Master, Memory Chain, Morse Shooter, CW Speeder, Morse Notes, web Practice/Memory, and the Vail Repeater Decoder room.
+
+Based on the open-source [morse-pro](https://github.com/scp93ch/morse-pro) JavaScript library by Stephen C Phillips, ported to C++ for ESP32.
+
+### Architecture: Four-Module Design
+
+**Module Structure:**
+- **`morse_wpm.h`** - WPM timing utilities (PARIS standard formulas)
+- **`morse_decoder.h`** - Base decoder class (timings → morse patterns → text), virtual methods for `addTiming` / `reset` / `tick`
+- **`morse_decoder_adaptive.h`** - Adaptive speed tracking with weighted averaging
+- **`morse_decoder_direct.h`** - Timer-driven flush at fixed WPM (subclass of `MorseDecoderAdaptive` for the timing classification, but overrides flush behavior)
+
+The base class is virtual so callers can hold a `MorseDecoder*` and let the concrete class be selected at runtime via `decoderType` (defined in `src/settings/settings_decoder.h`).
+
+### How It Works
+
+**Input Format:**
+- Decoder accepts timing values in milliseconds
+- **Positive values** = tone ON (dit or dah)
+- **Negative values** = silence (element gap, character gap, word gap)
+
+**Adaptive Speed Algorithm:**
+
+Every decoded element provides speed information:
+- Dit → duration = 1 dit
+- Dah → duration = 3 dits
+- Character gap → duration = 3 fdits (Farnsworth)
+
+The decoder maintains a circular buffer of the last 30 timing samples and uses **weighted averaging** (newer samples weighted more heavily: 1, 2, 3, ..., 30) to continuously refine its WPM estimate.
+
+**Classification Thresholds:**
+- Dit/Dah boundary: 2 × dit length
+- Dah/Space boundary: 5 × Farnsworth dit length
+- Noise threshold: 10ms (filters glitches)
+- **Word gap stability:** fditLen locked to ditLen for consistent word detection (prevents threshold drift)
+
+### Integration with Practice Mode
+
+**Real-Time Decoding:**
+- Enabled by default in practice mode
+- Press 'D' key to toggle display on/off
+- Modern card-style UI with three info panels:
+  - **SET WPM** (cyan badge): Configured speed
+  - **ACTUAL** (green badge): Detected WPM with color coding (green = matches, yellow = different)
+  - **KEY TYPE** (yellow badge): Straight/Iambic A/Iambic B
+- Decoder display shows 2 lines of decoded text (17 chars per line, size 3 font)
+- Supports 9 prosigns: AR, AS, BK, BT, CT, HH, SK, SN, SOS (displayed as `<AR>`, etc.)
+- Hovering colored badges for visual hierarchy
+- Arrow keys adjust speed (up/down) and key type (left/right)
+
+**Timing Capture:**
+- **Straight Key:** Measures tone-on and silence durations directly
+- **Iambic:** Uses element start/stop times from iambic state machine
+- Feeds timings to decoder after each element completes
+- **First-run initialization:** `lastStateChangeTime` set to 0 to prevent spurious decoding on first entry
+- Only calculates durations after first valid key press
+
+**UI Update Strategy:**
+- Decoder callback sets `needsUIUpdate = true`
+- Main loop checks flag after `updatePracticeOscillator()`
+- **Only updates when tone is NOT playing** to avoid audio glitches
+- Calls `drawDecodedTextOnly()` for partial screen update
+- Full redraw avoided during practice for best audio performance
+
+**Auto-Flush Logic:**
+- Character boundary detection: 2.5 dits of silence triggers automatic flush (in `addTiming()`)
+- Backup timeout: Word gap duration (7 dits) for mid-character abandonment (in `updatePracticeOscillator()`)
+- Prevents premature character splitting due to timing jitter
+- Ensures real-time character display without waiting for next element
+- Character overflow protection: Auto-clears after 34 characters (17 chars × 2 lines)
+
+### Performance
+
+**Memory Footprint:**
+- `MorseDecoderAdaptive` instance: ~1-2 KB
+- Decoded text buffers (200 chars): ~200 bytes
+- Timing buffers (30 samples × 2): ~240 bytes
+- **Total: ~2.5 KB** (negligible on ESP32-S3)
+
+**CPU Usage:**
+- Decoder processing: <1ms per character
+- No floating-point intensive operations
+- Real-time suitable for ESP32 at 240 MHz
+
+### Licensing
+
+The morse decoder modules are licensed under **EUPL v1.2** (European Union Public Licence):
+
+- Original code: Copyright (c) 2024 Stephen C Phillips
+- ESP32 port: Copyright (c) 2025 VAIL SUMMIT Contributors
+- **Weak copyleft** - can be used in proprietary firmware
+- **Must keep decoder modules open source** if modified
+- Compatible with GPL, LGPL, MPL
+
+Main VAIL SUMMIT firmware can remain under any license. Only the four decoder modules (`morse_wpm.h`, `morse_decoder.h`, `morse_decoder_adaptive.h`, `morse_decoder_direct.h`) are EUPL-licensed.
+
+### Future Applications
+
+The decoder is designed as a reusable component for:
+
+1. **Receive training** - Decode audio from I2S microphone (requires tone detection)
+2. **Accuracy metrics** - Compare intended vs. decoded patterns
+3. **Contest logging** - Real-time callsign/exchange capture
+
+(CW Academy validation and Vail Repeater Decoder-room decoding are already shipping as of v0.527+.)

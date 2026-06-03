@@ -1,0 +1,28 @@
+# IDE and editor directories
+.tools/
+.vscode/
+.idea/
+.vs/
+
+# Build artifacts
+build/
+*.elf
+*.hex
+*.map
+*.bin
+
+# Standalone Arduino CLI environment (large, regeneratable)
+arduino-cli/
+
+# Arduino CLI cache/data (created during builds)
+data/
+
+# Local-only config (not committed)
+secrets_local.h
+src/core/secrets_local.h
+.env
+*.env.local
+
+# OS files
+.DS_Store
+Thumbs.db
