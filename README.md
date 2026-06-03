@@ -8,8 +8,9 @@ friendly course that meets you wherever you are.
 ![For](https://img.shields.io/badge/for-CW%20%26%20ham%20radio-green)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-orange)
 
-> **Hardware release planned for spring 2026.** Beta units are available now for **$75** —
-> contact Brett (KE9BOS) at [ke9bos@pigletradio.org](mailto:ke9bos@pigletradio.org).
+> **Now in testing — official release expected July 2026.** Want one early? You can buy a
+> Summit during the testing phase at **[shop.ke9bos.com](https://shop.ke9bos.com)** or by
+> contacting Brett (KE9BOS) at [ke9bos@pigletradio.org](mailto:ke9bos@pigletradio.org).
 
 ---
 
@@ -118,9 +119,9 @@ A capable little computer tuned for CW, all battery-powered and portable:
 
 ## Help & community
 
+- **Buy a Summit (testing phase):** [shop.ke9bos.com](https://shop.ke9bos.com) or [ke9bos@pigletradio.org](mailto:ke9bos@pigletradio.org)
 - **Questions or ideas:** [GitHub Discussions](https://github.com/Vail-CW/vail-summit/discussions)
 - **Found a bug?** [GitHub Issues](https://github.com/Vail-CW/vail-summit/issues)
-- **Get a beta unit:** [ke9bos@pigletradio.org](mailto:ke9bos@pigletradio.org)
 
 ---
 
