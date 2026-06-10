@@ -4257,8 +4257,10 @@ lv_obj_t* createQSOLoggerSettingsScreen() {
     lv_obj_set_pos(content, 20, HEADER_HEIGHT + 10);
     lv_obj_set_layout(content, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(content, 10, 0);
-    lv_obj_set_style_pad_all(content, 10, 0);
+    // Tight spacing: with 10px row gaps + 10px padding the QTH row ran past
+    // the bottom of the 320px screen.
+    lv_obj_set_style_pad_row(content, 5, 0);
+    lv_obj_set_style_pad_all(content, 5, 0);
     lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(content, 0, 0);
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
@@ -4294,7 +4296,7 @@ lv_obj_t* createQSOLoggerSettingsScreen() {
     lv_obj_set_style_text_font(location_label, getThemeFonts()->font_small, 0);
 
     logger_location_row = lv_obj_create(content);
-    lv_obj_set_size(logger_location_row, lv_pct(100), 45);
+    lv_obj_set_size(logger_location_row, lv_pct(100), 50);
     lv_obj_set_style_bg_color(logger_location_row, LV_COLOR_BG_LAYER2, 0);
     lv_obj_set_style_radius(logger_location_row, 8, 0);
     lv_obj_set_style_border_width(logger_location_row, 1, 0);
@@ -4303,7 +4305,7 @@ lv_obj_t* createQSOLoggerSettingsScreen() {
     lv_obj_clear_flag(logger_location_row, LV_OBJ_FLAG_SCROLLABLE);
 
     logger_location_input = lv_textarea_create(logger_location_row);
-    lv_obj_set_size(logger_location_input, lv_pct(100), 35);
+    lv_obj_set_size(logger_location_input, lv_pct(100), 40);
     lv_textarea_set_one_line(logger_location_input, true);
     lv_textarea_set_max_length(logger_location_input, logger_location_mode == 0 ? 6 : 10);
     if (logger_location_mode == 0) {
@@ -4324,7 +4326,7 @@ lv_obj_t* createQSOLoggerSettingsScreen() {
     lv_obj_set_style_text_font(qth_label, getThemeFonts()->font_small, 0);
 
     logger_qth_row = lv_obj_create(content);
-    lv_obj_set_size(logger_qth_row, lv_pct(100), 45);
+    lv_obj_set_size(logger_qth_row, lv_pct(100), 50);
     lv_obj_set_style_bg_color(logger_qth_row, LV_COLOR_BG_LAYER2, 0);
     lv_obj_set_style_radius(logger_qth_row, 8, 0);
     lv_obj_set_style_border_width(logger_qth_row, 1, 0);
@@ -4333,7 +4335,7 @@ lv_obj_t* createQSOLoggerSettingsScreen() {
     lv_obj_clear_flag(logger_qth_row, LV_OBJ_FLAG_SCROLLABLE);
 
     logger_qth_input = lv_textarea_create(logger_qth_row);
-    lv_obj_set_size(logger_qth_input, lv_pct(100), 35);
+    lv_obj_set_size(logger_qth_input, lv_pct(100), 40);
     lv_textarea_set_one_line(logger_qth_input, true);
     lv_textarea_set_max_length(logger_qth_input, 40);
     lv_textarea_set_text(logger_qth_input, loggerSettings.qthInput);
@@ -4544,7 +4546,7 @@ lv_obj_t* createQSOStatisticsScreen() {
         qso_stats_total_label = lv_label_create(total_card);
         lv_label_set_text_fmt(qso_stats_total_label, "%d", stats.totalQSOs);
         lv_obj_set_style_text_color(qso_stats_total_label, LV_COLOR_ACCENT_PRIMARY, 0);
-        lv_obj_set_style_text_font(qso_stats_total_label, getThemeFonts()->font_large, 0);
+        lv_obj_set_style_text_font(qso_stats_total_label, getThemeFonts()->font_subtitle, 0);
         lv_obj_align(qso_stats_total_label, LV_ALIGN_BOTTOM_LEFT, 0, 0);
 
         // Card 2: Unique Callsigns
@@ -4563,7 +4565,7 @@ lv_obj_t* createQSOStatisticsScreen() {
         qso_stats_unique_label = lv_label_create(unique_card);
         lv_label_set_text_fmt(qso_stats_unique_label, "%d", stats.uniqueCallsigns);
         lv_obj_set_style_text_color(qso_stats_unique_label, LV_COLOR_TEXT_PRIMARY, 0);
-        lv_obj_set_style_text_font(qso_stats_unique_label, getThemeFonts()->font_large, 0);
+        lv_obj_set_style_text_font(qso_stats_unique_label, getThemeFonts()->font_subtitle, 0);
         lv_obj_align(qso_stats_unique_label, LV_ALIGN_BOTTOM_LEFT, 0, 0);
 
         // Card 3: Most Active Date
@@ -4813,6 +4815,7 @@ static lv_obj_t* qso_detail_popup = NULL;
 // Forward declarations
 static void qso_popup_key_cb(lv_event_t* e);
 static void qso_delete_msgbox_cb(lv_event_t* e);
+static void qso_delete_msgbox_key_cb(lv_event_t* e);
 
 // Show QSO detail as a popup modal on the current screen
 void showQSODetailPopup(int qsoIndex) {
@@ -4920,6 +4923,18 @@ static void qso_popup_key_cb(lv_event_t* e) {
             lv_obj_t* mbox = lv_msgbox_create(NULL, "Delete QSO", qso_detail_fmt_buf, btns, false);
             lv_obj_center(mbox);
             lv_obj_add_event_cb(mbox, qso_delete_msgbox_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+            // The CardKB is the only input: the msgbox buttons must join the
+            // input group and take focus, otherwise Yes/No can never be
+            // selected (the focused detail popup swallows every key).
+            lv_obj_t* btnm = lv_msgbox_get_btns(mbox);
+            lv_obj_add_event_cb(btnm, qso_delete_msgbox_key_cb, LV_EVENT_KEY, mbox);
+            lv_group_t* group = getLVGLInputGroup();
+            if (group) {
+                lv_group_add_obj(group, btnm);
+                lv_group_focus_obj(btnm);
+                lv_group_set_editing(group, true);  // arrows move between Yes/No
+            }
         }
         lv_event_stop_bubbling(e);
         return;
@@ -4941,6 +4956,8 @@ static void qso_delete_msgbox_cb(lv_event_t* e) {
         // Close both the msgbox and the detail popup
         lv_msgbox_close(mbox);
         closeQSODetailPopup();
+        lv_group_t* group = getLVGLInputGroup();
+        if (group) lv_group_set_editing(group, false);
 
         if (success) {
             beep(1000, 100);  // Success beep
@@ -4967,7 +4984,28 @@ static void qso_delete_msgbox_cb(lv_event_t* e) {
     } else {
         // Cancel - just close msgbox (keep popup open)
         lv_msgbox_close(mbox);
+        lv_group_t* group = getLVGLInputGroup();
+        if (group) {
+            lv_group_set_editing(group, false);
+            if (qso_detail_popup) lv_group_focus_obj(qso_detail_popup);
+        }
     }
+}
+
+// Key handler on the msgbox button matrix: ESC cancels the dialog and
+// returns focus to the QSO detail popup.
+static void qso_delete_msgbox_key_cb(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    if (lv_event_get_key(e) != LV_KEY_ESC) return;
+
+    lv_obj_t* mbox = (lv_obj_t*)lv_event_get_user_data(e);
+    lv_msgbox_close(mbox);
+    lv_group_t* group = getLVGLInputGroup();
+    if (group) {
+        lv_group_set_editing(group, false);
+        if (qso_detail_popup) lv_group_focus_obj(qso_detail_popup);
+    }
+    lv_event_stop_bubbling(e);
 }
 
 // Process any pending QSO detail popup (call from main loop)

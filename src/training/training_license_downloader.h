@@ -15,11 +15,14 @@
 // Forward declaration - avoid circular dependency
 void drawLicenseSDCardError(LGFX& tft);
 
-// GitHub raw URLs for question pool JSON files
-#define QUESTION_POOL_BASE_URL "https://raw.githubusercontent.com/russolsen/ham_radio_question_pool/master"
-#define TECHNICIAN_URL QUESTION_POOL_BASE_URL "/technician-2022-2026/technician.json"
-#define GENERAL_URL QUESTION_POOL_BASE_URL "/general-2023-2027/general.json"
-#define EXTRA_URL QUESTION_POOL_BASE_URL "/extra-2024-2028/extra.json"
+// GitHub raw URLs for question pool JSON files.
+// Pinned to a specific commit: the upstream repo has renamed its default
+// branch (master -> main) and restructured directories/filenames before,
+// which 404'd every download. A commit SHA can never move underneath us.
+#define QUESTION_POOL_BASE_URL "https://raw.githubusercontent.com/russolsen/ham_radio_question_pool/a34fe8456ac76602caa58c1ff02b24476999aa71"
+#define TECHNICIAN_URL QUESTION_POOL_BASE_URL "/technician-2026-2030/technician-2026-2030.json"
+#define GENERAL_URL QUESTION_POOL_BASE_URL "/general-2023-2027/general-2023-2027.json"
+#define EXTRA_URL QUESTION_POOL_BASE_URL "/extra-2024-2028/extra-2024-2028.json"
 
 // Download status
 enum DownloadStatus {
@@ -105,6 +108,16 @@ DownloadStatus downloadFile(const char* url, const char* filepath) {
 
     file.close();
     http.end();
+
+    // A dropped connection leaves a truncated file that would pass the
+    // exists() check forever - delete it and report failure instead.
+    if (len > 0 || totalRead == 0) {
+      Serial.print("ERROR: Incomplete download (");
+      Serial.print(totalRead);
+      Serial.println(" bytes), removing partial file");
+      SD.remove(filepath);
+      return DOWNLOAD_FAILED_HTTP;
+    }
 
     Serial.print("Download complete: ");
     Serial.print(totalRead);

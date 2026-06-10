@@ -171,10 +171,11 @@ lv_obj_t* createPOTARecorderSetupScreen() {
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(content, 8, 0);
+    lv_obj_set_style_pad_all(content, 5, 0);
 
     // Callsign input
     lv_obj_t* call_row = lv_obj_create(content);
-    lv_obj_set_size(call_row, SCREEN_WIDTH - 40, 50);
+    lv_obj_set_size(call_row, SCREEN_WIDTH - 40, 58);
     lv_obj_set_style_bg_opa(call_row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(call_row, 0, 0);
     lv_obj_set_style_pad_all(call_row, 0, 0);
@@ -189,7 +190,7 @@ lv_obj_t* createPOTARecorderSetupScreen() {
     lv_textarea_set_one_line(pota_rec_callsign_input, true);
     lv_textarea_set_max_length(pota_rec_callsign_input, 10);
     lv_textarea_set_placeholder_text(pota_rec_callsign_input, "W1ABC");
-    lv_obj_set_size(pota_rec_callsign_input, 150, 35);
+    lv_obj_set_size(pota_rec_callsign_input, 150, 40);
     lv_obj_align(pota_rec_callsign_input, LV_ALIGN_BOTTOM_LEFT, 0, 0);
     lv_obj_set_style_text_font(pota_rec_callsign_input, &lv_font_montserrat_16, 0);
 
@@ -200,7 +201,7 @@ lv_obj_t* createPOTARecorderSetupScreen() {
 
     // Park reference input
     lv_obj_t* park_row = lv_obj_create(content);
-    lv_obj_set_size(park_row, SCREEN_WIDTH - 40, 50);
+    lv_obj_set_size(park_row, SCREEN_WIDTH - 40, 58);
     lv_obj_set_style_bg_opa(park_row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(park_row, 0, 0);
     lv_obj_set_style_pad_all(park_row, 0, 0);
@@ -215,7 +216,7 @@ lv_obj_t* createPOTARecorderSetupScreen() {
     lv_textarea_set_one_line(pota_rec_park_input, true);
     lv_textarea_set_max_length(pota_rec_park_input, 10);
     lv_textarea_set_placeholder_text(pota_rec_park_input, "K-1234");
-    lv_obj_set_size(pota_rec_park_input, 150, 35);
+    lv_obj_set_size(pota_rec_park_input, 150, 40);
     lv_obj_align(pota_rec_park_input, LV_ALIGN_BOTTOM_LEFT, 0, 0);
     lv_obj_set_style_text_font(pota_rec_park_input, &lv_font_montserrat_16, 0);
 

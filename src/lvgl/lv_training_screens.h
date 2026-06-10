@@ -4003,7 +4003,7 @@ lv_obj_t* createLicenseSelectScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, "ENTER Select   V Volume   ESC Back");  // Menu footer with V shortcut
+    lv_label_set_text(help, "ENTER Select   V Quick Settings   ESC Back");  // Menu footer with V shortcut
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
