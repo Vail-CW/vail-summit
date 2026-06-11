@@ -81,14 +81,24 @@ void cleanupPOTAScreen();
 // ============================================
 
 static void pota_auto_refresh_cb(lv_timer_t* timer) {
-    if (getCurrentModeAsInt() == MODE_POTA_ACTIVE_SPOTS && !potaSpotsCache.fetching) {
-        // Trigger refresh
+    // Bail out if the spots table is gone (screen was torn down)
+    if (!pota_spots_table || !lv_obj_is_valid(pota_spots_table)) return;
+
+    if (getCurrentModeAsInt() == MODE_POTA_ACTIVE_SPOTS && !potaSpotsCache.fetching && !pota_is_loading) {
+        // Background refresh: non-modal toast (a full overlay every 60s would
+        // interrupt reading the table). Render once so it shows before the
+        // blocking fetch.
+        pota_is_loading = true;
+        showToast("Refreshing spots...");
+        lv_refr_now(NULL);
         fetchActiveSpots(potaSpotsCache);
+        pota_is_loading = false;
         refreshPOTASpotsDisplay();
     }
 }
 
 static void pota_timestamp_cb(lv_timer_t* timer) {
+    if (!pota_updated_label || !lv_obj_is_valid(pota_updated_label)) return;
     updatePOTATimestampLabel();
 }
 
@@ -481,7 +491,8 @@ void refreshPOTASpotsDisplay() {
 }
 
 void showSpotsLoadingState(bool loading, const char* message = NULL, lv_color_t color = LV_COLOR_TEXT_PRIMARY) {
-    pota_is_loading = loading;
+    // Note: pota_is_loading is managed at the fetch sites, not here, so a
+    // persistent error message does not block future refresh attempts
 
     // Show/hide loading container in the table area
     if (pota_loading_label && lv_obj_is_valid(pota_loading_label)) {
@@ -767,13 +778,17 @@ static void pota_spots_key_handler(lv_event_t* e) {
 
         if (!pota_is_loading) {
             Serial.println("[POTA] Starting fetch...");
-            showSpotsLoadingState(true, "Loading POTA spots...", LV_COLOR_TEXT_PRIMARY);
-            lv_timer_handler();  // Force UI update
+            pota_is_loading = true;
+
+            // Modal overlay renders immediately, before the blocking fetch
+            lv_obj_t* overlay = createLoadingOverlay("Fetching spots...");
 
             Serial.printf("[POTA] Free heap before fetch: %d\n", ESP.getFreeHeap());
             int result = fetchActiveSpots(potaSpotsCache);
             Serial.printf("[POTA] Fetch returned: %d, free heap: %d\n", result, ESP.getFreeHeap());
 
+            lv_obj_del(overlay);
+            pota_is_loading = false;
             showSpotsLoadingState(false);
 
             if (result >= 0) {
@@ -884,7 +899,7 @@ void updateDetailTabStyles() {
 }
 
 void updateDetailContent() {
-    if (!pota_detail_content) return;
+    if (!pota_detail_content || !lv_obj_is_valid(pota_detail_content)) return;
     if (selectedSpotIndex < 0 || selectedSpotIndex >= potaSpotsCache.count) return;
 
     POTASpot& spot = potaSpotsCache.spots[selectedSpotIndex];
@@ -1624,14 +1639,13 @@ static void pota_filter_key_handler(lv_event_t* e) {
     if (key == LV_KEY_ENTER) {
         if (pota_filter_focus_row <= 4) {
             // Apply filter (from any filter row or Apply button)
-            strcpy(potaSpotFilter.band, bandFilterOptions[pota_filter_band_idx]);
-            strcpy(potaSpotFilter.mode, modeFilterOptions[pota_filter_mode_idx]);
-            strcpy(potaSpotFilter.region, regionFilterOptions[pota_filter_region_idx]);
+            strlcpy(potaSpotFilter.band, bandFilterOptions[pota_filter_band_idx], sizeof(potaSpotFilter.band));
+            strlcpy(potaSpotFilter.mode, modeFilterOptions[pota_filter_mode_idx], sizeof(potaSpotFilter.mode));
+            strlcpy(potaSpotFilter.region, regionFilterOptions[pota_filter_region_idx], sizeof(potaSpotFilter.region));
             // Copy callsign filter from textarea
             if (filter_callsign_textarea) {
                 const char* text = lv_textarea_get_text(filter_callsign_textarea);
-                strncpy(potaSpotFilter.callsign, text ? text : "", sizeof(potaSpotFilter.callsign) - 1);
-                potaSpotFilter.callsign[sizeof(potaSpotFilter.callsign) - 1] = '\0';
+                strlcpy(potaSpotFilter.callsign, text ? text : "", sizeof(potaSpotFilter.callsign));
             }
             updateFilterActiveStatus();
             beep(1000, 100);
@@ -1695,14 +1709,14 @@ lv_obj_t* createPOTAScreenForMode(int mode) {
 // ============================================
 
 static void pota_autoload_cb(lv_timer_t* timer) {
-    // Delete the one-shot timer
-    if (pota_autoload_timer) {
-        lv_timer_del(pota_autoload_timer);
-        pota_autoload_timer = NULL;
-    }
+    // One-shot timer (repeat_count=1) - LVGL deletes it after this returns
+    pota_autoload_timer = NULL;
 
-    // Only proceed if we're still on the active spots screen
+    // Only proceed if we're still on the active spots screen with a live table
     if (getCurrentModeAsInt() != MODE_POTA_ACTIVE_SPOTS) {
+        return;
+    }
+    if (!pota_spots_table || !lv_obj_is_valid(pota_spots_table)) {
         return;
     }
 
@@ -1716,10 +1730,15 @@ static void pota_autoload_cb(lv_timer_t* timer) {
     // No valid cache - fetch new data
     if (!pota_is_loading && WiFi.status() == WL_CONNECTED) {
         Serial.println("[POTA] Auto-loading spots...");
-        showSpotsLoadingState(true, "Loading POTA spots...", LV_COLOR_TEXT_PRIMARY);
-        lv_timer_handler();  // Force UI update to show loading
+        pota_is_loading = true;
+
+        // Modal overlay renders immediately, before the blocking fetch
+        lv_obj_t* overlay = createLoadingOverlay("Fetching spots...");
 
         int result = fetchActiveSpots(potaSpotsCache);
+
+        lv_obj_del(overlay);
+        pota_is_loading = false;
         showSpotsLoadingState(false);
 
         if (result >= 0) {
@@ -1742,8 +1761,10 @@ void startPOTAActiveSpots(LGFX& display) {
     startPOTATimers();
 
     // Schedule auto-load after a brief delay to let screen render first
+    // (guard against double-create if mode is re-entered)
     if (pota_autoload_timer) {
         lv_timer_del(pota_autoload_timer);
+        pota_autoload_timer = NULL;
     }
     pota_autoload_timer = lv_timer_create(pota_autoload_cb, 200, NULL);  // 200ms delay
     lv_timer_set_repeat_count(pota_autoload_timer, 1);  // One-shot

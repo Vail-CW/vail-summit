@@ -132,6 +132,12 @@ static const LVMenuItem bluetoothMenuItems[] = {
 };
 #define BLUETOOTH_MENU_COUNT 2
 
+// Device settings Bluetooth submenu items
+static const LVMenuItem deviceBTSubmenuItems[] = {
+    MENU_ITEM_LV(LV_SYMBOL_KEYBOARD, "External Keyboard", MODE_BT_KEYBOARD_SETTINGS)
+};
+#define DEVICE_BT_SUBMENU_COUNT 1
+
 // QSO Logger submenu items
 static const LVMenuItem qsoLoggerMenuItems[] = {
     MENU_ITEM_LV(LV_SYMBOL_PLUS, "New Log Entry", MODE_QSO_LOG_ENTRY),
@@ -179,6 +185,34 @@ static int menu_button_count = 0;
 
 // Navigation context for menu grid (2 columns)
 static NavGridContext menu_nav_ctx = { menu_buttons, &menu_button_count, 2 };
+
+// ============================================
+// Focus Memory
+// ============================================
+// When the user backs out of a screen into a menu, focus returns to the item
+// they originally selected instead of resetting to the first item.
+
+// Index to focus when the next menu screen is created (-1 = first item)
+static int menu_focus_restore_index = -1;
+
+void setMenuFocusRestoreIndex(int idx) {
+    menu_focus_restore_index = idx;
+}
+
+/*
+ * Get the index of the currently focused menu button, or -1 if focus
+ * is not on one of this menu's buttons.
+ */
+int getMenuFocusedIndex() {
+    lv_group_t* group = getLVGLInputGroup();
+    if (group == NULL) return -1;
+    lv_obj_t* focused = lv_group_get_focused(group);
+    if (focused == NULL) return -1;
+    for (int i = 0; i < menu_button_count; i++) {
+        if (menu_buttons[i] == focused) return i;
+    }
+    return -1;
+}
 
 // ============================================
 // Create Menu Screen
@@ -321,6 +355,7 @@ lv_obj_t* createMenuScreen(const char* title, const LVMenuItem* items, int item_
     lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(content, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_add_style(content, getStyleScrollbar(), LV_PART_SCROLLBAR);
 
     // Create menu buttons
     for (int i = 0; i < item_count && i < MAX_MENU_BUTTONS; i++) {
@@ -329,9 +364,8 @@ lv_obj_t* createMenuScreen(const char* title, const LVMenuItem* items, int item_
         lv_obj_t* btn = lv_btn_create(content);
         lv_obj_set_size(btn, 200, 80);
 
-        // Apply styles
-        lv_obj_add_style(btn, getStyleMenuCard(), 0);
-        lv_obj_add_style(btn, getStyleMenuCardFocused(), LV_STATE_FOCUSED);
+        // Apply styles (normal, focused, pressed)
+        applyMenuCardStyle(btn);
 
         // Container for icon and text
         lv_obj_t* col = lv_obj_create(btn);
@@ -372,8 +406,17 @@ lv_obj_t* createMenuScreen(const char* title, const LVMenuItem* items, int item_
         addNavigableWidget(btn);
     }
 
-    // Ensure content scroll starts at top (fixes items appearing above screen)
-    lv_obj_scroll_to_y(content, 0, LV_ANIM_OFF);
+    // Restore focus to the item the user previously selected (focus memory),
+    // otherwise default focus stays on the first item with scroll at top.
+    if (menu_focus_restore_index > 0 && menu_focus_restore_index < menu_button_count &&
+        menu_buttons[menu_focus_restore_index] != NULL) {
+        lv_group_focus_obj(menu_buttons[menu_focus_restore_index]);
+        lv_obj_scroll_to_view(menu_buttons[menu_focus_restore_index], LV_ANIM_OFF);
+    } else {
+        // Ensure content scroll starts at top (fixes items appearing above screen)
+        lv_obj_scroll_to_y(content, 0, LV_ANIM_OFF);
+    }
+    menu_focus_restore_index = -1;
 
     // Footer hint - use menu footer with volume shortcut hint
     lv_obj_t* footer = lv_label_create(screen);
@@ -467,6 +510,13 @@ lv_obj_t* createHamToolsMenuScreen() {
  */
 lv_obj_t* createBluetoothMenuScreen() {
     return createMenuScreen("BLUETOOTH", bluetoothMenuItems, BLUETOOTH_MENU_COUNT);
+}
+
+/*
+ * Create Device Settings Bluetooth submenu screen
+ */
+lv_obj_t* createDeviceBTSubmenuScreen() {
+    return createMenuScreen("BLUETOOTH", deviceBTSubmenuItems, DEVICE_BT_SUBMENU_COUNT);
 }
 
 /*

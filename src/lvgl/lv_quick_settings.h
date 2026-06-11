@@ -68,16 +68,36 @@ static void qsUpdateSelection() {
     }
 }
 
-// Adjust the currently selected setting by +/- one step.
-static void qsAdjust(int dir) {
+// Adjust the currently selected setting by +/- step (steps = acceleration multiplier).
+static void qsAdjust(int dir, int steps = 1) {
     int i = s_qs_index;
     QSRow& r = s_qs_rows[i];
-    int v = qsCurrentValue(i) + dir * r.step;
+    int v = qsCurrentValue(i) + dir * r.step * steps;
     if (v < r.min) v = r.min;
     if (v > r.max) v = r.max;
     qsApply(i, v);
     if (s_qs_slider[i])   lv_slider_set_value(s_qs_slider[i], v, LV_ANIM_OFF);
     if (s_qs_valLabel[i]) lv_label_set_text_fmt(s_qs_valLabel[i], "%d %s", v, r.unit);
+}
+
+// Key-repeat acceleration for held LEFT/RIGHT: consecutive repeats of the same
+// key (arriving within the CardKB auto-repeat cadence) ramp the step 1x->2x->4x.
+static char     s_qs_accel_key = 0;
+static uint32_t s_qs_accel_last_ms = 0;
+static int      s_qs_accel_count = 0;
+
+static int qsAccelSteps(char key) {
+    uint32_t now = millis();
+    if (key == s_qs_accel_key && (now - s_qs_accel_last_ms) < 300) {
+        s_qs_accel_count++;
+    } else {
+        s_qs_accel_key = key;
+        s_qs_accel_count = 0;
+    }
+    s_qs_accel_last_ms = now;
+    if (s_qs_accel_count >= 12) return 4;
+    if (s_qs_accel_count >= 4)  return 2;
+    return 1;
 }
 
 void closeQuickSettings() {
@@ -99,9 +119,9 @@ void quickSettingsHandleKey(char key) {
     } else if (key == KEY_DOWN) {
         if (s_qs_index < 3) { s_qs_index++; qsUpdateSelection(); beep(TONE_MENU_NAV, 25); }
     } else if (key == KEY_LEFT) {
-        qsAdjust(-1);
+        qsAdjust(-1, qsAccelSteps(key));
     } else if (key == KEY_RIGHT) {
-        qsAdjust(+1);
+        qsAdjust(+1, qsAccelSteps(key));
     } else if (key == KEY_ENTER || key == KEY_ENTER_ALT || key == KEY_ESC) {
         closeQuickSettings();
     }

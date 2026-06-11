@@ -15,6 +15,7 @@
 
 #include <NimBLEDevice.h>
 #include "ble_core.h"
+#include "ble_keyboard_host.h"
 #include "../core/config.h"
 #include "../audio/i2s_audio.h"
 #include "../settings/settings_cw.h"
@@ -86,6 +87,34 @@ void btMidiPassthroughHandler();
 void btMidiInitKeyer();
 int midiNoteToFrequency(int note);
 int getDitDuration();
+const char* getBTMIDIKeyerProgramName();
+
+// Forward declarations for LVGL UI updates (defined in lv_mode_screens.h)
+extern void updateBTMIDIStatus(const char* status, bool connected);
+extern void updateBTMIDIDeviceName(const char* name);
+extern void updateBTMIDIInfo(int wpm, bool fromMidi, const char* keyerName);
+extern void updateBTMIDIKeyIndicator(bool keying);
+extern void cleanupBTMIDIScreen();
+
+// Track previous connection state for UI updates
+static BLEConnectionState lastBTMIDIState = BLE_STATE_OFF;
+
+const char* getBTMIDIKeyerProgramName() {
+  switch (btMIDI.midiKeyerProgram) {
+    case MIDI_KEYER_PASSTHROUGH: return "Passthrough";
+    case MIDI_KEYER_STRAIGHT:    return "Straight";
+    case MIDI_KEYER_BUG:         return "Bug";
+    case MIDI_KEYER_IAMBIC_A:    return "Iambic A";
+    case MIDI_KEYER_IAMBIC_B:    return "Iambic B";
+    default:                     return "Unknown";
+  }
+}
+
+// Push current speed + keyer program to the LVGL screen
+static void refreshBTMIDIInfoDisplay() {
+  int wpm = (btMIDI.midiDitDuration > 0) ? (1200 / btMIDI.midiDitDuration) : cwSpeed;
+  updateBTMIDIInfo(wpm, btMIDI.midiDitDuration > 0, getBTMIDIKeyerProgramName());
+}
 
 // Convert MIDI note to frequency (equal temperament, A4=440Hz)
 int midiNoteToFrequency(int note) {
@@ -290,6 +319,14 @@ void startBTMIDI(LGFX& display) {
   btMIDIDitPressed = false;
   btMIDIDahPressed = false;
   btMIDIKeyer = nullptr;  // Initialized in btMidiInitKeyer() based on program
+  lastBTMIDIState = BLE_STATE_OFF;  // Reset state tracking
+
+  // Release the BLE keyboard host (central role) before bringing up the MIDI
+  // server — they can't share the NimBLE stack lifecycle, and deinitBLECore()
+  // on exit would otherwise free the host's client out from under it
+  if (bleKBHost.state != BLEKB_STATE_IDLE) {
+    deinitBLEKeyboardHost();
+  }
 
   // Initialize BLE core if not already done
   initBLECore();
@@ -329,7 +366,11 @@ void startBTMIDI(LGFX& display) {
   // Start advertising
   startBLEAdvertising("MIDI");
 
-  // UI is now handled by LVGL - see lv_mode_screens.h
+  // Initialize LVGL UI with device name, status, and current settings
+  updateBTMIDIDeviceName(getBLEDeviceName().c_str());
+  updateBTMIDIStatus("Advertising...", false);
+  refreshBTMIDIInfoDisplay();
+  updateBTMIDIKeyIndicator(false);
 }
 
 // Stop BT MIDI mode
@@ -349,8 +390,16 @@ void stopBTMIDI() {
   btMIDI.midiService = nullptr;
   btMIDI.midiCharacteristic = nullptr;
 
+  // Clean up LVGL widget pointers
+  cleanupBTMIDIScreen();
+
   // Deinit BLE
   deinitBLECore();
+
+  // Hand the radio back to the keyboard host so auto-reconnect resumes
+  if (bleKBHost.pairedDevice.valid && bleKBHost.autoReconnect) {
+    initBLEKeyboardHost();
+  }
 }
 
 // Draw BT MIDI UI
@@ -573,6 +622,29 @@ void btMidiKeyerHandler() {
 void updateBTMIDI() {
   if (!btMIDI.active) return;
 
+  // Check for connection state changes and update LVGL UI
+  // (UI updates must happen here in the main loop, not in BLE task callbacks)
+  if (bleCore.connectionState != lastBTMIDIState) {
+    lastBTMIDIState = bleCore.connectionState;
+    switch (lastBTMIDIState) {
+      case BLE_STATE_CONNECTED:   updateBTMIDIStatus("Connected", true); break;
+      case BLE_STATE_ADVERTISING: updateBTMIDIStatus("Advertising...", false); break;
+      case BLE_STATE_ERROR:       updateBTMIDIStatus("Error", false); break;
+      default:                    updateBTMIDIStatus("Off", false); break;
+    }
+  }
+
+  // The host can change keyer program (Program Change) and speed (CC1) at any
+  // time from the BLE task — pick up those changes here and refresh the UI
+  static int lastShownProgram = -1;
+  static int lastShownDitDuration = -1;
+  if (btMIDI.midiKeyerProgram != lastShownProgram ||
+      btMIDI.midiDitDuration != lastShownDitDuration) {
+    lastShownProgram = btMIDI.midiKeyerProgram;
+    lastShownDitDuration = btMIDI.midiDitDuration;
+    refreshBTMIDIInfoDisplay();
+  }
+
   // Route to appropriate handler based on keyer program
   if (btMIDI.midiKeyerProgram == MIDI_KEYER_PASSTHROUGH) {
     btMidiPassthroughHandler();
@@ -583,6 +655,14 @@ void updateBTMIDI() {
   // Keep audio buffer filled while keying
   if (btMIDI.isKeying) {
     continueTone(TONE_SIDETONE);
+  }
+
+  // Update the keying LED on state change
+  static bool lastShownKeying = false;
+  bool keyingNow = btMIDI.isKeying || btMIDI.lastDitPressed || btMIDI.lastDahPressed;
+  if (keyingNow != lastShownKeying) {
+    lastShownKeying = keyingNow;
+    updateBTMIDIKeyIndicator(keyingNow);
   }
 
   btMIDI.lastUpdateTime = millis();

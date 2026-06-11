@@ -17,6 +17,7 @@
 #include <NimBLEHIDDevice.h>
 #include <Preferences.h>
 #include "ble_core.h"
+#include "ble_keyboard_host.h"
 #include "../core/config.h"
 #include "../audio/i2s_audio.h"
 #include "../keyer/keyer.h"
@@ -115,6 +116,10 @@ static Preferences btHIDPrefs;
 // Track previous connection state for UI updates
 static BLEConnectionState lastBTHIDState = BLE_STATE_OFF;
 
+// CardKB typing mode: when enabled, CardKB keystrokes are forwarded to the
+// host as HID key presses (full Bluetooth keyboard), alongside paddle keying
+bool btHIDTypingEnabled = false;
+
 // External CW speed setting
 extern int cwSpeed;
 
@@ -129,12 +134,15 @@ void cycleBTHIDKeyerMode(int direction);
 const char* getBTHIDKeyerModeName();
 void loadBTHIDSettings();
 void saveBTHIDSettings();
+void setBTHIDTyping(bool enabled);
+bool sendBTHIDKeystroke(uint32_t lvglKey);
 
 // Forward declarations for LVGL UI updates (defined in lv_mode_screens.h)
 extern void updateBTHIDStatus(const char* status, bool connected);
 extern void updateBTHIDDeviceName(const char* name);
 extern void updateBTHIDPaddleIndicators(bool ditPressed, bool dahPressed);
 extern void updateBTHIDKeyerMode(const char* mode);
+extern void updateBTHIDTypingMode(bool enabled);
 extern void cleanupBTHIDScreen();
 
 // ============================================
@@ -212,6 +220,74 @@ void sendHIDReport(uint8_t modifiers) {
   Serial.println(modifiers, HEX);
 }
 
+// Send full HID keyboard report (modifiers + one key from the key array)
+static void sendHIDKeyReport(uint8_t modifiers, uint8_t keycode) {
+  if (!btHID.active || btHID.inputReport == nullptr) return;
+  if (!isBLEConnected()) return;
+
+  KeyboardReport report;
+  memset(&report, 0, sizeof(report));
+  report.modifiers = modifiers;
+  report.keys[0] = keycode;
+
+  btHID.inputReport->setValue((uint8_t*)&report, sizeof(report));
+  btHID.inputReport->notify();
+}
+
+// Reverse lookup: ASCII char -> HID key code (sets *needShift if the shifted
+// table matched). Uses the translation tables from hid_keycodes.h.
+static uint8_t asciiToHidKeyCode(char c, bool* needShift) {
+  *needShift = false;
+  if (c < 32 || c > 126) return 0;
+  for (int code = HID_KEY_A; code <= HID_KEY_SLASH; code++) {
+    if (hidToAsciiUnshifted[code] == c) return (uint8_t)code;
+  }
+  for (int code = HID_KEY_A; code <= HID_KEY_SLASH; code++) {
+    if (hidToAsciiShifted[code] == c) {
+      *needShift = true;
+      return (uint8_t)code;
+    }
+  }
+  return 0;
+}
+
+void setBTHIDTyping(bool enabled) {
+  btHIDTypingEnabled = enabled;
+  updateBTHIDTypingMode(enabled);
+  Serial.printf("[BT HID] Typing mode %s\n", enabled ? "ON" : "OFF");
+}
+
+// Forward one CardKB/LVGL key to the host as a HID press+release.
+// Paddle keying modifiers (Ctrl) held by the keyer are preserved.
+bool sendBTHIDKeystroke(uint32_t lvglKey) {
+  if (!btHID.active || !isBLEConnected()) return false;
+
+  uint8_t keycode = 0;
+  bool needShift = false;
+
+  switch (lvglKey) {
+    case LV_KEY_ENTER:     keycode = HID_KEY_ENTER; break;
+    case LV_KEY_BACKSPACE: keycode = HID_KEY_BACKSPACE; break;
+    case '\t':             keycode = HID_KEY_TAB; break;
+    case LV_KEY_UP:        keycode = HID_KEY_UP; break;
+    case LV_KEY_DOWN:      keycode = HID_KEY_DOWN; break;
+    case LV_KEY_LEFT:      keycode = HID_KEY_LEFT; break;
+    case LV_KEY_RIGHT:     keycode = HID_KEY_RIGHT; break;
+    case LV_KEY_DEL:       keycode = HID_KEY_DELETE; break;
+    default:
+      if (lvglKey >= 32 && lvglKey <= 126) {
+        keycode = asciiToHidKeyCode((char)lvglKey, &needShift);
+      }
+      break;
+  }
+  if (keycode == 0) return false;
+
+  uint8_t pressMods = btHID.currentModifier | (needShift ? HID_MOD_LSHIFT : 0);
+  sendHIDKeyReport(pressMods, keycode);              // key down
+  sendHIDKeyReport(btHID.currentModifier, 0);        // key up
+  return true;
+}
+
 // Start BT HID mode
 void startBTHID(LGFX& display) {
   Serial.println("Starting BT HID mode");
@@ -228,10 +304,18 @@ void startBTHID(LGFX& display) {
   // Reset key state
   btHID.isKeying = false;
   btHID.currentModifier = 0;
+  btHIDTypingEnabled = false;
 
   // Initialize unified keyer based on keyer mode
   btHIDInitKeyer();
   Serial.printf("[BT HID] Dit duration: %d ms (at %d WPM)\n", DIT_DURATION(cwSpeed), cwSpeed);
+
+  // Release the BLE keyboard host (central role) before bringing up the HID
+  // server — they can't share the NimBLE stack lifecycle, and deinitBLECore()
+  // on exit would otherwise free the host's client out from under it
+  if (bleKBHost.state != BLEKB_STATE_IDLE) {
+    deinitBLEKeyboardHost();
+  }
 
   // Initialize BLE core if not already done
   initBLECore();
@@ -300,6 +384,7 @@ void startBTHID(LGFX& display) {
   updateBTHIDStatus("Advertising...", false);
   updateBTHIDPaddleIndicators(false, false);
   updateBTHIDKeyerMode(getBTHIDKeyerModeName());
+  updateBTHIDTypingMode(false);
 }
 
 // Stop BT HID mode
@@ -316,6 +401,7 @@ void stopBTHID() {
 
   btHID.active = false;
   btHID.inputReport = nullptr;
+  btHIDTypingEnabled = false;
 
   // Note: NimBLEHIDDevice cleanup is handled by deinitBLECore()
   // The hid object is owned by the server and will be deleted when server is deinitialized
@@ -326,6 +412,11 @@ void stopBTHID() {
 
   // Deinit BLE
   deinitBLECore();
+
+  // Hand the radio back to the keyboard host so auto-reconnect resumes
+  if (bleKBHost.pairedDevice.valid && bleKBHost.autoReconnect) {
+    initBLEKeyboardHost();
+  }
 }
 
 // Draw BT HID UI

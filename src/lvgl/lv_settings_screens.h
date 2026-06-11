@@ -47,6 +47,9 @@ void setCwKeyTypeFromInt(int keyType);
 // Decoder settings
 #include "../settings/settings_decoder.h"
 
+// BLE keyboard host (external Bluetooth keyboard pairing)
+#include "../bluetooth/ble_keyboard_host.h"
+
 // Callsign (from vail_repeater.h)
 extern String vailCallsign;
 extern void saveCallsign(const char* callsign);
@@ -208,6 +211,12 @@ static void volume_slider_key_cb(lv_event_t* e) {
         lv_event_stop_processing(e);
         return;
     }
+
+    // ESC - volume already saved on change; confirm and let global handler navigate back
+    if (key == LV_KEY_ESC) {
+        showToast("Saved");
+        return;
+    }
 }
 
 // Key handler for boot preset selector - LEFT/RIGHT to cycle, UP/DOWN to navigate
@@ -250,6 +259,12 @@ static void boot_preset_key_handler(lv_event_t* e) {
     // Block ENTER - no action needed, L/R already handles it
     if (key == LV_KEY_ENTER) {
         lv_event_stop_processing(e);
+        return;
+    }
+
+    // ESC - settings already saved on change; confirm and let global handler navigate back
+    if (key == LV_KEY_ESC) {
+        showToast("Saved");
         return;
     }
 }
@@ -340,11 +355,11 @@ lv_obj_t* createVolumeSettingsScreen() {
     // Boot preset selector button (arrow-style like CW Settings)
     lv_obj_t* boot_btn = lv_btn_create(boot_row);
     lv_obj_set_size(boot_btn, 110, 28);
-    lv_obj_set_style_bg_color(boot_btn, lv_color_hex(0x333333), 0);
-    lv_obj_set_style_bg_color(boot_btn, lv_color_hex(0x555555), LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(boot_btn, LV_COLOR_BG_CARD, 0);
+    lv_obj_set_style_bg_color(boot_btn, LV_COLOR_BG_CARD_ACTIVE, LV_STATE_FOCUSED);
     lv_obj_set_style_radius(boot_btn, 4, 0);
     lv_obj_set_style_border_width(boot_btn, 1, 0);
-    lv_obj_set_style_border_color(boot_btn, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_border_color(boot_btn, LV_COLOR_BORDER_LIGHT, 0);
     lv_obj_set_style_border_color(boot_btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
     lv_obj_set_style_pad_all(boot_btn, 4, 0);
 
@@ -439,6 +454,13 @@ static void brightness_slider_key_cb(lv_event_t* e) {
 
         // Prevent default slider handling
         lv_event_stop_bubbling(e);
+        return;
+    }
+
+    // ESC - brightness already saved on change; confirm and let global handler navigate back
+    if (key == LV_KEY_ESC) {
+        showToast("Saved");
+        return;
     }
 }
 
@@ -669,9 +691,10 @@ static void cw_settings_key_handler(lv_event_t* e) {
         return;
     }
 
-    // Handle ESC for back navigation
+    // Handle ESC for back navigation (settings auto-save on change)
     if (key == LV_KEY_ESC) {
         lv_event_stop_bubbling(e);  // Prevent double-navigation
+        showToast("Saved");
         onLVGLBackNavigation();
         return;
     }
@@ -1019,6 +1042,7 @@ static void callsign_textarea_key_handler(lv_event_t* e) {
                 // Save using existing function
                 saveCallsign(callsign.c_str());
                 vailCallsign = callsign;  // Update global
+                showToast("Saved");
 
                 // Note: onLVGLBackNavigation() already plays a nav beep
                 Serial.printf("[Callsign] Saved: %s\n", callsign.c_str());
@@ -1072,7 +1096,7 @@ lv_obj_t* createCallsignSettingsScreen() {
     lv_textarea_set_max_length(callsign_textarea, 12);
     lv_textarea_set_placeholder_text(callsign_textarea, "e.g. W1ABC");
     lv_textarea_set_text(callsign_textarea, vailCallsign.c_str());
-    lv_obj_add_style(callsign_textarea, getStyleTextarea(), 0);
+    applyTextareaStyle(callsign_textarea);
     lv_obj_set_style_text_font(callsign_textarea, getThemeFonts()->font_subtitle, 0);
     // Add key handler to process ENTER for save
     lv_obj_add_event_cb(callsign_textarea, callsign_textarea_key_handler, LV_EVENT_KEY, NULL);
@@ -1191,6 +1215,7 @@ static void web_password_toggle_key_handler(lv_event_t* e) {
             Serial.println("[WebPW] Password protection disabled");
         }
 
+        showToast("Saved");
         onLVGLBackNavigation();
         return;
     }
@@ -1271,6 +1296,7 @@ static void web_password_field_key_handler(lv_event_t* e) {
             }
         }
 
+        showToast("Saved");
         onLVGLBackNavigation();
         return;
     }
@@ -1343,11 +1369,11 @@ lv_obj_t* createWebPasswordSettingsScreen() {
     // Create toggle button (like quiet boot)
     web_password_toggle_btn = lv_btn_create(toggle_row);
     lv_obj_set_size(web_password_toggle_btn, 80, 28);
-    lv_obj_set_style_bg_color(web_password_toggle_btn, lv_color_hex(0x333333), 0);
-    lv_obj_set_style_bg_color(web_password_toggle_btn, lv_color_hex(0x555555), LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(web_password_toggle_btn, LV_COLOR_BG_CARD, 0);
+    lv_obj_set_style_bg_color(web_password_toggle_btn, LV_COLOR_BG_CARD_ACTIVE, LV_STATE_FOCUSED);
     lv_obj_set_style_radius(web_password_toggle_btn, 4, 0);
     lv_obj_set_style_border_width(web_password_toggle_btn, 1, 0);
-    lv_obj_set_style_border_color(web_password_toggle_btn, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_border_color(web_password_toggle_btn, LV_COLOR_BORDER_LIGHT, 0);
     lv_obj_set_style_border_color(web_password_toggle_btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
     lv_obj_set_style_pad_all(web_password_toggle_btn, 4, 0);
 
@@ -1388,7 +1414,7 @@ lv_obj_t* createWebPasswordSettingsScreen() {
     if (strlen(webPassword) > 0) {
         lv_textarea_set_text(web_password_textarea, webPassword);
     }
-    lv_obj_add_style(web_password_textarea, getStyleTextarea(), 0);
+    applyTextareaStyle(web_password_textarea);
 
     // Add key handler for textarea
     lv_obj_add_event_cb(web_password_textarea, web_password_field_key_handler, LV_EVENT_KEY, NULL);
@@ -1459,6 +1485,7 @@ static void theme_dropdown_event_cb(lv_event_t* e) {
     // Save and apply theme
     saveThemeSetting(newTheme);
     setTheme(newTheme);
+    showToast("Saved");
 }
 
 lv_obj_t* createThemeSettingsScreen() {
@@ -1500,7 +1527,7 @@ lv_obj_t* createThemeSettingsScreen() {
     lv_dropdown_set_options(theme_dropdown, "Summit (Default)\nEnigma (Military)");
     lv_dropdown_set_selected(theme_dropdown, getCurrentTheme() == THEME_SUMMIT ? 0 : 1);
     lv_obj_set_width(theme_dropdown, 280);
-    lv_obj_add_style(theme_dropdown, getStyleDropdown(), 0);
+    applyDropdownStyle(theme_dropdown);
     lv_obj_add_event_cb(theme_dropdown, theme_dropdown_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
     addNavigableWidget(theme_dropdown);
 
@@ -1529,7 +1556,7 @@ lv_obj_t* createThemeSettingsScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, "UP/DN Select   ENTER Apply   ESC Back");
+    lv_label_set_text(help, FOOTER_NAV_ENTER_ESC);  // Use standardized footer
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
@@ -1759,6 +1786,267 @@ lv_obj_t* createSystemInfoScreen() {
 // Screen Selector
 // ============================================
 
+// ============================================
+// External Bluetooth Keyboard Screen (Mode 55)
+// Scan, pair, and manage an external BLE keyboard
+// (backend in src/bluetooth/ble_keyboard_host.h)
+// ============================================
+
+static lv_obj_t* btkb_screen = NULL;
+static lv_obj_t* btkb_status_label = NULL;
+static lv_obj_t* btkb_paired_label = NULL;
+static lv_obj_t* btkb_auto_btn_label = NULL;
+static lv_obj_t* btkb_device_list = NULL;
+static lv_timer_t* btkb_timer = NULL;
+static BLEKBHostState btkb_last_state = BLEKB_STATE_IDLE;
+
+static void btkb_update_status_labels() {
+    if (btkb_status_label != NULL) {
+        lv_label_set_text(btkb_status_label, getBLEKBStateString());
+        lv_color_t color = LV_COLOR_TEXT_SECONDARY;
+        if (bleKBHost.state == BLEKB_STATE_CONNECTED) {
+            color = LV_COLOR_SUCCESS;
+        } else if (bleKBHost.state == BLEKB_STATE_SCANNING ||
+                   bleKBHost.state == BLEKB_STATE_CONNECTING) {
+            color = LV_COLOR_WARNING;
+        } else if (bleKBHost.state == BLEKB_STATE_ERROR) {
+            color = LV_COLOR_ERROR;
+        }
+        lv_obj_set_style_text_color(btkb_status_label, color, 0);
+    }
+    if (btkb_paired_label != NULL) {
+        if (bleKBHost.pairedDevice.valid) {
+            lv_label_set_text_fmt(btkb_paired_label, "Paired: %s", bleKBHost.pairedDevice.name);
+        } else {
+            lv_label_set_text(btkb_paired_label, "Paired: None");
+        }
+    }
+    if (btkb_auto_btn_label != NULL) {
+        lv_label_set_text_fmt(btkb_auto_btn_label, "Auto-Reconnect: %s",
+                              bleKBHost.autoReconnect ? "ON" : "OFF");
+    }
+}
+
+static void btkb_show_list_message(const char* msg) {
+    if (btkb_device_list == NULL) return;
+    lv_obj_clean(btkb_device_list);
+    lv_obj_t* lbl = lv_label_create(btkb_device_list);
+    lv_label_set_text(lbl, msg);
+    lv_obj_set_style_text_color(lbl, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_style_text_font(lbl, getThemeFonts()->font_small, 0);
+}
+
+static void btkb_device_btn_event_cb(lv_event_t* e) {
+    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    if (idx < 0 || idx >= bleKBHost.foundCount) return;
+
+    if (btkb_status_label != NULL) {
+        lv_label_set_text(btkb_status_label, "Connecting...");
+        lv_obj_set_style_text_color(btkb_status_label, LV_COLOR_WARNING, 0);
+    }
+    lv_refr_now(NULL);  // paint "Connecting..." before the blocking connect
+
+    connectToBLEKeyboard(idx);  // blocks for a few seconds
+    btkb_last_state = bleKBHost.state;
+    btkb_update_status_labels();
+}
+
+static void btkb_rebuild_device_list() {
+    if (btkb_device_list == NULL) return;
+    lv_obj_clean(btkb_device_list);  // deleted widgets auto-leave the input group
+
+    if (bleKBHost.foundCount == 0) {
+        btkb_show_list_message("No keyboards found.\nPut keyboard in pairing\nmode and scan again.");
+        return;
+    }
+
+    for (int i = 0; i < bleKBHost.foundCount; i++) {
+        lv_obj_t* btn = lv_btn_create(btkb_device_list);
+        lv_obj_set_size(btn, lv_pct(100), 34);
+        lv_obj_set_style_bg_color(btn, LV_COLOR_BG_CARD, 0);
+        lv_obj_set_style_bg_color(btn, LV_COLOR_BG_CARD_ACTIVE, LV_STATE_FOCUSED);
+        lv_obj_set_style_radius(btn, 4, 0);
+        lv_obj_set_style_border_width(btn, 1, 0);
+        lv_obj_set_style_border_color(btn, LV_COLOR_BORDER_LIGHT, 0);
+        lv_obj_set_style_border_color(btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
+        lv_obj_set_style_pad_all(btn, 4, 0);
+
+        lv_obj_t* lbl = lv_label_create(btn);
+        char buf[48];
+        snprintf(buf, sizeof(buf), "%s (%d)", bleKBHost.foundDevices[i].name.c_str(),
+                 bleKBHost.foundDevices[i].rssi);
+        lv_label_set_text(lbl, buf);
+        lv_obj_set_style_text_font(lbl, getThemeFonts()->font_small, 0);
+        lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
+        lv_obj_set_width(lbl, lv_pct(100));
+        lv_obj_center(lbl);
+
+        lv_obj_add_event_cb(btn, btkb_device_btn_event_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+        lv_obj_add_event_cb(btn, linear_nav_handler, LV_EVENT_KEY, NULL);
+        addNavigableWidget(btn);
+    }
+}
+
+static void btkb_scan_btn_event_cb(lv_event_t* e) {
+    if (bleKBHost.state == BLEKB_STATE_SCANNING) return;  // already scanning
+    btkb_show_list_message("Scanning...");
+    startBLEKeyboardScan();
+    btkb_last_state = bleKBHost.state;
+    btkb_update_status_labels();
+}
+
+static void btkb_auto_btn_event_cb(lv_event_t* e) {
+    bleKBHost.autoReconnect = !bleKBHost.autoReconnect;
+    saveBLEKeyboardSettings();
+    btkb_update_status_labels();
+}
+
+static void btkb_forget_btn_event_cb(lv_event_t* e) {
+    if (!bleKBHost.pairedDevice.valid) return;
+    forgetBLEKeyboardPairing();
+    btkb_last_state = bleKBHost.state;
+    btkb_update_status_labels();
+}
+
+// Poll backend state: scan completion and connect/disconnect transitions
+static void btkb_timer_cb(lv_timer_t* timer) {
+    // Bail out if the screen was torn down
+    if (!btkb_screen || !lv_obj_is_valid(btkb_screen)) return;
+
+    if (bleKBHost.state != btkb_last_state) {
+        BLEKBHostState prev = btkb_last_state;
+        btkb_last_state = bleKBHost.state;
+        if (bleKBHost.state == BLEKB_STATE_SCAN_COMPLETE && prev == BLEKB_STATE_SCANNING) {
+            btkb_rebuild_device_list();
+        }
+        btkb_update_status_labels();
+    }
+}
+
+static lv_obj_t* btkb_make_button(lv_obj_t* parent, int y, const char* text,
+                                  lv_event_cb_t cb, lv_obj_t** label_out) {
+    lv_obj_t* btn = lv_btn_create(parent);
+    lv_obj_set_size(btn, 210, 36);
+    lv_obj_set_pos(btn, 15, y);
+    lv_obj_set_style_bg_color(btn, LV_COLOR_BG_CARD, 0);
+    lv_obj_set_style_bg_color(btn, LV_COLOR_BG_CARD_ACTIVE, LV_STATE_FOCUSED);
+    lv_obj_set_style_radius(btn, 4, 0);
+    lv_obj_set_style_border_width(btn, 1, 0);
+    lv_obj_set_style_border_color(btn, LV_COLOR_BORDER_LIGHT, 0);
+    lv_obj_set_style_border_color(btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
+    lv_obj_set_style_pad_all(btn, 4, 0);
+
+    lv_obj_t* lbl = lv_label_create(btn);
+    lv_label_set_text(lbl, text);
+    lv_obj_set_style_text_font(lbl, getThemeFonts()->font_body, 0);
+    lv_obj_center(lbl);
+    if (label_out != NULL) *label_out = lbl;
+
+    lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(btn, linear_nav_handler, LV_EVENT_KEY, NULL);
+    addNavigableWidget(btn);
+    return btn;
+}
+
+lv_obj_t* createBTKeyboardSettingsScreen() {
+    lv_obj_t* screen = createScreen();
+    applyScreenStyle(screen);
+
+    // Title bar
+    lv_obj_t* title_bar = lv_obj_create(screen);
+    lv_obj_set_size(title_bar, SCREEN_WIDTH, HEADER_HEIGHT);
+    lv_obj_set_pos(title_bar, 0, 0);
+    lv_obj_add_style(title_bar, getStyleStatusBar(), 0);
+    lv_obj_clear_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* title = lv_label_create(title_bar);
+    lv_label_set_text(title, "EXTERNAL KEYBOARD");
+    lv_obj_add_style(title, getStyleLabelTitle(), 0);
+    lv_obj_align(title, LV_ALIGN_LEFT_MID, 15, 0);
+
+    createCompactStatusBar(screen);
+
+    // Status card (full width)
+    lv_obj_t* status_card = lv_obj_create(screen);
+    lv_obj_set_size(status_card, SCREEN_WIDTH - 30, 56);
+    lv_obj_set_pos(status_card, 15, HEADER_HEIGHT + 8);
+    applyCardStyle(status_card);
+    lv_obj_clear_flag(status_card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_all(status_card, 8, 0);
+
+    btkb_status_label = lv_label_create(status_card);
+    lv_obj_set_style_text_font(btkb_status_label, getThemeFonts()->font_subtitle, 0);
+    lv_obj_align(btkb_status_label, LV_ALIGN_TOP_LEFT, 5, 0);
+
+    btkb_paired_label = lv_label_create(status_card);
+    lv_obj_set_style_text_font(btkb_paired_label, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(btkb_paired_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_align(btkb_paired_label, LV_ALIGN_BOTTOM_LEFT, 5, 0);
+
+    // Action buttons (left column)
+    int btn_y = HEADER_HEIGHT + 72;
+    btkb_make_button(screen, btn_y, "Scan for Keyboards", btkb_scan_btn_event_cb, NULL);
+    btkb_make_button(screen, btn_y + 44, "Auto-Reconnect: ON", btkb_auto_btn_event_cb, &btkb_auto_btn_label);
+    btkb_make_button(screen, btn_y + 88, "Forget Pairing", btkb_forget_btn_event_cb, NULL);
+
+    // Device list (right column, scrollable)
+    btkb_device_list = lv_obj_create(screen);
+    lv_obj_set_size(btkb_device_list, SCREEN_WIDTH - 260, 132);
+    lv_obj_set_pos(btkb_device_list, 240, btn_y);
+    applyCardStyle(btkb_device_list);
+    lv_obj_set_layout(btkb_device_list, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(btkb_device_list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(btkb_device_list, 6, 0);
+    lv_obj_set_style_pad_row(btkb_device_list, 4, 0);
+
+    btkb_show_list_message("Scan to find keyboards");
+
+    // Footer
+    lv_obj_t* footer = lv_obj_create(screen);
+    lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
+    lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
+    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* help = lv_label_create(footer);
+    lv_label_set_text(help, FOOTER_NAV_ENTER_ESC);  // Use standardized footer
+    lv_obj_set_style_text_color(help, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
+    lv_obj_center(help);
+
+    // Initialize from current backend state
+    btkb_last_state = bleKBHost.state;
+    btkb_update_status_labels();
+    if (bleKBHost.state == BLEKB_STATE_SCAN_COMPLETE && bleKBHost.foundCount > 0) {
+        btkb_rebuild_device_list();
+    }
+
+    // Poll backend state for scan/connect transitions (guard against double-create)
+    if (btkb_timer != NULL) {
+        lv_timer_del(btkb_timer);
+        btkb_timer = NULL;
+    }
+    btkb_timer = lv_timer_create(btkb_timer_cb, 500, NULL);
+
+    btkb_screen = screen;
+    return screen;
+}
+
+// Cleanup on back-navigation (registered in cleanupTable)
+void cleanupBTKeyboardSettingsScreen() {
+    if (btkb_timer != NULL) {
+        lv_timer_del(btkb_timer);
+        btkb_timer = NULL;
+    }
+    stopBLEKeyboardScan();  // no-op unless a scan is running
+    btkb_screen = NULL;
+    btkb_status_label = NULL;
+    btkb_paired_label = NULL;
+    btkb_auto_btn_label = NULL;
+    btkb_device_list = NULL;
+}
+
 lv_obj_t* createSettingsScreenForMode(int mode) {
     switch (mode) {
         case MODE_VOLUME_SETTINGS:
@@ -1777,6 +2065,8 @@ lv_obj_t* createSettingsScreenForMode(int mode) {
             return createThemeSettingsScreen();
         case MODE_SYSTEM_INFO:
             return createSystemInfoScreen();
+        case MODE_BT_KEYBOARD_SETTINGS:
+            return createBTKeyboardSettingsScreen();
         default:
             Serial.printf("[SettingsScreens] Unknown settings mode: %d\n", mode);
             return NULL;

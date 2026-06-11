@@ -276,7 +276,7 @@ lv_obj_t* createTextInput(lv_obj_t* parent, const char* placeholder, const char*
         lv_textarea_set_text(ta, initial_text);
     }
 
-    lv_obj_add_style(ta, getStyleTextarea(), 0);
+    applyTextareaStyle(ta);
 
     // Make focusable
     addNavigableWidget(ta);
@@ -883,10 +883,85 @@ lv_obj_t* createLoadingOverlay(const char* message) {
     lv_obj_add_style(label, getStyleLabelBody(), 0);
     lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -15);
 
-    // Force immediate render
-    lv_timer_handler();
+    // Force immediate render (lv_timer_handler is re-entrancy guarded and is a
+    // no-op when this is called from inside an event/timer callback)
+    lv_refr_now(NULL);
 
     return overlay;
+}
+
+// ============================================
+// Toast Notification
+// ============================================
+
+// Single active toast (a second showToast replaces the first immediately)
+static lv_obj_t* s_toast_obj = NULL;
+static lv_timer_t* s_toast_timer = NULL;
+
+static void toastTimerCb(lv_timer_t* t) {
+    (void)t;
+    if (s_toast_obj != NULL && lv_obj_is_valid(s_toast_obj)) {
+        lv_obj_del(s_toast_obj);
+    }
+    s_toast_obj = NULL;
+    s_toast_timer = NULL;  // repeat_count=1 deletes the timer after this returns
+}
+
+/*
+ * Show a transient toast notification at the bottom of the screen.
+ * Lives on lv_layer_top() so it survives screen transitions; auto-dismisses.
+ * Use for save confirmations and other non-blocking feedback.
+ */
+void showToast(const char* message, uint32_t duration_ms = 1500) {
+    // Replace any existing toast
+    if (s_toast_timer != NULL) {
+        lv_timer_del(s_toast_timer);
+        s_toast_timer = NULL;
+    }
+    if (s_toast_obj != NULL && lv_obj_is_valid(s_toast_obj)) {
+        lv_obj_del(s_toast_obj);
+        s_toast_obj = NULL;
+    }
+
+    lv_obj_t* toast = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(toast, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_color(toast, LV_COLOR_BG_CARD, 0);
+    lv_obj_set_style_bg_opa(toast, LV_OPA_90, 0);
+    lv_obj_set_style_border_color(toast, LV_COLOR_ACCENT_PRIMARY, 0);
+    lv_obj_set_style_border_width(toast, 1, 0);
+    lv_obj_set_style_radius(toast, 8, 0);
+    lv_obj_set_style_pad_hor(toast, 16, 0);
+    lv_obj_set_style_pad_ver(toast, 8, 0);
+    lv_obj_clear_flag(toast, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(toast, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(toast, LV_ALIGN_BOTTOM_MID, 0, -40);
+
+    lv_obj_t* lbl = lv_label_create(toast);
+    lv_label_set_text(lbl, message);
+    lv_obj_set_style_text_color(lbl, LV_COLOR_TEXT_PRIMARY, 0);
+    lv_obj_set_style_text_font(lbl, getThemeFonts()->font_body, 0);
+    lv_obj_center(lbl);
+
+    s_toast_obj = toast;
+    s_toast_timer = lv_timer_create(toastTimerCb, duration_ms, NULL);
+    lv_timer_set_repeat_count(s_toast_timer, 1);
+}
+
+// ============================================
+// Standard Screen Footer
+// ============================================
+
+/*
+ * Create the standard footer hint label at the bottom of a screen.
+ * Use the FOOTER_* constants above for the text so wording stays consistent.
+ */
+lv_obj_t* createScreenFooter(lv_obj_t* screen, const char* hint_text) {
+    lv_obj_t* footer = lv_label_create(screen);
+    lv_label_set_text(footer, hint_text);
+    lv_obj_set_style_text_font(footer, getThemeFonts()->font_body, 0);
+    lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
+    lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);
+    return footer;
 }
 
 // ============================================

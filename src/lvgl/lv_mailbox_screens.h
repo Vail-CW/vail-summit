@@ -7,6 +7,7 @@
 #define LV_MAILBOX_SCREENS_H
 
 #include <lvgl.h>
+#include <Preferences.h>
 #include "lv_theme_summit.h"
 #include "lv_widgets_summit.h"
 #include "lv_screen_manager.h"
@@ -42,6 +43,24 @@ static lv_obj_t* mailbox_playback_screen = NULL;
 static lv_obj_t* mailbox_play_btn = NULL;
 static lv_obj_t* mailbox_speed_label = NULL;
 static float mailbox_playback_speed = 1.0f;
+
+// Persist playback speed (stored as int = speed * 100)
+static void saveMailboxPlaybackSpeed() {
+    Preferences prefs;
+    prefs.begin("mailbox", false);
+    prefs.putInt("pbspeed", (int)(mailbox_playback_speed * 100.0f + 0.5f));
+    prefs.end();
+}
+
+static void loadMailboxPlaybackSpeed() {
+    Preferences prefs;
+    prefs.begin("mailbox", true);  // read-only
+    int sp = prefs.getInt("pbspeed", 100);
+    prefs.end();
+    if (sp < 50) sp = 50;
+    if (sp > 200) sp = 200;
+    mailbox_playback_speed = sp / 100.0f;
+}
 static String currentPlaybackMessageId = "";
 static String mailbox_reply_recipient = "";  // For pre-filling compose screen when replying
 
@@ -375,6 +394,9 @@ static void mailbox_playback_nav_handler(lv_event_t* e) {
 static void mailbox_link_timer_cb(lv_timer_t* timer) {
     Serial.println("[Mailbox] Link timer callback fired");
 
+    // Bail out if the link screen was torn down
+    if (!mailbox_link_screen || !lv_obj_is_valid(mailbox_link_screen)) return;
+
     // Check link state
     int result = checkDeviceCode();
     Serial.printf("[Mailbox] checkDeviceCode returned: %d, state: %d\n", result, (int)getMailboxLinkState());
@@ -472,9 +494,10 @@ static void mailbox_link_key_handler(lv_event_t* e) {
                     lv_label_set_text(mailbox_status_label, "Waiting for link...");
                     lv_obj_set_style_text_color(mailbox_status_label, LV_COLOR_WARNING, 0);
                 }
-                // Restart timer
+                // Restart timer (guard against double-create)
                 if (mailbox_link_timer) {
                     lv_timer_del(mailbox_link_timer);
+                    mailbox_link_timer = NULL;
                 }
                 mailbox_link_timer = lv_timer_create(mailbox_link_timer_cb, 5000, NULL);
             }
@@ -628,9 +651,10 @@ lv_obj_t* createMailboxLinkScreen() {
     lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -10);
 
-    // Start polling timer (every 5 seconds)
+    // Start polling timer (every 5 seconds, guard against double-create)
     if (mailbox_link_timer) {
         lv_timer_del(mailbox_link_timer);
+        mailbox_link_timer = NULL;
     }
     mailbox_link_timer = lv_timer_create(mailbox_link_timer_cb, 5000, NULL);
 
@@ -728,7 +752,8 @@ lv_obj_t* createMailboxInboxScreen() {
     lv_obj_set_style_radius(account_btn, 5, 0);
 
     lv_obj_t* account_lbl = lv_label_create(account_btn);
-    lv_label_set_text(account_lbl, getMailboxUserCallsign());
+    const char* account_callsign = getMailboxUserCallsign();
+    lv_label_set_text(account_lbl, (account_callsign && account_callsign[0] != '\0') ? account_callsign : "Account");
     lv_obj_set_style_text_font(account_lbl, getThemeFonts()->font_body, 0);
     lv_obj_center(account_lbl);
 
@@ -754,6 +779,11 @@ lv_obj_t* createMailboxInboxScreen() {
 
     int msgCount = getMailboxInboxCount();
     MailboxMessage* msgs = getMailboxInboxCache();
+
+    // Clamp to tracking array capacity (msgIds / message_items)
+    if (msgCount > MAILBOX_INBOX_CACHE_SIZE) {
+        msgCount = MAILBOX_INBOX_CACHE_SIZE;
+    }
 
     if (msgCount == 0) {
         lv_obj_t* empty = lv_label_create(list_container);
@@ -1007,6 +1037,8 @@ static void mailbox_speed_adjust(lv_event_t* e) {
 
     // Update both the header label and button label
     if (changed) {
+        saveMailboxPlaybackSpeed();  // Save immediately on change
+
         char buf[16];
         snprintf(buf, sizeof(buf), "%.2fx", mailbox_playback_speed);
         if (mailbox_speed_label) {
@@ -1042,6 +1074,9 @@ static void mailbox_reply_btn_click(lv_event_t* e) {
  * Create message playback screen
  */
 lv_obj_t* createMailboxPlaybackScreen() {
+    // Restore persisted playback speed
+    loadMailboxPlaybackSpeed();
+
     // Create screen first (for loading indicator)
     lv_obj_t* screen = createScreen();
     applyScreenStyle(screen);
@@ -1356,6 +1391,7 @@ lv_obj_t* createMailboxAccountScreen() {
 
 // Compose screen state
 static lv_obj_t* mailbox_compose_screen = NULL;
+static lv_timer_t* mailbox_compose_timer = NULL;
 static lv_obj_t* mailbox_recipient_input = NULL;
 static lv_obj_t* mailbox_record_status_label = NULL;
 static lv_obj_t* mailbox_record_duration_label = NULL;
@@ -1412,6 +1448,9 @@ static void composePaddleCallback(bool ditPressed, bool dahPressed, unsigned lon
 
 // Update compose screen state (called from timer)
 static void mailbox_compose_update_timer_cb(lv_timer_t* timer) {
+    // Bail out if the compose screen was torn down
+    if (!mailbox_compose_screen || !lv_obj_is_valid(mailbox_compose_screen)) return;
+
     MailboxRecordState state = getMailboxRecordState();
 
     // Update status label
@@ -1739,18 +1778,21 @@ lv_obj_t* createMailboxComposeScreen() {
     lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);
 
-    // Create update timer (store reference for cleanup)
-    lv_timer_t* compose_timer = lv_timer_create(mailbox_compose_update_timer_cb, 100, NULL);
+    // Create update timer (stored for cleanup, guard against double-create)
+    if (mailbox_compose_timer) {
+        lv_timer_del(mailbox_compose_timer);
+        mailbox_compose_timer = NULL;
+    }
+    mailbox_compose_timer = lv_timer_create(mailbox_compose_update_timer_cb, 100, NULL);
 
-    // Add screen delete event handler to cleanup keyer
+    // Add screen delete event handler to cleanup keyer and timer
     lv_obj_add_event_cb(screen, [](lv_event_t* e) {
         cleanupComposeKeyer();
-        // Also delete the timer
-        lv_timer_t* timer = (lv_timer_t*)lv_event_get_user_data(e);
-        if (timer) {
-            lv_timer_del(timer);
+        if (mailbox_compose_timer) {
+            lv_timer_del(mailbox_compose_timer);
+            mailbox_compose_timer = NULL;
         }
-    }, LV_EVENT_DELETE, compose_timer);
+    }, LV_EVENT_DELETE, NULL);
 
     mailbox_compose_screen = screen;
     return screen;
@@ -1760,6 +1802,10 @@ lv_obj_t* createMailboxComposeScreen() {
 void cleanupMailboxCompose() {
     cleanupComposeKeyer();
     clearMailboxRecording();
+    if (mailbox_compose_timer) {
+        lv_timer_del(mailbox_compose_timer);
+        mailbox_compose_timer = NULL;
+    }
     mailbox_recipient_input = NULL;
     mailbox_record_status_label = NULL;
     mailbox_record_duration_label = NULL;

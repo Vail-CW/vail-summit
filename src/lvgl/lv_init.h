@@ -14,6 +14,7 @@
 // Returns true if key was consumed as a global hotkey
 extern bool handleGlobalHotkey(char key);
 
+
 // WiFi password screen: remap CardKB TAB so it is not interpreted as LVGL group NEXT.
 // Implemented in lv_wifi_screen.h (included by the sketch after lv_init.h).
 bool lvglWifiPasswordRemapTab(uint32_t* key);
@@ -118,8 +119,10 @@ void lvgl_disp_flush(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* colo
     uint32_t w = (area->x2 - area->x1 + 1);
     uint32_t h = (area->y2 - area->y1 + 1);
 
-    // Push pixels with byte swap enabled for correct color display
-    // The 'true' parameter tells LovyanGFX to swap bytes for SPI displays
+    // Blocking flush. NOTE: do NOT hold a persistent SPI transaction or use a
+    // DMA-overlapped flush here - the SD card shares SPI2 with the display, so
+    // holding the bus lock deadlocks background SD access, and the overlapped
+    // SRAM traffic contends with the I2S DMA and crunches the sidetone.
     lvgl_tft->startWrite();
     lvgl_tft->setAddrWindow(area->x1, area->y1, w, h);
     lvgl_tft->pushPixels((uint16_t*)color_p, w * h, true);  // swap565 = true
@@ -239,7 +242,8 @@ void lvgl_keypad_read(lv_indev_drv_t* drv, lv_indev_data_t* data) {
  * Tries PSRAM first, falls back to regular RAM
  */
 bool allocateDisplayBuffers() {
-    // Try to allocate in PSRAM for better performance
+    // Buffers live in PSRAM: keeps ~76KB of internal SRAM free for WiFi/heap
+    // and avoids internal-SRAM bus contention with the I2S audio DMA.
     if (psramFound()) {
         Serial.println("[LVGL] Allocating display buffers in PSRAM");
         lvgl_buf1 = (lv_color_t*)ps_malloc(LV_BUF_SIZE * sizeof(lv_color_t));

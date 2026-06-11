@@ -24,7 +24,7 @@ public:
       auto cfg = _bus_instance.config();
       cfg.spi_host = SPI2_HOST;
       cfg.spi_mode = 0;
-      cfg.freq_write = 40000000;  // 40MHz write speed
+      cfg.freq_write = 80000000;  // 80MHz write speed (ST7796S max; drop to 60MHz if artifacts appear)
       cfg.freq_read = 16000000;   // 16MHz read speed
       cfg.spi_3wire = false;
       cfg.use_lock = true;

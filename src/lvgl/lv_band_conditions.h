@@ -20,7 +20,6 @@
 
 static lv_obj_t* band_cond_screen = NULL;
 static lv_obj_t* band_cond_content = NULL;
-static lv_obj_t* band_cond_loading_bar = NULL;
 static lv_obj_t* band_cond_loading_label = NULL;
 static lv_obj_t* band_cond_tab_hf = NULL;
 static lv_obj_t* band_cond_tab_vhf = NULL;
@@ -30,6 +29,7 @@ static int band_cond_selected_tab = 0;  // 0 = HF, 1 = VHF
 static bool band_cond_is_loading = false;
 static unsigned long band_cond_fetch_time = 0;  // millis() when data was fetched
 static lv_timer_t* band_cond_update_timer = NULL;  // Timer to update "X min ago"
+static lv_timer_t* band_cond_autoload_timer = NULL;  // One-shot auto-refresh on entry
 
 // ============================================
 // Forward Declarations
@@ -47,11 +47,12 @@ void stopBandConditionsTimer();
 // ============================================
 
 static void band_cond_timer_cb(lv_timer_t* timer) {
+    if (!band_cond_updated_label || !lv_obj_is_valid(band_cond_updated_label)) return;
     updateTimestampLabel();
 }
 
 void updateTimestampLabel() {
-    if (!band_cond_updated_label) return;
+    if (!band_cond_updated_label || !lv_obj_is_valid(band_cond_updated_label)) return;
 
     if (band_cond_fetch_time == 0) {
         lv_label_set_text(band_cond_updated_label, "Press R to refresh");
@@ -84,6 +85,10 @@ void stopBandConditionsTimer() {
     if (band_cond_update_timer) {
         lv_timer_del(band_cond_update_timer);
         band_cond_update_timer = NULL;
+    }
+    if (band_cond_autoload_timer) {
+        lv_timer_del(band_cond_autoload_timer);
+        band_cond_autoload_timer = NULL;
     }
 }
 
@@ -460,7 +465,7 @@ void createVHFTabContent(lv_obj_t* parent) {
 // ============================================
 
 void updateBandConditionsContent() {
-    if (!band_cond_content) return;
+    if (!band_cond_content || !lv_obj_is_valid(band_cond_content)) return;
 
     // Clear existing content
     lv_obj_clean(band_cond_content);
@@ -487,32 +492,6 @@ void updateBandConditionsContent() {
 }
 
 // ============================================
-// Show Loading State
-// ============================================
-
-void showLoadingState(bool show) {
-    band_cond_is_loading = show;
-
-    if (band_cond_loading_bar) {
-        if (show) {
-            lv_obj_clear_flag(band_cond_loading_bar, LV_OBJ_FLAG_HIDDEN);
-            lv_bar_set_value(band_cond_loading_bar, 0, LV_ANIM_OFF);
-        } else {
-            lv_obj_add_flag(band_cond_loading_bar, LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-
-    if (band_cond_loading_label) {
-        if (show) {
-            lv_obj_clear_flag(band_cond_loading_label, LV_OBJ_FLAG_HIDDEN);
-            lv_label_set_text(band_cond_loading_label, "Fetching band conditions...");
-        } else {
-            lv_obj_add_flag(band_cond_loading_label, LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-}
-
-// ============================================
 // Refresh Band Conditions
 // ============================================
 
@@ -529,20 +508,19 @@ void refreshBandConditions() {
         return;
     }
 
-    showLoadingState(true);
-
-    // Animate progress bar (simulated since fetch is blocking)
-    if (band_cond_loading_bar) {
-        lv_bar_set_value(band_cond_loading_bar, 30, LV_ANIM_ON);
+    band_cond_is_loading = true;
+    if (band_cond_loading_label) {
+        lv_obj_add_flag(band_cond_loading_label, LV_OBJ_FLAG_HIDDEN);
     }
 
-    // Force LVGL to update display before blocking fetch
-    lv_timer_handler();
+    // Modal spinner overlay - renders immediately, before the blocking fetch
+    lv_obj_t* overlay = createLoadingOverlay("Fetching band conditions...");
 
     // Fetch data (blocking)
     bool success = fetchBandConditions(bandConditionsData);
 
-    showLoadingState(false);
+    lv_obj_del(overlay);
+    band_cond_is_loading = false;
 
     if (success) {
         if (band_cond_loading_label) {
@@ -641,17 +619,7 @@ lv_obj_t* createBandConditionsScreen() {
     lv_obj_set_style_pad_all(band_cond_content, 0, 0);
     lv_obj_clear_flag(band_cond_content, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Loading bar (hidden initially)
-    band_cond_loading_bar = lv_bar_create(screen);
-    lv_obj_set_size(band_cond_loading_bar, 200, 10);
-    lv_obj_align(band_cond_loading_bar, LV_ALIGN_CENTER, 0, -20);
-    lv_bar_set_range(band_cond_loading_bar, 0, 100);
-    lv_bar_set_value(band_cond_loading_bar, 0, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(band_cond_loading_bar, getThemeColors()->bg_layer2, 0);
-    lv_obj_set_style_bg_color(band_cond_loading_bar, LV_COLOR_ACCENT_PRIMARY, LV_PART_INDICATOR);
-    lv_obj_add_flag(band_cond_loading_bar, LV_OBJ_FLAG_HIDDEN);
-
-    // Loading label (hidden initially)
+    // Status/error label (hidden initially)
     band_cond_loading_label = lv_label_create(screen);
     lv_label_set_text(band_cond_loading_label, "");
     lv_obj_set_style_text_font(band_cond_loading_label, &lv_font_montserrat_14, 0);
@@ -703,18 +671,28 @@ lv_obj_t* createBandConditionsScreen() {
 // Start Band Conditions Mode
 // ============================================
 
+// One-shot timer callback: auto-refresh shortly after entry so the
+// screen renders first (replaces the old blocking delay)
+static void band_cond_autoload_cb(lv_timer_t* timer) {
+    band_cond_autoload_timer = NULL;  // repeat_count=1 deletes the timer after this returns
+    if (!band_cond_screen || !lv_obj_is_valid(band_cond_screen)) return;
+    if (!band_cond_is_loading) {
+        refreshBandConditions();
+    }
+}
+
 void startBandConditions(LGFX& display) {
     Serial.println("[BandConditions] Starting Band Conditions mode");
 
     // Start timer to update "X min ago" label every minute
-    stopBandConditionsTimer();  // Clean up any existing timer
+    stopBandConditionsTimer();  // Clean up any existing timers (also guards double-create)
     band_cond_update_timer = lv_timer_create(band_cond_timer_cb, 60000, NULL);  // 60 seconds
 
     // Auto-refresh on entry if WiFi connected and no data yet
     if (WiFi.status() == WL_CONNECTED && !bandConditionsData.valid) {
-        // Small delay to let screen render first
-        delay(100);
-        refreshBandConditions();
+        // One-shot timer lets the screen render before the fetch
+        band_cond_autoload_timer = lv_timer_create(band_cond_autoload_cb, 100, NULL);
+        lv_timer_set_repeat_count(band_cond_autoload_timer, 1);
     }
 }
 
@@ -726,7 +704,6 @@ void cleanupBandConditions() {
     stopBandConditionsTimer();
     band_cond_screen = NULL;
     band_cond_content = NULL;
-    band_cond_loading_bar = NULL;
     band_cond_loading_label = NULL;
     band_cond_tab_hf = NULL;
     band_cond_tab_vhf = NULL;

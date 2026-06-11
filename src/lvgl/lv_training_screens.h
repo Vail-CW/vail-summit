@@ -389,6 +389,11 @@ static bool hear_it_in_submenu = false;       // True when in Koch/CWA lesson pi
 static int hear_it_submenu_selection = 0;     // Selection within submenu
 static const int PRESET_MENU_ITEMS = 5;       // Main menu items count (Koch, CWA, All, Select, Cancel)
 
+// Character grid state (preset picker "Select Characters..." view)
+static bool hear_it_in_char_grid = false;
+static bool hear_it_char_selected[36];  // A-Z (26) + 0-9 (10)
+static int hear_it_grid_cursor = 0;
+
 // Focus container for settings navigation (invisible widget that receives key events)
 static lv_obj_t* hear_it_focus_container = NULL;
 
@@ -613,7 +618,7 @@ static void hear_it_start_timer_cb(lv_timer_t* timer) {
     hear_it_start_timer = NULL;  // Clear reference before delete
     startNewCallsign();
     playCurrentCallsign();
-    if (hear_it_prompt != NULL) {
+    if (hear_it_prompt != NULL && lv_obj_is_valid(hear_it_prompt)) {
         lv_label_set_text(hear_it_prompt, "Type what you hear:");
     }
     lv_timer_del(timer);
@@ -662,6 +667,8 @@ void cleanupHearItTypeItScreen() {
     hear_it_preset_modal = NULL;
     hear_it_preset_list = NULL;
     hear_it_in_submenu = false;
+    hear_it_in_char_grid = false;
+    hear_it_settings_focus = 0;
 }
 
 // Timer callback for delayed playback after correct/incorrect answer
@@ -701,7 +708,7 @@ static void hear_it_skip_timer_cb(lv_timer_t* timer) {
     playCurrentCallsign();
 
     // Update prompt after playback starts
-    if (hear_it_prompt != NULL) {
+    if (hear_it_prompt != NULL && lv_obj_is_valid(hear_it_prompt)) {
         lv_label_set_text(hear_it_prompt, "Type what you hear:");
         lv_obj_set_style_text_color(hear_it_prompt, LV_COLOR_TEXT_SECONDARY, 0);
     }
@@ -776,11 +783,6 @@ static void updatePresetPickerDisplay();
 static const char* preset_main_menu[] = {"Koch Method (1-44)", "CW Academy (1-10)", "All Characters (36)", "Select Characters...", "Cancel"};
 static const int KOCH_TOTAL = 44;
 static const int CWA_TOTAL = 10;
-
-// Character grid state
-static bool hear_it_in_char_grid = false;
-static bool hear_it_char_selected[36];  // A-Z (26) + 0-9 (10)
-static int hear_it_grid_cursor = 0;
 
 // Koch character sequence - standard learning progression for Morse
 // Used for Hear It Type It preset character selection
@@ -947,8 +949,10 @@ static void hear_it_preset_key_handler(lv_event_t* e) {
                 hear_it_update_chars_display();
             }
         } else if (hear_it_in_char_grid) {
-            // Toggle character selection
-            hear_it_char_selected[hear_it_grid_cursor] = !hear_it_char_selected[hear_it_grid_cursor];
+            // Toggle character selection (bounds-checked)
+            if (hear_it_grid_cursor >= 0 && hear_it_grid_cursor < 36) {
+                hear_it_char_selected[hear_it_grid_cursor] = !hear_it_char_selected[hear_it_grid_cursor];
+            }
             updatePresetPickerDisplay();
         } else {
             switch (hear_it_preset_selection) {
@@ -1073,20 +1077,20 @@ static void updatePresetPickerDisplay() {
                 // Back option
                 lv_label_set_text(item, LV_SYMBOL_LEFT " Back");
             } else {
-                // Lesson/Session option
+                // Lesson/Session option (char buffer - avoid String concat in key handler path)
+                char label_buf[40];
                 if (isKoch) {
                     String chars = getKochCharsForLesson(i + 1);
-                    String label = String(i + 1) + ": " + chars.substring(0, 8);
-                    if (chars.length() > 8) label += "...";
-                    label += " (" + String(chars.length()) + ")";
-                    lv_label_set_text(item, label.c_str());
+                    snprintf(label_buf, sizeof(label_buf), "%d: %.8s%s (%d)",
+                             i + 1, chars.c_str(),
+                             chars.length() > 8 ? "..." : "", (int)chars.length());
                 } else {
                     String chars = getCWASessionChars(i + 1);
-                    String label = "S" + String(i + 1) + ": " + chars.substring(0, 10);
-                    if (chars.length() > 10) label += "...";
-                    label += " (" + String(chars.length()) + ")";
-                    lv_label_set_text(item, label.c_str());
+                    snprintf(label_buf, sizeof(label_buf), "S%d: %.10s%s (%d)",
+                             i + 1, chars.c_str(),
+                             chars.length() > 10 ? "..." : "", (int)chars.length());
                 }
+                lv_label_set_text(item, label_buf);
             }
 
             // Style based on selection
@@ -1466,7 +1470,11 @@ static void hear_it_start_btn_cb(lv_event_t* e) {
     // Play sound to indicate start
     beep(TONE_SELECT, BEEP_LONG);
 
-    // Create timer to start after 3 seconds
+    // Create timer to start after 3 seconds (guard against double-create)
+    if (hear_it_start_timer != NULL) {
+        lv_timer_del(hear_it_start_timer);
+        hear_it_start_timer = NULL;
+    }
     hear_it_start_timer = lv_timer_create(hear_it_start_timer_cb, 3000, NULL);
 }
 
@@ -1720,7 +1728,7 @@ lv_obj_t* createHearItTypeItScreen() {
     lv_obj_set_size(hear_it_input, 300, 50);
     lv_textarea_set_one_line(hear_it_input, true);
     lv_textarea_set_placeholder_text(hear_it_input, "Type your answer");
-    lv_obj_add_style(hear_it_input, getStyleTextarea(), 0);
+    applyTextareaStyle(hear_it_input);
     lv_obj_set_style_text_font(hear_it_input, getThemeFonts()->font_subtitle, 0);
     lv_obj_add_event_cb(hear_it_input, hear_it_key_event_cb, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(hear_it_input, hear_it_value_changed_cb, LV_EVENT_VALUE_CHANGED, NULL);
@@ -1982,7 +1990,7 @@ lv_obj_t* createCWAcademyTrackSelectScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, "UP/DN Select   ENTER Choose Track   ESC Back");
+    lv_label_set_text(help, FOOTER_NAV_ENTER_ESC);
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
@@ -2083,7 +2091,7 @@ lv_obj_t* createCWAcademySessionSelectScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, "UP/DN Select   ENTER Choose   ESC Back");
+    lv_label_set_text(help, FOOTER_NAV_ENTER_ESC);
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
@@ -2184,7 +2192,7 @@ lv_obj_t* createCWAcademyPracticeTypeSelectScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, "UP/DN Select   ENTER Start   ESC Back");
+    lv_label_set_text(help, FOOTER_NAV_ENTER_ESC);
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
@@ -2300,7 +2308,7 @@ lv_obj_t* createCWAcademyMessageTypeSelectScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, "UP/DN Select   ENTER Start   ESC Back");
+    lv_label_set_text(help, FOOTER_NAV_ENTER_ESC);
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
@@ -2311,6 +2319,19 @@ lv_obj_t* createCWAcademyMessageTypeSelectScreen() {
     }
 
     return screen;
+}
+
+/*
+ * Cleanup for CW Academy select screens (track/session/practice type/message type)
+ * NULLs static widget pointers so stale references are never used after back-nav.
+ * Registered in cleanupTable for all four CWA select modes.
+ */
+void cleanupCWASelectScreens() {
+    cwa_screen = NULL;
+    for (int i = 0; i < 4; i++) cwa_track_btns[i] = NULL;
+    for (int i = 0; i < 16; i++) cwa_session_btns[i] = NULL;
+    for (int i = 0; i < 3; i++) cwa_practice_type_btns[i] = NULL;
+    for (int i = 0; i < 6; i++) cwa_message_type_btns[i] = NULL;
 }
 
 // ============================================
@@ -2383,11 +2404,43 @@ void initCWACopyPractice() {
     randomSeed(esp_random());
 }
 
+// Core-state reset functions (defined in training_cwa_core.h)
+extern void resetCWACopyPracticeState();
+extern void resetCWASendingPracticeState();
+
+/*
+ * Cleanup for CW Academy Copy Practice screen (LVGL side)
+ * Deletes timers and NULLs static widget pointers, then resets core practice state.
+ * Registered in cleanupTable for MODE_CW_ACADEMY_COPY_PRACTICE.
+ */
+void cleanupCWACopyPracticeScreen() {
+    if (cwa_copy_autoplay_timer != NULL) {
+        lv_timer_del(cwa_copy_autoplay_timer);
+        cwa_copy_autoplay_timer = NULL;
+    }
+    if (cwa_copy_playback_timer != NULL) {
+        lv_timer_del(cwa_copy_playback_timer);
+        cwa_copy_playback_timer = NULL;
+    }
+    cwa_copy_screen = NULL;
+    cwa_copy_round_label = NULL;
+    cwa_copy_score_label = NULL;
+    cwa_copy_chars_label = NULL;
+    cwa_copy_prompt_label = NULL;
+    cwa_copy_input_label = NULL;
+    cwa_copy_feedback_label = NULL;
+    cwa_copy_target_label = NULL;
+    cwaCopyUIState = CWA_COPY_READY;
+
+    // Core practice state reset (was the previous cleanupTable callback)
+    resetCWACopyPracticeState();
+}
+
 /*
  * Update CW Academy Copy Practice UI elements
  */
 void updateCWACopyPracticeUI() {
-    if (!cwa_copy_screen) return;
+    if (!cwa_copy_screen || !lv_obj_is_valid(cwa_copy_screen)) return;
 
     // Update round display
     if (cwa_copy_round_label) {
@@ -3047,7 +3100,7 @@ void handleCWASendingStraightKeyDualCore() {
  */
 void updateCWASendingPracticeLVGL() {
     if (cwa_send_state != CWA_SEND_SENDING) return;
-    if (!cwa_send_screen) return;
+    if (!cwa_send_screen || !lv_obj_is_valid(cwa_send_screen)) return;
 
     // Service direct decoder tick
     if (cwaSendLVGLTickPending) {
@@ -3090,10 +3143,10 @@ void updateCWASendingPracticeLVGL() {
         }
     }
 
-    // Update decoded label if changed
+    // Update decoded label if changed (no String copy in this hot path)
     if (decoded_changed && cwa_send_decoded_label) {
-        String display = cwaSendDecoded.length() > 0 ? cwaSendDecoded : "_";
-        lv_label_set_text(cwa_send_decoded_label, display.c_str());
+        lv_label_set_text(cwa_send_decoded_label,
+                          cwaSendDecoded.length() > 0 ? cwaSendDecoded.c_str() : "_");
     }
 }
 
@@ -3101,7 +3154,7 @@ void updateCWASendingPracticeLVGL() {
  * Update sending practice UI
  */
 void updateCWASendPracticeUI() {
-    if (!cwa_send_screen) return;
+    if (!cwa_send_screen || !lv_obj_is_valid(cwa_send_screen)) return;
 
     // Update round/score labels
     if (cwa_send_round_label) {
@@ -3114,8 +3167,9 @@ void updateCWASendPracticeUI() {
     // Update target label
     if (cwa_send_target_label) {
         if (cwaSendShowReference) {
-            String target = "Send: " + cwaSendTarget;
-            lv_label_set_text(cwa_send_target_label, target.c_str());
+            char target_buf[96];
+            snprintf(target_buf, sizeof(target_buf), "Send: %s", cwaSendTarget.c_str());
+            lv_label_set_text(cwa_send_target_label, target_buf);
             lv_obj_set_style_text_color(cwa_send_target_label, LV_COLOR_SUCCESS, 0);
         } else {
             lv_label_set_text(cwa_send_target_label, "(Reference hidden - press R to show)");
@@ -3125,8 +3179,8 @@ void updateCWASendPracticeUI() {
 
     // Update decoded label
     if (cwa_send_decoded_label) {
-        String display = cwaSendDecoded.length() > 0 ? cwaSendDecoded : "_";
-        lv_label_set_text(cwa_send_decoded_label, display.c_str());
+        lv_label_set_text(cwa_send_decoded_label,
+                          cwaSendDecoded.length() > 0 ? cwaSendDecoded.c_str() : "_");
     }
 
     // Update feedback label based on state
@@ -3145,8 +3199,9 @@ void updateCWASendPracticeUI() {
                     lv_label_set_text(cwa_send_feedback_label, "CORRECT!");
                     lv_obj_set_style_text_color(cwa_send_feedback_label, LV_COLOR_SUCCESS, 0);
                 } else {
-                    String fb = "Expected: " + cwaSendTarget;
-                    lv_label_set_text(cwa_send_feedback_label, fb.c_str());
+                    char fb_buf[96];
+                    snprintf(fb_buf, sizeof(fb_buf), "Expected: %s", cwaSendTarget.c_str());
+                    lv_label_set_text(cwa_send_feedback_label, fb_buf);
                     lv_obj_set_style_text_color(cwa_send_feedback_label, LV_COLOR_ERROR, 0);
                 }
                 break;
@@ -3161,6 +3216,39 @@ void updateCWASendPracticeUI() {
             }
         }
     }
+}
+
+/*
+ * Cleanup for CW Academy Sending Practice screen (LVGL side)
+ * Stops the decoder tick timer, frees the decoder, stops audio, NULLs static
+ * widget pointers, then resets core practice state.
+ * Registered in cleanupTable for MODE_CW_ACADEMY_SENDING_PRACTICE.
+ */
+void cleanupCWASendingPracticeScreen() {
+    if (cwaSendLVGLTickTimer != nullptr) {
+        esp_timer_stop(cwaSendLVGLTickTimer);
+        esp_timer_delete(cwaSendLVGLTickTimer);
+        cwaSendLVGLTickTimer = nullptr;
+    }
+    cwaSendLVGLTickPending = false;
+
+    delete cwa_send_decoder_ptr;
+    cwa_send_decoder_ptr = NULL;
+
+    requestStopTone();
+
+    cwa_send_screen = NULL;
+    cwa_send_round_label = NULL;
+    cwa_send_score_label = NULL;
+    cwa_send_target_label = NULL;
+    cwa_send_decoded_label = NULL;
+    cwa_send_feedback_label = NULL;
+    cwa_send_hint_label = NULL;
+    cwa_send_ref_toggle = NULL;
+    cwa_send_state = CWA_SEND_READY;
+
+    // Core practice state reset (was the previous cleanupTable callback)
+    resetCWASendingPracticeState();
 }
 
 /*
@@ -3343,7 +3431,7 @@ lv_obj_t* createCWAcademySendingPracticeScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, "SPACE: Hear target   R: Toggle ref   ENTER: Submit   ESC: Exit");
+    lv_label_set_text(help, "SPACE Hear Target   R Toggle Ref   ENTER Submit   ESC Exit");
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
@@ -3428,14 +3516,14 @@ void startCWAQSORound() {
             strncpy(cwa_qso_expected, vailCallsign.c_str(), sizeof(cwa_qso_expected) - 1);
             cwa_qso_expected[sizeof(cwa_qso_expected) - 1] = '\0';
         } else {
-            strcpy(cwa_qso_expected, "W1TEST");
+            strlcpy(cwa_qso_expected, "W1TEST", sizeof(cwa_qso_expected));
         }
     } else if (cwa_qso_round <= 6) {
         // RST exchange: Station sends RST, expect 599 back
-        strcpy(cwa_qso_expected, "599");
+        strlcpy(cwa_qso_expected, "599", sizeof(cwa_qso_expected));
     } else {
         // Full exchange: Station sends name, expect your name
-        strcpy(cwa_qso_expected, "OP");  // Placeholder - user should send their name
+        strlcpy(cwa_qso_expected, "OP", sizeof(cwa_qso_expected));  // Placeholder - user should send their name
     }
 }
 
@@ -3443,7 +3531,7 @@ void startCWAQSORound() {
  * Update QSO practice UI
  */
 void updateCWAQSOPracticeUI() {
-    if (!cwa_qso_screen) return;
+    if (!cwa_qso_screen || !lv_obj_is_valid(cwa_qso_screen)) return;
 
     if (cwa_qso_round_label) {
         lv_label_set_text_fmt(cwa_qso_round_label, "Round: %d/10  Score: %d/%d",
@@ -3690,7 +3778,7 @@ lv_obj_t* createCWAcademyQSOPracticeScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, "SPACE: Replay   ENTER: Submit   ESC: Exit");
+    lv_label_set_text(help, "SPACE Replay   ENTER Submit   ESC Exit");
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
@@ -3701,6 +3789,21 @@ lv_obj_t* createCWAcademyQSOPracticeScreen() {
 
     cwa_qso_screen = screen;
     return screen;
+}
+
+/*
+ * Cleanup for CW Academy QSO Practice screen (LVGL side)
+ * NULLs static widget pointers and resets session state.
+ * Registered in cleanupTable for MODE_CW_ACADEMY_QSO_PRACTICE.
+ */
+void cleanupCWAQSOPracticeScreen() {
+    cwa_qso_screen = NULL;
+    cwa_qso_round_label = NULL;
+    cwa_qso_station_label = NULL;
+    cwa_qso_prompt_label = NULL;
+    cwa_qso_input_label = NULL;
+    cwa_qso_feedback_label = NULL;
+    cwa_qso_state = CWA_QSO_READY;
 }
 
 // ============================================
@@ -4003,7 +4106,7 @@ lv_obj_t* createLicenseSelectScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, "ENTER Select   V Quick Settings   ESC Back");  // Menu footer with V shortcut
+    lv_label_set_text(help, FOOTER_MENU_WITH_VOLUME);  // Menu footer with V shortcut
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
@@ -4013,11 +4116,21 @@ lv_obj_t* createLicenseSelectScreen() {
 }
 
 /*
+ * Cleanup for License Select screen
+ * NULLs static widget pointers so stale references are never used after back-nav.
+ * Registered in cleanupTable for MODE_LICENSE_SELECT.
+ */
+void cleanupLicenseSelectScreen() {
+    license_select_screen = NULL;
+    for (int i = 0; i < 4; i++) license_select_cards[i] = NULL;
+}
+
+/*
  * Update license quiz display with current question
  * NOTE: This function must be defined before the event handlers that call it
  */
 void updateLicenseQuizDisplay() {
-    if (!activePool || !license_question_label) return;
+    if (!activePool || !license_question_label || !lv_obj_is_valid(license_question_label)) return;
 
     struct LicenseQuestion* q = &activePool->questions[licenseSession.currentQuestionIndex];
 
@@ -4049,10 +4162,7 @@ void updateLicenseQuizDisplay() {
 
                 if (text_width > label_width) {
                     // Text will scroll - add visible separator for clarity
-                    size_t len = strlen(buf);
-                    if (len < sizeof(buf) - 12) {
-                        strcat(buf, "   \xE2\x80\xA2   ");  // " • " (bullet) as separator
-                    }
+                    strlcat(buf, "   \xE2\x80\xA2   ", sizeof(buf));  // " • " (bullet) as separator
                 }
                 lv_label_set_text(label, buf);
             }
@@ -4107,7 +4217,7 @@ void updateLicenseQuizDisplay() {
  * Update the stats overlay content
  */
 void updateLicenseStatsOverlay() {
-    if (!license_stats_overlay_label || !activePool) return;
+    if (!license_stats_overlay_label || !lv_obj_is_valid(license_stats_overlay_label) || !activePool) return;
 
     int mastery = calculatePoolMastery(activePool);
     int sessionAccuracy = licenseSession.sessionTotal > 0 ?
@@ -4398,13 +4508,29 @@ lv_obj_t* createLicenseQuizScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, "Tab: Stats   ENTER: Submit   ESC: Exit");
+    lv_label_set_text(help, "UP/DN Navigate   ENTER Select   ESC Exit");
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
 
     license_quiz_screen = screen;
     return screen;
+}
+
+/*
+ * Cleanup for License Quiz screen
+ * NULLs static widget pointers (question, answers, header, feedback, stats overlay).
+ * Registered in cleanupTable for MODE_LICENSE_QUIZ.
+ */
+void cleanupLicenseQuizScreen() {
+    license_quiz_screen = NULL;
+    license_question_label = NULL;
+    license_header_label = NULL;
+    license_feedback_label = NULL;
+    for (int i = 0; i < 4; i++) license_answer_btns[i] = NULL;
+    license_stats_overlay = NULL;
+    license_stats_overlay_label = NULL;
+    license_stats_overlay_visible = false;
 }
 
 /*
@@ -4506,13 +4632,21 @@ lv_obj_t* createLicenseStatsScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, "ESC: Back to License Select");
+    lv_label_set_text(help, "ESC Back");
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
 
     license_stats_screen = screen;
     return screen;
+}
+
+/*
+ * Cleanup for License Stats screen
+ * Registered in cleanupTable for MODE_LICENSE_STATS.
+ */
+void cleanupLicenseStatsScreen() {
+    license_stats_screen = NULL;
 }
 
 // ============================================
@@ -4645,6 +4779,20 @@ lv_obj_t* createLicenseDownloadScreen() {
 
     license_download_screen = screen;
     return screen;
+}
+
+/*
+ * Cleanup for License Download screen
+ * NULLs static label pointers so download status updates never touch freed widgets.
+ * Registered in cleanupTable for MODE_LICENSE_DOWNLOAD.
+ */
+void cleanupLicenseDownloadScreen() {
+    license_download_screen = NULL;
+    for (int i = 0; i < 3; i++) {
+        license_download_file_labels[i] = NULL;
+        license_download_status_labels[i] = NULL;
+    }
+    license_download_message_label = NULL;
 }
 
 /*
@@ -4923,7 +5071,7 @@ static LicenseStatsWithSession license_cached_stats[3];
  * Update the stats content area for the selected tab
  */
 void updateLicenseAllStatsContent() {
-    if (!license_stats_content) return;
+    if (!license_stats_content || !lv_obj_is_valid(license_stats_content)) return;
 
     // Clear existing content
     lv_obj_clean(license_stats_content);
@@ -5151,13 +5299,24 @@ lv_obj_t* createLicenseAllStatsScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, "Tab/Arrows: Switch   ESC: Back");
+    lv_label_set_text(help, "L/R Switch   ENTER Select   ESC Back");
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
 
     license_all_stats_screen = screen;
     return screen;
+}
+
+/*
+ * Cleanup for License All Stats screen
+ * NULLs static widget pointers (tab buttons, content area).
+ * Registered in cleanupTable for MODE_LICENSE_ALL_STATS.
+ */
+void cleanupLicenseAllStatsScreen() {
+    license_all_stats_screen = NULL;
+    license_stats_content = NULL;
+    for (int i = 0; i < 3; i++) license_stats_tab_btns[i] = NULL;
 }
 
 // ============================================

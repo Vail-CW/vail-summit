@@ -360,6 +360,9 @@ bool connectToBLEKeyboardByAddress(const char* address) {
   if (bleKBHost.pClient == nullptr) {
     bleKBHost.pClient = NimBLEDevice::createClient();
     bleKBHost.pClient->setClientCallbacks(new BLEKBClientCallbacks(), false);
+    // Connect blocks the main loop; keep the timeout well under the 30s loop
+    // watchdog or a failed attempt would panic-reboot the device
+    bleKBHost.pClient->setConnectTimeout(10);
   }
 
   // Set connection parameters for low latency
@@ -465,6 +468,13 @@ void updateBLEKeyboardHost() {
   // Only run if BLE keyboard host is active
   if (bleKBHost.state == BLEKB_STATE_IDLE) {
     return;
+  }
+
+  // Detect scan completion (NimBLE stops on its own after BLE_SCAN_DURATION_SEC,
+  // but nothing else advances our state machine out of SCANNING)
+  if (bleKBHost.state == BLEKB_STATE_SCANNING && !NimBLEDevice::getScan()->isScanning()) {
+    bleKBHost.state = BLEKB_STATE_SCAN_COMPLETE;
+    Serial.printf("BLEKB: Scan complete, %d device(s) found\n", bleKBHost.foundCount);
   }
 
   // Handle auto-reconnect

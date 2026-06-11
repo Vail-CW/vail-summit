@@ -114,6 +114,38 @@ static bool volumeViaShortcut = false;
 static int returnToModeAfterVolume = MODE_MAIN_MENU;
 
 // ============================================
+// Menu Focus Memory
+// ============================================
+// Remembers which menu item was focused in each menu so backing out of a
+// screen restores focus to the item the user came from (instead of item 0).
+
+#define MENU_FOCUS_MEMORY_SIZE 16
+static struct { int mode; int index; } menuFocusMemory[MENU_FOCUS_MEMORY_SIZE];
+static int menuFocusMemoryCount = 0;
+
+static void rememberMenuFocus(int mode, int index) {
+    if (index < 0) return;
+    for (int i = 0; i < menuFocusMemoryCount; i++) {
+        if (menuFocusMemory[i].mode == mode) {
+            menuFocusMemory[i].index = index;
+            return;
+        }
+    }
+    if (menuFocusMemoryCount < MENU_FOCUS_MEMORY_SIZE) {
+        menuFocusMemory[menuFocusMemoryCount].mode = mode;
+        menuFocusMemory[menuFocusMemoryCount].index = index;
+        menuFocusMemoryCount++;
+    }
+}
+
+static int recallMenuFocus(int mode) {
+    for (int i = 0; i < menuFocusMemoryCount; i++) {
+        if (menuFocusMemory[i].mode == mode) return menuFocusMemory[i].index;
+    }
+    return -1;
+}
+
+// ============================================
 // Mode Category Detection
 // ============================================
 
@@ -123,6 +155,7 @@ static int returnToModeAfterVolume = MODE_MAIN_MENU;
 bool isMenuModeInt(int mode) {
     return isModeMenu(mode);
 }
+
 
 /*
  * Check if a mode is a pure navigation menu (no text input)
@@ -193,6 +226,8 @@ lv_obj_t* createScreenForModeInt(int mode) {
                 return createHamToolsMenuScreen();
             case MODE_BLUETOOTH_MENU:
                 return createBluetoothMenuScreen();
+            case MODE_DEVICE_BT_SUBMENU:
+                return createDeviceBTSubmenuScreen();
             case MODE_QSO_LOGGER_MENU:
                 return createQSOLoggerMenuScreen();
             default:
@@ -574,7 +609,7 @@ void initializeModeInt(int mode) {
                 Serial.println("[ModeInit] Downloads complete, transitioning to quiz");
                 clearNavigationGroup();
                 lv_obj_t* quiz_screen = createLicenseQuizScreen();
-                loadScreen(quiz_screen, SCREEN_ANIM_FADE);
+                loadScreen(quiz_screen, SCREEN_ANIM_SLIDE_LEFT);
                 setCurrentModeFromInt(MODE_LICENSE_QUIZ);
                 startLicenseQuizLVGL(licenseSession.selectedLicense);
                 updateLicenseQuizDisplay();
@@ -719,6 +754,13 @@ void onLVGLMenuSelect(int target_mode) {
     // Update selection
     currentSelection = 0;
 
+    // Remember which menu item was focused so back-navigation can restore it
+    int fromMode = getCurrentModeAsInt();
+    if (isMenuModeInt(fromMode)) {
+        rememberMenuFocus(fromMode, getMenuFocusedIndex());
+    }
+    setMenuFocusRestoreIndex(-1);  // forward navigation starts at the first item
+
     // Clear navigation group before creating new screen's widgets
     clearNavigationGroup();
 
@@ -778,6 +820,13 @@ int getParentModeInt(int mode) {
 // Maps modes to their cleanup callbacks, called on back navigation.
 // Centralizes cleanup that was previously scattered as if-chains.
 
+// Vail repeater needs both the network disconnect and the LVGL widget cleanup
+// (table dispatch is first-match-only, so they are combined here).
+static void cleanupVailRepeaterMode() {
+    disconnectFromVail();
+    cleanupVailRepeaterScreen();
+}
+
 static const ModeCallbackEntry cleanupTable[] = {
     { MODE_HOME,                         cleanupHomeScreen },
     { MODE_SCHOOL_DAILY,                 cleanupSchoolPractice },
@@ -785,15 +834,41 @@ static const ModeCallbackEntry cleanupTable[] = {
     { MODE_SCHOOL_SEND,                  schoolSendCleanup },
     { MODE_PROPAGATION,                  cleanupBandConditions },
     { MODE_WIFI_SETTINGS,                cleanupWiFiScreen },
-    { MODE_BT_HID,                       cleanupBTHIDScreen },
+    // BT server modes must fully stop on exit: release HID/MIDI services,
+    // deinit the BLE stack, and hand the radio back to the keyboard host.
+    // (These also clean up their LVGL widget pointers.)
+    { MODE_BT_HID,                       stopBTHID },
+    { MODE_BT_MIDI,                      stopBTMIDI },
+    { MODE_BT_KEYBOARD_SETTINGS,         cleanupBTKeyboardSettingsScreen },
     { MODE_HEAR_IT_TYPE_IT,              cleanupHearItTypeItScreen },
     { MODE_HEAR_IT_MENU,                 cleanupHearItTypeItScreen },
     { MODE_POTA_ACTIVE_SPOTS,            cleanupPOTAScreen },
     { MODE_POTA_SPOT_DETAIL,             cleanupPOTAScreen },
     { MODE_POTA_FILTERS,                 cleanupPOTAScreen },
-    { MODE_VAIL_REPEATER,                disconnectFromVail },
-    { MODE_CW_ACADEMY_COPY_PRACTICE,     resetCWACopyPracticeState },
-    { MODE_CW_ACADEMY_SENDING_PRACTICE,  resetCWASendingPracticeState },
+    { MODE_VAIL_REPEATER,                cleanupVailRepeaterMode },
+    // CWA cleanup functions delete timers/widgets and call the core state
+    // resets (resetCWA*PracticeState) internally.
+    { MODE_CW_ACADEMY_COPY_PRACTICE,     cleanupCWACopyPracticeScreen },
+    { MODE_CW_ACADEMY_SENDING_PRACTICE,  cleanupCWASendingPracticeScreen },
+    { MODE_CW_ACADEMY_QSO_PRACTICE,      cleanupCWAQSOPracticeScreen },
+    { MODE_CW_ACADEMY_TRACK_SELECT,      cleanupCWASelectScreens },
+    { MODE_CW_ACADEMY_SESSION_SELECT,    cleanupCWASelectScreens },
+    { MODE_CW_ACADEMY_PRACTICE_TYPE_SELECT, cleanupCWASelectScreens },
+    { MODE_CW_ACADEMY_MESSAGE_TYPE_SELECT,  cleanupCWASelectScreens },
+    { MODE_LICENSE_SELECT,               cleanupLicenseSelectScreen },
+    { MODE_LICENSE_QUIZ,                 cleanupLicenseQuizScreen },
+    { MODE_LICENSE_STATS,                cleanupLicenseStatsScreen },
+    { MODE_LICENSE_DOWNLOAD,             cleanupLicenseDownloadScreen },
+    { MODE_LICENSE_ALL_STATS,            cleanupLicenseAllStatsScreen },
+    { MODE_CW_MEMORIES,                  cleanupCWMemoriesScreen },
+    { MODE_RADIO_OUTPUT,                 cleanupRadioOutputScreen },
+    { MODE_QSO_LOG_ENTRY,                cleanupQSOEntryScreen },
+    { MODE_QSO_VIEW_LOGS,                cleanupQSOViewLogsScreen },
+    { MODE_QSO_STATISTICS,               cleanupQSOStatisticsScreen },
+    { MODE_QSO_LOGGER_SETTINGS,          cleanupQSOLoggerSettingsScreen },
+    // Unlinked mailbox hub shows the link screen (with its polling timer);
+    // cleanupMailboxLinkScreen is a safe no-op when the inbox was shown instead.
+    { MODE_MORSE_MAILBOX,                cleanupMailboxLinkScreen },
     { MODE_MORSE_NOTES_RECORD,           cleanupMorseNotesRecordScreen },
     { MODE_MORSE_NOTES_PLAYBACK,         cleanupMorseNotesPlaybackScreen },
     { MODE_VAIL_MASTER_PRACTICE,         cleanupVailMasterPractice },
@@ -846,6 +921,13 @@ void onLVGLBackNavigation() {
     // Update mode and selection
     setCurrentModeFromInt(parentMode);
     currentSelection = 0;
+
+    // Restore focus to the menu item the user originally selected
+    if (isMenuModeInt(parentMode)) {
+        setMenuFocusRestoreIndex(recallMenuFocus(parentMode));
+    } else {
+        setMenuFocusRestoreIndex(-1);
+    }
 
     // Clear navigation group before creating new screen's widgets
     clearNavigationGroup();

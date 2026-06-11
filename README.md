@@ -1,10 +1,10 @@
-# VAIL SUMMIT
+﻿# VAIL SUMMIT
 
 A pocket-sized Morse code (CW) trainer and ham radio tool. Learn code from scratch, keep your
 skills sharp, and use it on the air. It has a color screen, a built-in paddle and speaker, and
 runs on its own battery, so you don't need a computer.
 
-![Version](https://img.shields.io/badge/version-0.71-blue)
+![Version](https://img.shields.io/badge/version-0.72-blue)
 ![For](https://img.shields.io/badge/for-CW%20%26%20ham%20radio-green)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-orange)
 

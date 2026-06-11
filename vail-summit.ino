@@ -604,6 +604,12 @@ void setup() {
   Serial.println("Loading BLE keyboard settings...");
   loadBLEKeyboardSettings();
 
+  // Bring up the BLE keyboard host so a paired keyboard actually auto-reconnects
+  // (updateBLEKeyboardHost() is a no-op while the host is in IDLE state)
+  if (bleKBHost.pairedDevice.valid && bleKBHost.autoReconnect) {
+    initBLEKeyboardHost();
+  }
+
   // Initial status update
   Serial.println("Updating status...");
   updateStatus();
@@ -860,6 +866,10 @@ void loop() {
   static unsigned long lastStatusUpdate = 0;
   if (!isModeNoStatus((int)currentMode) && millis() - lastStatusUpdate > 5000) {
     updateStatus();
+    // Refresh header status icons on the active screen (menu headers set
+    // these at creation time and would otherwise show stale state)
+    updateWiFiStatusIcon();
+    updateMailboxStatusIcon();
     lastStatusUpdate = millis();
   }
 

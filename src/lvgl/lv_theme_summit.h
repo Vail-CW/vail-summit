@@ -66,7 +66,14 @@ static lv_style_t style_msgbox;
 static lv_style_t style_status_bar;
 static lv_style_t style_menu_card;
 static lv_style_t style_menu_card_focused;
+static lv_style_t style_menu_card_pressed;
 static lv_style_t style_icon_circle;
+static lv_style_t style_btn_disabled;
+static lv_style_t style_textarea_focused;
+static lv_style_t style_dropdown_focused;
+static lv_style_t style_switch_focused;
+static lv_style_t style_slider_knob_focused;
+static lv_style_t style_scrollbar;
 
 // Track if styles have been initialized at least once
 static bool styles_first_init = false;
@@ -156,6 +163,14 @@ void initStyleButton() {
     lv_style_init(&style_btn_pressed);
     lv_style_set_bg_color(&style_btn_pressed, c->accent_glow);
     lv_style_set_text_color(&style_btn_pressed, c->bg_deep);
+
+    // Disabled button - dimmed, no border emphasis
+    if (styles_first_init) lv_style_reset(&style_btn_disabled);
+    lv_style_init(&style_btn_disabled);
+    lv_style_set_bg_opa(&style_btn_disabled, LV_OPA_30);
+    lv_style_set_text_color(&style_btn_disabled, c->text_disabled);
+    lv_style_set_border_color(&style_btn_disabled, c->border_subtle);
+    lv_style_set_shadow_width(&style_btn_disabled, 0);
 }
 
 /*
@@ -189,6 +204,13 @@ void initStyleSlider() {
     lv_style_set_shadow_color(&style_slider_knob, c->accent_primary);
     lv_style_set_shadow_width(&style_slider_knob, 10);
     lv_style_set_shadow_opa(&style_slider_knob, LV_OPA_40);
+
+    // Focused slider knob - accent fill + stronger glow so keyboard focus is obvious
+    if (styles_first_init) lv_style_reset(&style_slider_knob_focused);
+    lv_style_init(&style_slider_knob_focused);
+    lv_style_set_bg_color(&style_slider_knob_focused, c->accent_primary);
+    lv_style_set_shadow_width(&style_slider_knob_focused, 18);
+    lv_style_set_shadow_opa(&style_slider_knob_focused, LV_OPA_70);
 }
 
 /*
@@ -266,6 +288,13 @@ void initStyleTextarea() {
     lv_style_set_pad_all(&style_textarea, 10);
     lv_style_set_text_color(&style_textarea, c->text_primary);
     lv_style_set_text_font(&style_textarea, f->font_input);
+
+    // Focused textarea - accent border marks keyboard focus
+    if (styles_first_init) lv_style_reset(&style_textarea_focused);
+    lv_style_init(&style_textarea_focused);
+    lv_style_set_border_color(&style_textarea_focused, c->accent_primary);
+    lv_style_set_border_width(&style_textarea_focused, 2);
+    lv_style_set_border_opa(&style_textarea_focused, LV_OPA_COVER);
 }
 
 /*
@@ -287,6 +316,13 @@ void initStyleDropdown() {
     lv_style_set_text_color(&style_dropdown, c->text_primary);
     // Use theme font - Special Elite fonts now include LVGL symbols
     lv_style_set_text_font(&style_dropdown, getThemeFonts()->font_body);
+
+    // Focused dropdown - accent border marks keyboard focus
+    if (styles_first_init) lv_style_reset(&style_dropdown_focused);
+    lv_style_init(&style_dropdown_focused);
+    lv_style_set_border_color(&style_dropdown_focused, c->accent_primary);
+    lv_style_set_border_width(&style_dropdown_focused, 2);
+    lv_style_set_border_opa(&style_dropdown_focused, LV_OPA_COVER);
 }
 
 /*
@@ -306,6 +342,13 @@ void initStyleSwitch() {
     if (styles_first_init) lv_style_reset(&style_switch_checked);
     lv_style_init(&style_switch_checked);
     lv_style_set_bg_color(&style_switch_checked, c->accent_primary);
+
+    // Focused switch - accent outline marks keyboard focus
+    if (styles_first_init) lv_style_reset(&style_switch_focused);
+    lv_style_init(&style_switch_focused);
+    lv_style_set_outline_color(&style_switch_focused, c->accent_primary);
+    lv_style_set_outline_width(&style_switch_focused, 2);
+    lv_style_set_outline_pad(&style_switch_focused, 2);
 }
 
 /*
@@ -391,6 +434,17 @@ void initStyleMenuCard() {
     lv_style_set_shadow_width(&style_menu_card_focused, 12);
     lv_style_set_shadow_color(&style_menu_card_focused, c->accent_primary);
     lv_style_set_shadow_opa(&style_menu_card_focused, LV_OPA_40);
+
+    // Pressed menu card - solid fill flash acknowledges ENTER before the
+    // screen transition starts (text colors stay readable on card_focused).
+    if (styles_first_init) lv_style_reset(&style_menu_card_pressed);
+    lv_style_init(&style_menu_card_pressed);
+    lv_style_set_bg_color(&style_menu_card_pressed, c->card_focused);
+    lv_style_set_border_color(&style_menu_card_pressed, c->accent_glow);
+    lv_style_set_border_width(&style_menu_card_pressed, 3);
+    lv_style_set_shadow_width(&style_menu_card_pressed, 20);
+    lv_style_set_shadow_color(&style_menu_card_pressed, c->accent_primary);
+    lv_style_set_shadow_opa(&style_menu_card_pressed, LV_OPA_60);
 }
 
 /*
@@ -405,6 +459,20 @@ void initStyleIconCircle() {
     lv_style_set_bg_opa(&style_icon_circle, LV_OPA_30);
     lv_style_set_radius(&style_icon_circle, LV_RADIUS_CIRCLE);
     lv_style_set_border_width(&style_icon_circle, 0);
+}
+
+/*
+ * Initialize scrollbar style (themed, visible on dark backgrounds)
+ */
+void initStyleScrollbar() {
+    const ThemeColors* c = getThemeColors();
+
+    if (styles_first_init) lv_style_reset(&style_scrollbar);
+    lv_style_init(&style_scrollbar);
+    lv_style_set_bg_color(&style_scrollbar, c->border_light);
+    lv_style_set_bg_opa(&style_scrollbar, LV_OPA_60);
+    lv_style_set_radius(&style_scrollbar, LV_RADIUS_CIRCLE);
+    lv_style_set_width(&style_scrollbar, 4);
 }
 
 // ============================================
@@ -434,6 +502,7 @@ void initSummitTheme() {
     initStyleStatusBar();
     initStyleMenuCard();
     initStyleIconCircle();
+    initStyleScrollbar();
 
     // Mark that styles have been initialized at least once
     // (future calls will use lv_style_reset before lv_style_init)
@@ -471,7 +540,14 @@ lv_style_t* getStyleMsgbox() { return &style_msgbox; }
 lv_style_t* getStyleStatusBar() { return &style_status_bar; }
 lv_style_t* getStyleMenuCard() { return &style_menu_card; }
 lv_style_t* getStyleMenuCardFocused() { return &style_menu_card_focused; }
+lv_style_t* getStyleMenuCardPressed() { return &style_menu_card_pressed; }
 lv_style_t* getStyleIconCircle() { return &style_icon_circle; }
+lv_style_t* getStyleBtnDisabled() { return &style_btn_disabled; }
+lv_style_t* getStyleTextareaFocused() { return &style_textarea_focused; }
+lv_style_t* getStyleDropdownFocused() { return &style_dropdown_focused; }
+lv_style_t* getStyleSwitchFocused() { return &style_switch_focused; }
+lv_style_t* getStyleSliderKnobFocused() { return &style_slider_knob_focused; }
+lv_style_t* getStyleScrollbar() { return &style_scrollbar; }
 
 // ============================================
 // Helper Functions
@@ -499,23 +575,51 @@ void applyButtonStyle(lv_obj_t* obj) {
     lv_obj_add_style(obj, &style_btn, 0);
     lv_obj_add_style(obj, &style_btn_focused, LV_STATE_FOCUSED);
     lv_obj_add_style(obj, &style_btn_pressed, LV_STATE_PRESSED);
+    lv_obj_add_style(obj, &style_btn_disabled, LV_STATE_DISABLED);
 }
 
 /*
- * Apply slider style
+ * Apply slider style (with focused knob state)
  */
 void applySliderStyle(lv_obj_t* obj) {
     lv_obj_add_style(obj, &style_slider, LV_PART_MAIN);
     lv_obj_add_style(obj, &style_slider_indicator, LV_PART_INDICATOR);
     lv_obj_add_style(obj, &style_slider_knob, LV_PART_KNOB);
+    lv_obj_add_style(obj, &style_slider_knob_focused, LV_PART_KNOB | LV_STATE_FOCUSED);
 }
 
 /*
- * Apply menu card style with focus states
+ * Apply textarea style (with focused state)
+ */
+void applyTextareaStyle(lv_obj_t* obj) {
+    lv_obj_add_style(obj, &style_textarea, 0);
+    lv_obj_add_style(obj, &style_textarea_focused, LV_STATE_FOCUSED);
+}
+
+/*
+ * Apply dropdown style (with focused state)
+ */
+void applyDropdownStyle(lv_obj_t* obj) {
+    lv_obj_add_style(obj, &style_dropdown, 0);
+    lv_obj_add_style(obj, &style_dropdown_focused, LV_STATE_FOCUSED);
+}
+
+/*
+ * Apply switch style (with checked + focused states)
+ */
+void applySwitchStyle(lv_obj_t* obj) {
+    lv_obj_add_style(obj, &style_switch, 0);
+    lv_obj_add_style(obj, &style_switch_checked, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_add_style(obj, &style_switch_focused, LV_STATE_FOCUSED);
+}
+
+/*
+ * Apply menu card style with focus + pressed states
  */
 void applyMenuCardStyle(lv_obj_t* obj) {
     lv_obj_add_style(obj, &style_menu_card, 0);
     lv_obj_add_style(obj, &style_menu_card_focused, LV_STATE_FOCUSED);
+    lv_obj_add_style(obj, &style_menu_card_pressed, LV_STATE_PRESSED);
 }
 
 /*
@@ -523,6 +627,7 @@ void applyMenuCardStyle(lv_obj_t* obj) {
  */
 void applyListStyle(lv_obj_t* list) {
     lv_obj_add_style(list, &style_list, LV_PART_MAIN);
+    lv_obj_add_style(list, &style_scrollbar, LV_PART_SCROLLBAR);
 }
 
 /*

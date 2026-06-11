@@ -30,8 +30,9 @@ typedef enum {
     SCREEN_ANIM_SLIDE_DOWN
 } ScreenAnimType;
 
-// Default transition duration in ms
-#define DEFAULT_TRANSITION_MS 150
+// Default transition duration in ms (short enough that the ~25-30fps
+// full-screen redraw rate still yields several frames per transition)
+#define DEFAULT_TRANSITION_MS 120
 
 // ============================================
 // Global ESC Handler
@@ -54,6 +55,9 @@ static void global_esc_handler(lv_event_t* e) {
         uint32_t key = lv_event_get_key(e);
         if (key == LV_KEY_ESC) {
             Serial.println("[ScreenManager] ESC pressed");
+
+            // Consume the ESC so no other handler also acts on it
+            lv_event_stop_processing(e);
 
             // Call the global back callback if set
             if (global_back_callback != NULL) {

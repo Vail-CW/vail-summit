@@ -76,6 +76,8 @@ void startBTKeyboardSettings(LGFX &display) {
     btkbUIState = BTKB_UI_STATUS;
   }
 
+  if (btKeyboardUseLVGL) return;  // LVGL handles display
+
   display.fillScreen(COLOR_BACKGROUND);
 
   // Draw header

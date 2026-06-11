@@ -56,6 +56,7 @@ static String wifi_error_message = "";
 static String wifi_failed_ssid = "";
 static bool wifi_scan_pending = false;  // Flag to trigger scan after screen loads
 static lv_obj_t* wifi_password_hint = NULL;  // For partial updates of hint text
+static lv_obj_t* wifi_password_counter = NULL;  // Live "n/63" character counter
 
 // Password visibility toggle key for WiFi password entry.
 static bool isPasswordToggleKey(uint32_t key) {
@@ -788,6 +789,18 @@ static void password_textarea_key_handler(lv_event_t* e) {
     }
 }
 
+// Update the "n/63" character counter as the user types
+static void password_textarea_changed_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+    if (!wifi_password_counter || !lv_obj_is_valid(wifi_password_counter)) return;
+    if (!wifi_password_textarea || !lv_obj_is_valid(wifi_password_textarea)) return;
+
+    const char* text = lv_textarea_get_text(wifi_password_textarea);
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d/63", text ? (int)strlen(text) : 0);
+    lv_label_set_text(wifi_password_counter, buf);
+}
+
 void createPasswordInputView(lv_obj_t* parent) {
     // Network name
     lv_obj_t* ssid_label = lv_label_create(parent);
@@ -813,15 +826,26 @@ void createPasswordInputView(lv_obj_t* parent) {
     lv_textarea_set_password_mode(wifi_password_textarea, !wifi_password_visible);
     lv_textarea_set_max_length(wifi_password_textarea, 63);
     lv_textarea_set_placeholder_text(wifi_password_textarea, "Enter WiFi password");
-    lv_obj_add_style(wifi_password_textarea, getStyleTextarea(), 0);
+    applyTextareaStyle(wifi_password_textarea);
     lv_obj_set_style_text_font(wifi_password_textarea, getThemeFonts()->font_input, 0);
 
-    // Add key handler BEFORE adding to navigation group so it processes keys first
+    // Add handlers BEFORE adding to navigation group so they process keys first
     lv_obj_add_event_cb(wifi_password_textarea, password_textarea_key_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(wifi_password_textarea, password_textarea_changed_handler, LV_EVENT_VALUE_CHANGED, NULL);
     addNavigableWidget(wifi_password_textarea);
 
     // Auto-focus the password textarea for immediate input
     focusWidget(wifi_password_textarea);
+
+    // Character counter (right-aligned below textarea)
+    wifi_password_counter = lv_label_create(parent);
+    const char* pw_text = lv_textarea_get_text(wifi_password_textarea);
+    char counter_buf[16];
+    snprintf(counter_buf, sizeof(counter_buf), "%d/63", pw_text ? (int)strlen(pw_text) : 0);
+    lv_label_set_text(wifi_password_counter, counter_buf);
+    lv_obj_set_style_text_color(wifi_password_counter, LV_COLOR_TEXT_TERTIARY, 0);
+    lv_obj_set_style_text_font(wifi_password_counter, getThemeFonts()->font_small, 0);
+    lv_obj_align_to(wifi_password_counter, wifi_password_textarea, LV_ALIGN_OUT_BOTTOM_RIGHT, 0, 4);
 
     // Visibility toggle hint (store reference for partial updates)
     wifi_password_hint = lv_label_create(parent);
@@ -972,7 +996,7 @@ static void wifi_scan_timer_cb(lv_timer_t* timer) {
     lv_timer_del(timer);  // One-shot timer
 
     // Check if screen was destroyed (navigated away)
-    if (!wifi_content) {
+    if (!wifi_content || !lv_obj_is_valid(wifi_content)) {
         Serial.println("[WiFi LVGL] Timer fired but screen destroyed, aborting");
         return;
     }
@@ -1107,6 +1131,7 @@ void updateWiFiContent() {
     if (wifi_lvgl_state != LVGL_WIFI_PASSWORD_INPUT) {
         wifi_password_textarea = NULL;
         wifi_password_hint = NULL;
+        wifi_password_counter = NULL;
     }
 
     // Rebuild based on state
@@ -1241,6 +1266,7 @@ void cleanupWiFiScreen() {
     wifi_loading_label = NULL;
     wifi_network_list = NULL;
     wifi_password_hint = NULL;
+    wifi_password_counter = NULL;
 }
 
 #endif // LV_WIFI_SCREEN_H
