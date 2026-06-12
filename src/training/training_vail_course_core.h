@@ -521,11 +521,8 @@ void loadVailCourseProgress() {
         vailCoursePrefs.putInt("lesson", 1);
         vailCoursePrefs.putUInt("unlocked", 0x01);
         vailCoursePrefs.putUInt("completed", 0);
-        for (int i = 0; i < MODULE_COUNT; i++) {
-            char key[12];
-            snprintf(key, sizeof(key), "lc%d", i);
-            vailCoursePrefs.putInt(key, 0);
-        }
+        uint32_t zeroLc[MODULE_COUNT] = {0};
+        vailCoursePrefs.putBytes("lc", zeroLc, sizeof(zeroLc));
         vailCoursePrefs.end();
         Serial.println("[VailCourse] Curriculum version changed - progress reset to defaults");
     }
@@ -548,12 +545,11 @@ void loadVailCourseProgress() {
     // Sync metadata
     vailCourseProgress.lastSyncTimestamp = vailCoursePrefs.getULong("lastSync", 0);
 
-    // Load lessons completed per module
-    for (int i = 0; i < MODULE_COUNT; i++) {
-        char key[12];
-        snprintf(key, sizeof(key), "lc%d", i);
-        vailCourseProgress.lessonsCompleted[i] = vailCoursePrefs.getInt(key, 0);
-    }
+    // Load lessons completed per module (single blob, schema v2; size-guarded)
+    memset(vailCourseProgress.lessonsCompleted, 0, sizeof(vailCourseProgress.lessonsCompleted));
+    if (vailCoursePrefs.getBytesLength("lc") == sizeof(vailCourseProgress.lessonsCompleted))
+        vailCoursePrefs.getBytes("lc", vailCourseProgress.lessonsCompleted,
+                                 sizeof(vailCourseProgress.lessonsCompleted));
 
     vailCoursePrefs.end();
 
@@ -580,12 +576,9 @@ void saveVailCourseProgress() {
     // Sync metadata
     vailCoursePrefs.putULong("lastSync", vailCourseProgress.lastSyncTimestamp);
 
-    // Save lessons completed per module
-    for (int i = 0; i < MODULE_COUNT; i++) {
-        char key[12];
-        snprintf(key, sizeof(key), "lc%d", i);
-        vailCoursePrefs.putInt(key, vailCourseProgress.lessonsCompleted[i]);
-    }
+    // Save lessons completed per module (single blob, schema v2)
+    vailCoursePrefs.putBytes("lc", vailCourseProgress.lessonsCompleted,
+                             sizeof(vailCourseProgress.lessonsCompleted));
 
     vailCoursePrefs.end();
 
@@ -593,38 +586,37 @@ void saveVailCourseProgress() {
 }
 
 // Load character mastery (separate namespace due to size)
+// Stored as 3 parallel int blobs (schema v2) instead of 120 individual keys.
+// Size-guarded: absent/mismatched blobs leave zeros.
 void loadVailCourseMastery() {
+    int32_t m[VAIL_CHAR_COUNT] = {0}, a[VAIL_CHAR_COUNT] = {0}, c[VAIL_CHAR_COUNT] = {0};
+
     vailCoursePrefs.begin("vcmastery", true);
+    if (vailCoursePrefs.getBytesLength("m") == sizeof(m)) vailCoursePrefs.getBytes("m", m, sizeof(m));
+    if (vailCoursePrefs.getBytesLength("a") == sizeof(a)) vailCoursePrefs.getBytes("a", a, sizeof(a));
+    if (vailCoursePrefs.getBytesLength("c") == sizeof(c)) vailCoursePrefs.getBytes("c", c, sizeof(c));
+    vailCoursePrefs.end();
 
     for (int i = 0; i < VAIL_CHAR_COUNT; i++) {
-        char keyMastery[12], keyAttempts[12], keyCorrect[12];
-        snprintf(keyMastery, sizeof(keyMastery), "m%d", i);
-        snprintf(keyAttempts, sizeof(keyAttempts), "a%d", i);
-        snprintf(keyCorrect, sizeof(keyCorrect), "c%d", i);
-
-        vailCourseProgress.charMastery[i].mastery = vailCoursePrefs.getInt(keyMastery, 0);
-        vailCourseProgress.charMastery[i].attempts = vailCoursePrefs.getInt(keyAttempts, 0);
-        vailCourseProgress.charMastery[i].correct = vailCoursePrefs.getInt(keyCorrect, 0);
+        vailCourseProgress.charMastery[i].mastery = m[i];
+        vailCourseProgress.charMastery[i].attempts = a[i];
+        vailCourseProgress.charMastery[i].correct = c[i];
     }
-
-    vailCoursePrefs.end();
     Serial.println("[VailCourse] Mastery loaded");
 }
 
 void saveVailCourseMastery() {
-    vailCoursePrefs.begin("vcmastery", false);
-
+    int32_t m[VAIL_CHAR_COUNT], a[VAIL_CHAR_COUNT], c[VAIL_CHAR_COUNT];
     for (int i = 0; i < VAIL_CHAR_COUNT; i++) {
-        char keyMastery[12], keyAttempts[12], keyCorrect[12];
-        snprintf(keyMastery, sizeof(keyMastery), "m%d", i);
-        snprintf(keyAttempts, sizeof(keyAttempts), "a%d", i);
-        snprintf(keyCorrect, sizeof(keyCorrect), "c%d", i);
-
-        vailCoursePrefs.putInt(keyMastery, vailCourseProgress.charMastery[i].mastery);
-        vailCoursePrefs.putInt(keyAttempts, vailCourseProgress.charMastery[i].attempts);
-        vailCoursePrefs.putInt(keyCorrect, vailCourseProgress.charMastery[i].correct);
+        m[i] = vailCourseProgress.charMastery[i].mastery;
+        a[i] = vailCourseProgress.charMastery[i].attempts;
+        c[i] = vailCourseProgress.charMastery[i].correct;
     }
 
+    vailCoursePrefs.begin("vcmastery", false);
+    vailCoursePrefs.putBytes("m", m, sizeof(m));
+    vailCoursePrefs.putBytes("a", a, sizeof(a));
+    vailCoursePrefs.putBytes("c", c, sizeof(c));
     vailCoursePrefs.end();
     Serial.println("[VailCourse] Mastery saved");
 }

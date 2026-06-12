@@ -52,8 +52,8 @@ static void qsApply(int i, int v) {
     switch (s_qs_rows[i].kind) {
         case QS_VOLUME: setVolume(v);     beep(TONE_MENU_NAV, 40); break;  // audible level
         case QS_BRIGHT: setBrightness(v);                          break;
-        case QS_SPEED:  cwSpeed = v; saveCWSettings();             break;
-        case QS_TONE:   cwTone  = v; saveCWSettings(); beep(cwTone, 60); break;  // preview tone
+        case QS_SPEED:  cwSpeed = v; markDeferredSave(saveCWSettings);             break;
+        case QS_TONE:   cwTone  = v; markDeferredSave(saveCWSettings); beep(cwTone, 60); break;  // preview tone
     }
 }
 

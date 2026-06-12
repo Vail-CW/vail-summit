@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Morse Code Trainer - Hardware Configuration
  * ESP32-S3 Feather Pin Definitions and Settings
  */
@@ -9,8 +9,8 @@
 // ============================================
 // Firmware Version Information
 // ============================================
-#define FIRMWARE_VERSION "0.72"
-#define FIRMWARE_DATE "2026-06-11"  // Update this date each time you build new firmware
+#define FIRMWARE_VERSION "0.73"
+#define FIRMWARE_DATE "2026-06-12"  // Update this date each time you build new firmware
 #define FIRMWARE_NAME "VAIL SUMMIT"
 #define WEB_FILES_VERSION "1.6.0"   // Expected web interface version for this firmware
 
@@ -20,7 +20,7 @@
 // matching migration step in src/core/settings_migration.h. Adding new keys does
 // NOT require a bump - absent keys read their default. See that file for the
 // pattern. Starts at 1; 0 means "unversioned" (pre-framework / fresh flash).
-#define SETTINGS_SCHEMA_VERSION 1
+#define SETTINGS_SCHEMA_VERSION 2
 
 // ============================================
 // LCD Display (ST7796S 4.0") - SPI Interface
@@ -234,7 +234,7 @@
 #define COLOR_SEPARATOR     COLOR_BORDER_SUBTLE
 
 // ============================================
-// UI Layout Constants (scaled for 480Ã—320 display)
+// UI Layout Constants (scaled for 480x320 display)
 // ============================================
 #define HEADER_HEIGHT       45    // Top status bar height (reduced for better proportions)
 #define FOOTER_HEIGHT       30    // Bottom instruction bar height

@@ -74,7 +74,8 @@ int getBrightness() {
 void setBrightness(int percent) {
   brightnessValue = constrain(percent, BRIGHTNESS_MIN, BRIGHTNESS_MAX);
   applyBrightness(brightnessValue);
-  saveBrightnessSettings();
+  // Deferred: an NVS commit per slider tick crunches the live beep
+  markDeferredSave(saveBrightnessSettings);
 }
 
 /*

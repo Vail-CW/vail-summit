@@ -315,7 +315,7 @@ void practiceHandleEsc() {
 
   // Save any pending settings before exit
   if (settingSavePending) {
-    saveCWSettings();
+    markDeferredSave(saveCWSettings);
     settingSavePending = false;
     Serial.println("[Practice] Saved pending settings on exit");
   }
@@ -358,7 +358,7 @@ void practiceAdjustSpeed(int delta) {
 // Call this from updatePracticeOscillator() to save after debounce period
 void practiceCheckDeferredSave() {
   if (settingSavePending && (millis() - lastSettingSaveTime > SETTING_SAVE_DEBOUNCE_MS)) {
-    saveCWSettings();
+    markDeferredSave(saveCWSettings);
     settingSavePending = false;
     Serial.println("[Practice] Deferred CW settings save completed");
   }

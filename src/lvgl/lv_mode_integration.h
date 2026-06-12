@@ -684,6 +684,7 @@ static void playAlertChirp() {
 // Confirm callback for the Factory Reset menu action: wipes all NVS and reboots.
 static void factoryResetConfirmCb(lv_event_t* e) {
     (void)e;
+    removeSettingsBackupFromSD();  // so the SD backup can't resurrect old settings
     factoryReset();  // erases the NVS partition and restarts - does not return
 }
 

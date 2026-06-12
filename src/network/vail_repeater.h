@@ -37,8 +37,6 @@ String vailChannel = "General";
 
 // Settings persisted to NVS (declared before load/save functions that reference them)
 bool vailListenOnly = false;
-bool vailShowDecoded = false;
-bool vailShowMorseRow = true;
 
 // Preferences for Vail settings persistence
 Preferences vailPrefs;
@@ -48,8 +46,6 @@ void loadVailSettings() {
   vailPrefs.begin("vail", true);  // Read-only mode
   vailChannel = vailPrefs.getString("room", "General");
   vailListenOnly = vailPrefs.getBool("listenOnly", false);
-  vailShowDecoded = vailPrefs.getBool("showDecoded", false);
-  vailShowMorseRow = vailPrefs.getBool("showMorseRow", true);
   vailPrefs.end();
   Serial.printf("[Vail] Loaded room: %s\n", vailChannel.c_str());
 }
@@ -59,8 +55,6 @@ void saveVailSettings() {
   vailPrefs.begin("vail", false);  // Read-write mode
   vailPrefs.putString("room", vailChannel);
   vailPrefs.putBool("listenOnly", vailListenOnly);
-  vailPrefs.putBool("showDecoded", vailShowDecoded);
-  vailPrefs.putBool("showMorseRow", vailShowMorseRow);
   vailPrefs.end();
   Serial.printf("[Vail] Saved room: %s\n", vailChannel.c_str());
 }
@@ -99,13 +93,45 @@ String statusText = "";
 // Note: needsUIRedraw removed - LVGL handles all UI updates via updateVailScreenLVGL()
 unsigned long lastKeepaliveTime = 0;  // Track last keepalive message
 
+// Verbose per-message serial logging. OFF by default: dumping JSON payloads
+// and per-element send lines stalls the audio-critical Core-1 loop enough to
+// make keying timing audibly rough. Enable only when debugging the protocol.
+// #define VAIL_VERBOSE_LOGS
+#ifdef VAIL_VERBOSE_LOGS
+  #define VAIL_LOG(...) Serial.printf(__VA_ARGS__)
+#else
+  #define VAIL_LOG(...) do {} while (0)
+#endif
+
 // Transmit state
 bool vailIsTransmitting = false;
 unsigned long vailTxStartTime = 0;
 std::vector<uint16_t> vailTxDurations;
 // Echo filtering: Track recent transmission timestamps to filter echoes
 std::deque<int64_t> recentTxTimestamps;
+std::deque<int64_t> recentChatTimestamps;  // own chat echo detection (exact ts match)
 const size_t MAX_TX_TIMESTAMPS = 20;
+
+// Deferred element sends: the keyer callback runs inside vailKeyer->tick() on
+// the audio-critical loop, DURING the tone - building JSON and pushing a TLS
+// websocket frame there jitters element timing (audible crunch). The callback
+// only queues (duration, timestamp); flushVailPendingSends() transmits from
+// updateVailRepeater() after keyer servicing. Timestamps are captured at
+// key-down, so deferring the send a few ms changes nothing on receivers.
+struct VailPendingSend {
+  uint16_t durMs;
+  int64_t ts;
+};
+static VailPendingSend vailPendingSends[8];
+static int vailPendingSendCount = 0;
+
+static void queueVailElementSend(uint16_t durMs, int64_t ts) {
+  if (vailPendingSendCount < 8) {
+    vailPendingSends[vailPendingSendCount].durMs = durMs;
+    vailPendingSends[vailPendingSendCount].ts = ts;
+    vailPendingSendCount++;
+  }
+}
 
 // Keyer - runs in main loop on Core 1 (like practice mode)
 static StraightKeyer* vailKeyer = nullptr;
@@ -113,6 +139,8 @@ static bool vailDitPressed = false;
 static bool vailDahPressed = false;
 static unsigned long vailLastStateChangeTime = 0;
 static bool vailLastToneState = false;
+static int64_t vailToneStartTimestamp = 0;  // server-clock time the current tone began
+static bool vailSentAtKeyDown = false;      // keyer modes send at key-down (length known)
 
 // Receive state
 struct VailMessage {
@@ -126,39 +154,6 @@ std::vector<VailMessage> rxQueue;
 unsigned long playbackDelay = 500;  // 500ms delay for network jitter
 int64_t clockSkew = 0;  // Offset to convert millis() to server time
 int clockSkewSamples = 0;  // Number of clock skew samples received
-const float CLOCK_SKEW_ALPHA = 0.3f;  // Exponential moving average weight
-
-// TX morse compose state — fixed char buffers (not Arduino String). These
-// are mutated on every keyed element in an audio-critical screen, so we
-// cannot afford heap churn.
-#define VAIL_MORSE_BUF_SIZE 80
-char vailTxMorseSymbols[VAIL_MORSE_BUF_SIZE] = {0};   // current char being keyed: ". - ." etc
-char vailRxMorseSymbols[VAIL_MORSE_BUF_SIZE] = {0};   // RX visualization
-
-// Append `s` to `buf`, capped at VAIL_MORSE_BUF_SIZE. Silently truncates if
-// the result would overflow — caller is expected to trim periodically.
-static inline void vailMorseAppend(char* buf, const char* s) {
-    size_t len = strlen(buf);
-    size_t add = strlen(s);
-    if (len + add + 1 > VAIL_MORSE_BUF_SIZE) add = VAIL_MORSE_BUF_SIZE - 1 - len;
-    if (add > 0) {
-        memcpy(buf + len, s, add);
-        buf[len + add] = '\0';
-    }
-}
-
-// Drop `dropFront` bytes from the front of `buf`, sliding the rest down.
-// If dropFront >= length, buffer becomes empty.
-static inline void vailMorseDropFront(char* buf, size_t dropFront) {
-    size_t len = strlen(buf);
-    if (dropFront >= len) { buf[0] = '\0'; return; }
-    memmove(buf, buf + dropFront, len - dropFront + 1);
-}
-
-static inline bool vailMorseEndsWith(const char* buf, const char* suffix) {
-    size_t bl = strlen(buf), sl = strlen(suffix);
-    return bl >= sl && memcmp(buf + bl - sl, suffix, sl) == 0;
-}
 
 // RX decoding (incoming morse -> text) is only allowed on the dedicated
 // "Decoder" room, matching vailmorse.com behavior. On all other rooms the
@@ -168,41 +163,11 @@ static inline bool vailIsOnDecoderChannel() {
     return vailChannel == "Decoder";
 }
 
-// Append a dit or dah to the RX morse row based on tone duration vs current
-// cwSpeed dit length. Adds a leading space if the accumulator already has
-// content (mirrors the TX-side pattern).
-static void vailRxAppendTone(uint16_t toneMs) {
-    if (!vailShowDecoded || !vailIsOnDecoderChannel()) return;
-    float ditMs = 1200.0f / (float)cwSpeed;
-    size_t curLen = strlen(vailRxMorseSymbols);
-    if (curLen > 0 && !vailMorseEndsWith(vailRxMorseSymbols, " /") && !vailMorseEndsWith(vailRxMorseSymbols, " //"))
-        vailMorseAppend(vailRxMorseSymbols, " ");
-    vailMorseAppend(vailRxMorseSymbols, (toneMs <= ditMs * 2.0f) ? "." : "-");
-    if ((int)strlen(vailRxMorseSymbols) > 72) {
-        const char* slashPos = strchr(vailRxMorseSymbols + 15, '/');
-        if (slashPos != nullptr && (slashPos - vailRxMorseSymbols) + 3 < (int)strlen(vailRxMorseSymbols))
-            vailMorseDropFront(vailRxMorseSymbols, (slashPos - vailRxMorseSymbols) + 2);
-        else
-            vailMorseDropFront(vailRxMorseSymbols, strlen(vailRxMorseSymbols) - 50);
-    }
-}
-
-// Append a letter/word boundary to the RX morse row based on silence length.
-// Intra-character gaps (≤ 2× dit) are skipped — they're the default rhythm.
-static void vailRxAppendSilence(uint16_t silenceMs) {
-    if (!vailShowDecoded || !vailIsOnDecoderChannel()) return;
-    float ditMs = 1200.0f / (float)cwSpeed;
-    if (silenceMs >= ditMs * 5.0f) {
-        vailMorseAppend(vailRxMorseSymbols, " //");
-    } else if (silenceMs >= ditMs * 2.0f) {
-        vailMorseAppend(vailRxMorseSymbols, " /");
-    }
-}
 volatile bool vailTxDecodedReady = false;  // set when TX decoder emits a char
 char vailTxLastDecodedChar = 0;       // the decoded character
 
 // Decoded character slots shared with LVGL update
-#define VAIL_DECODE_SLOTS 12
+#define VAIL_DECODE_SLOTS 22
 struct VailDecodedEntry {
     char ch;
     char morse[8];
@@ -221,12 +186,16 @@ static volatile bool vailTxTickPending = false;
 static void vailRxTickCallback(void*) { vailRxTickPending = true; }
 static void vailTxTickCallback(void*) { vailTxTickPending = true; }
 
+static void vailOnDecoded(String morse, String text);
+
 static void vailTxOnDecoded(String morse, String text) {
     for (int i = 0; i < (int)text.length(); i++) {
         vailTxLastDecodedChar = text[i];
         vailTxDecodedReady = true;
     }
-    vailMorseAppend(vailTxMorseSymbols, " /");
+    // On the Decoder room the operator's own keying shows in the decoded
+    // strip too, interleaved with received decode — same single stream.
+    if (vailIsOnDecoderChannel()) vailOnDecoded(morse, text);
 }
 
 static void vailOnDecoded(String morse, String text) {
@@ -382,15 +351,21 @@ float midiNoteToFrequency(uint8_t note) {
 
 // Get current timestamp in milliseconds (Unix epoch)
 int64_t getCurrentTimestamp() {
-  // Get time from NTP if available, otherwise use millis() with offset
+  // Prefer the SERVER-derived clock (millis + skew, EMA-updated from every
+  // empty-Duration server message). Receivers schedule playback against the
+  // server clock, so any NTP-vs-server difference in our stamps shows up on
+  // their end as "increase receive delay" errors. NTP is only the fallback
+  // until the first server clock-sync message arrives.
+  if (clockSkewSamples > 0) {
+    return (int64_t)millis() + clockSkew;
+  }
+
   struct timeval tv;
   gettimeofday(&tv, NULL);
   int64_t timestamp = (int64_t)(tv.tv_sec) * 1000LL + (int64_t)(tv.tv_usec / 1000);
 
-  // If timestamp is unreasonably small, we don't have NTP time yet
-  // Use server clock skew to estimate
+  // If timestamp is unreasonably small, we don't have NTP time yet either
   if (timestamp < 1000000000000LL) {
-    // No valid time, use millis() + clock skew
     timestamp = (int64_t)millis() + clockSkew;
   }
 
@@ -413,6 +388,7 @@ void startVailRepeater(LGFX &display) {
   vailDahPressed = false;
   vailLastStateChangeTime = 0;
   vailLastToneState = false;
+  vailToneStartTimestamp = 0;
   int ditDuration = DIT_DURATION(cwSpeed);
   vailKeyer = getKeyer(cwKeyType);
   vailKeyer->reset();
@@ -459,7 +435,6 @@ void connectToVail(String channel) {
 
   // Clear any stale decoded state from a previous room — decoded text only
   // appears on the dedicated "Decoder" room.
-  vailRxMorseSymbols[0] = '\0';
   vailDecodedCount = 0;
   vailDecodedNeedsUpdate = true;
 
@@ -535,8 +510,9 @@ void disconnectFromVail() {
   rxQueue.clear();
   vailTxDurations.clear();
   recentTxTimestamps.clear();
-  vailRxMorseSymbols[0] = '\0';
+  recentChatTimestamps.clear();
   chatHistory.clear();
+  vailPendingSendCount = 0;
   connectedUsers.clear();
   activeRooms.clear();
   clockSkewSamples = 0;  // Reset clock sync on disconnect
@@ -547,6 +523,7 @@ void disconnectFromVail() {
   vailDahPressed = false;
   vailLastStateChangeTime = 0;
   vailLastToneState = false;
+  vailToneStartTimestamp = 0;
   if (vailKeyer) {
     vailKeyer->reset();
   }
@@ -588,7 +565,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       break;
 
     case WStype_TEXT:
-      Serial.printf("[WS] Received: %s\n", payload);
+      VAIL_LOG("[WS] Received: %s\n", payload);
       processReceivedMessage(String((char*)payload));
       break;
 
@@ -635,19 +612,13 @@ void processReceivedMessage(String jsonPayload) {
   // Parse Users array (optional - for future UI enhancements)
   if (doc.containsKey("Users")) {
     JsonArray users = doc["Users"];
-    Serial.print("Connected users: ");
-    for (JsonVariant user : users) {
-      Serial.print(user.as<String>());
-      Serial.print(" ");
-    }
-    Serial.println();
+    (void)users;
   }
 
   // Parse UsersInfo array (optional - detailed user info with TX tones)
   if (doc.containsKey("UsersInfo")) {
     connectedUsers.clear();
     JsonArray usersInfo = doc["UsersInfo"];
-    Serial.println("User details:");
     for (JsonVariant userInfo : usersInfo) {
       String callsign = userInfo["callsign"] | "Unknown";
       uint8_t txTone = userInfo["txTone"] | 69;
@@ -658,11 +629,6 @@ void processReceivedMessage(String jsonPayload) {
       user.txTone = txTone;
       connectedUsers.push_back(user);
 
-      Serial.print("  - ");
-      Serial.print(callsign);
-      Serial.print(" @ ");
-      Serial.print(midiNoteToFrequency(txTone));
-      Serial.println(" Hz");
     }
   }
 
@@ -677,34 +643,48 @@ void processReceivedMessage(String jsonPayload) {
       room.isPrivate = roomVar["private"] | false;
       activeRooms.push_back(room);
     }
-    Serial.print("Active rooms: ");
-    Serial.println(activeRooms.size());
+    VAIL_LOG("Active rooms: %d\n", (int)activeRooms.size());
   }
 
   // Check for text chat message
+  bool isChatMessage = false;
   if (doc.containsKey("Text") && !doc["Text"].isNull()) {
     String text = doc["Text"].as<String>();
-    String callsign = doc["Callsign"] | "Unknown";
+    if (text.length() > 0) {
+      isChatMessage = true;
+      String callsign = doc["Callsign"] | "Unknown";
 
-    // Don't add our own messages again (we already added when sending)
-    if (callsign != vailCallsign) {
-      addChatMessage(callsign, text);
+      // Don't add our own echo again (we already added when sending). Match
+      // by exact timestamp, NOT callsign - a callsign comparison silently
+      // muted any other station using the same callsign as ours.
+      bool isOwnChat = false;
+      for (int64_t ts : recentChatTimestamps) {
+        if (msg.timestamp == ts) {
+          isOwnChat = true;
+          break;
+        }
+      }
+      if (!isOwnChat) {
+        addChatMessage(callsign, text);
+      }
     }
   }
 
   JsonArray durations = doc["Duration"];
   if (durations.size() > 0) {
-    // Check if this is our own message echoed back (within 2000ms tolerance for network round-trip)
-    // Use queue of recent timestamps to handle rapid iambic keying
+    // Check if this is our own message echoed back. Per the protocol spec this
+    // is an EXACT timestamp match - the server echoes our Timestamp untouched.
+    // (The old +/-2000ms window also swallowed OTHER users' keying whenever it
+    // landed within 2s of ours, i.e. any time both sides keyed at once.)
     bool isEcho = false;
     for (int64_t ts : recentTxTimestamps) {
-      if (llabs(msg.timestamp - ts) < 2000) {
+      if (msg.timestamp == ts) {
         isEcho = true;
         break;
       }
     }
     if (isEcho) {
-      Serial.println("Ignoring echo of our own transmission");
+      VAIL_LOG("Ignoring echo of our own transmission\n");
       return;
     }
 
@@ -715,33 +695,23 @@ void processReceivedMessage(String jsonPayload) {
     // Add to receive queue with playback delay
     rxQueue.push_back(msg);
 
-    Serial.print("Queued message: ");
-    Serial.print(msg.durations.size());
-    Serial.print(" elements at tone ");
-    Serial.println(msg.txTone);
-  } else {
-    // Empty duration = clock sync message
-    // Calculate offset from server time to our millis() with exponential moving average
-    int64_t newSkew = msg.timestamp - (int64_t)millis();
-
-    if (clockSkewSamples == 0) {
-      // First sample - use directly
-      clockSkew = newSkew;
-    } else {
-      // Apply exponential moving average for stability
-      clockSkew = (int64_t)(CLOCK_SKEW_ALPHA * newSkew + (1.0f - CLOCK_SKEW_ALPHA) * clockSkew);
-    }
+    VAIL_LOG("Queued message: %d elements at tone %d\n", (int)msg.durations.size(), (int)msg.txTone);
+  } else if (!isChatMessage) {
+    // Empty duration + no Text = clock sync message (keepalive/room update,
+    // stamped with server-now). Chat messages are EXCLUDED: the server replays
+    // up to 50 history messages with their ORIGINAL timestamps on join, and
+    // treating those as sync poisoned the skew by hours - every subsequent
+    // keyed element was stamped in the past and the server kicked us
+    // ("Your clock is off by too much") the moment we sent.
+    //
+    // Direct assignment, last message wins - same as the reference web client.
+    // (An EMA here converges too slowly to recover from one bad sample before
+    // the server's 10s kick threshold, and float math on the epoch-scale skew
+    // quantizes to ~131s steps. Keep this integer and simple.)
+    clockSkew = msg.timestamp - (int64_t)millis();
     clockSkewSamples++;
 
-    Serial.print("Clock sync: server=");
-    Serial.print((long)msg.timestamp);
-    Serial.print(" millis=");
-    Serial.print((long)millis());
-    Serial.print(" skew=");
-    Serial.print((long)clockSkew);
-    Serial.print(" (samples=");
-    Serial.print(clockSkewSamples);
-    Serial.println(")");
+    VAIL_LOG("Clock sync: skew=%lld (samples=%d)\n", (long long)clockSkew, clockSkewSamples);
   }
 }
 
@@ -781,16 +751,16 @@ void sendKeepalive() {
   String output;
   serializeJson(doc, output);
 
-  Serial.print("Sending keepalive: ");
-  Serial.println(output);
+  VAIL_LOG("Sending keepalive: %s\n", output.c_str());
 
   webSocket.sendTXT(output);
 }
 
-// Send message to Vail repeater
+// Send message to Vail repeater. Stack buffers only - this runs on the
+// audio-critical loop during keying, so no String/heap churn.
 void sendVailMessage(std::vector<uint16_t> durations, int64_t timestamp) {
   if (vailState != VAIL_CONNECTED) {
-    Serial.println("Not connected to Vail");
+    VAIL_LOG("Not connected to Vail\n");
     return;
   }
 
@@ -810,13 +780,11 @@ void sendVailMessage(std::vector<uint16_t> durations, int64_t timestamp) {
     durArray.add(dur);
   }
 
-  String output;
-  serializeJson(doc, output);
+  char output[384];
+  size_t outLen = serializeJson(doc, output, sizeof(output));
+  if (outLen == 0 || outLen >= sizeof(output)) return;
 
-  Serial.print("Sending (ts=");
-  Serial.print((long)timestamp);
-  Serial.print("): ");
-  Serial.println(output);
+  VAIL_LOG("Sending (ts=%lld): %s\n", (long long)timestamp, output);
 
   // Remember this timestamp to filter out the echo (use queue for rapid keying)
   recentTxTimestamps.push_back(timestamp);
@@ -824,7 +792,17 @@ void sendVailMessage(std::vector<uint16_t> durations, int64_t timestamp) {
     recentTxTimestamps.pop_front();
   }
 
-  webSocket.sendTXT(output);
+  webSocket.sendTXT(output, outLen);
+}
+
+// Transmit any element sends queued by the keyer callback. Called from
+// updateVailRepeater() after keyer servicing, so JSON building and the TLS
+// websocket write never run inside an element's tone window.
+static void flushVailPendingSends() {
+  for (int i = 0; i < vailPendingSendCount; i++) {
+    sendVailMessage({vailPendingSends[i].durMs}, vailPendingSends[i].ts);
+  }
+  vailPendingSendCount = 0;
 }
 
 // Keyer callback - called from Core 1 main loop (like practice mode)
@@ -848,6 +826,30 @@ void vailKeyerCallback(bool txOn, int element) {
       float silenceDuration = now - vailLastStateChangeTime;
       if (silenceDuration > 0) vailTxDecoder->addTiming(-silenceDuration);
     }
+    // Vail protocol: Timestamp = when the tone STARTED. Capture it here at
+    // key-down. Stamping at key-up shifts each element late by its own length,
+    // which makes a dah's remote playback window swallow the following dit
+    // (receivers heard only dahs during iambic keying).
+    vailToneStartTimestamp = getCurrentTimestamp();
+
+    // Keyer modes (iambic/ultimatic) generate fixed-length elements that
+    // always complete, so the duration is already known - send NOW. The
+    // packet reaches receivers ~network-lag after its stamp instead of
+    // element-length later (the web client sends at key-up, which is why it
+    // needs receive delay > dah length; we can do better). Straight key
+    // duration is unknown until key-up, so it still sends there.
+    vailSentAtKeyDown = false;
+    if (!vailListenOnly && !vailChatMode && cwKeyType != KEY_STRAIGHT) {
+      uint16_t elemMs = (uint16_t)((element == PADDLE_DAH) ? DIT_DURATION(cwSpeed) * 3
+                                                           : DIT_DURATION(cwSpeed));
+      queueVailElementSend(elemMs, vailToneStartTimestamp);
+      vailSentAtKeyDown = true;
+      vailTxStartTime = now;
+      if (!vailIsTransmitting) {
+        vailIsTransmitting = true;
+        vailTxDurations.clear();
+      }
+    }
     vailLastStateChangeTime = now;
     vailLastToneState = true;
   } else {
@@ -859,28 +861,20 @@ void vailKeyerCallback(bool txOn, int element) {
         // Feed to decoder
         if (vailTxDecoder) vailTxDecoder->addTiming(toneDuration);
 
-        // Live morse row (dot/dash per element)
-        float ditMs = 1200.0f / (float)cwSpeed;
-        if (strlen(vailTxMorseSymbols) > 0) vailMorseAppend(vailTxMorseSymbols, " ");
-        vailMorseAppend(vailTxMorseSymbols, (toneDuration <= ditMs * 2.0f) ? "." : "-");
-        if ((int)strlen(vailTxMorseSymbols) > 72) {
-          const char* slashPos = strchr(vailTxMorseSymbols + 15, '/');
-          if (slashPos != nullptr && (slashPos - vailTxMorseSymbols) + 3 < (int)strlen(vailTxMorseSymbols))
-            vailMorseDropFront(vailTxMorseSymbols, (slashPos - vailTxMorseSymbols) + 2);
-          else
-            vailMorseDropFront(vailTxMorseSymbols, strlen(vailTxMorseSymbols) - 50);
-        }
-
-        // Send to network
-        if (!vailListenOnly && !vailChatMode) {
-          int64_t serverTs = getCurrentTimestamp();
-          sendVailMessage({(uint16_t)toneDuration}, serverTs);
+        // Send to network, stamped with the tone's START time (key-down).
+        // Keyer-mode elements were already sent at key-down; this path only
+        // fires for straight key, where the duration is measured here.
+        if (!vailListenOnly && !vailChatMode && !vailSentAtKeyDown) {
+          int64_t serverTs = (vailToneStartTimestamp > 0) ? vailToneStartTimestamp
+                                                          : getCurrentTimestamp();
+          queueVailElementSend((uint16_t)toneDuration, serverTs);
           vailTxStartTime = now;
           if (!vailIsTransmitting) {
             vailIsTransmitting = true;
             vailTxDurations.clear();
           }
         }
+        vailSentAtKeyDown = false;
       }
     }
     vailLastStateChangeTime = now;
@@ -926,6 +920,10 @@ void updateVailRepeater(LGFX &display) {
     // Core 0 audio task auto-refills the I2S buffer while a tone is active,
     // so no continueTone() call is needed here.
 
+    // Transmit elements the keyer callback queued (kept out of the callback
+    // so the TLS write never lands inside a tone window)
+    flushVailPendingSends();
+
     // Reset transmission state after 2 seconds of inactivity
     if (vailIsTransmitting && !vailKeyer->isTxActive() && (millis() - vailTxStartTime > 2000)) {
       vailIsTransmitting = false;
@@ -965,34 +963,24 @@ void playbackMessages() {
     VailMessage &msg = rxQueue[0];
     int64_t playTime = msg.timestamp + playbackDelay;
 
-    Serial.print("Checking playback: now=");
-    Serial.print((long)now);
-    Serial.print(" playTime=");
-    Serial.print((long)playTime);
-    Serial.print(" diff=");
-    Serial.println((long)(playTime - now));
-
     if (now >= playTime) {
-      Serial.print("Starting playback of ");
-      Serial.print(msg.durations.size());
-      Serial.print(" elements at ");
-      Serial.print(midiNoteToFrequency(msg.txTone));
-      Serial.println(" Hz");
+      VAIL_LOG("Starting playback of %d elements\n", (int)msg.durations.size());
       isPlaying = true;
       playbackIndex = 0;
       playbackElementStart = millis();
 
       // Start first element
       if (msg.durations.size() > 0) {
-        Serial.print("First element duration: ");
-        Serial.println(msg.durations[0]);
+        // Feed the decoder (automatic on the Decoder room). Without this the
+        // first tone of every message was skipped and decode came out garbled.
+        if (vailIsOnDecoderChannel() && vailRxDecoder)
+          vailRxDecoder->addTiming((float)msg.durations[0]);
         // Play at local cwTone (consistent experience) or sender's TX tone
         #if VAIL_USE_LOCAL_TONE_FOR_RECEIVE
           playbackToneFrequency = cwTone;
         #else
           playbackToneFrequency = midiNoteToFrequency(msg.txTone);
         #endif
-        vailRxAppendTone(msg.durations[0]);
         requestStartTone(playbackToneFrequency);  // Non-blocking - audio task starts tone
       }
     }
@@ -1015,24 +1003,16 @@ void playbackMessages() {
         playbackIndex = 0;
         playbackToneFrequency = 0;
         rxQueue.erase(rxQueue.begin());
-        Serial.println("Playback complete");
+        VAIL_LOG("Playback complete\n");
       } else {
         // Start next element
         playbackElementStart = millis();
 
-        Serial.print("Element ");
-        Serial.print(playbackIndex);
-        Serial.print(": ");
-        Serial.print(msg.durations[playbackIndex]);
-        Serial.print("ms ");
-
         uint16_t elemDur = msg.durations[playbackIndex];
         if (playbackIndex % 2 == 0) {
           // Even index = tone
-          Serial.println("TONE");
-          if (vailShowDecoded && vailIsOnDecoderChannel() && vailRxDecoder)
+          if (vailIsOnDecoderChannel() && vailRxDecoder)
             vailRxDecoder->addTiming((float)elemDur);
-          vailRxAppendTone(elemDur);
           #if VAIL_USE_LOCAL_TONE_FOR_RECEIVE
             playbackToneFrequency = cwTone;
           #else
@@ -1041,10 +1021,8 @@ void playbackMessages() {
           requestStartTone(playbackToneFrequency);  // Non-blocking - audio task starts tone
         } else {
           // Odd index = silence
-          Serial.println("SILENCE");
-          if (vailShowDecoded && vailIsOnDecoderChannel() && vailRxDecoder)
+          if (vailIsOnDecoderChannel() && vailRxDecoder)
             vailRxDecoder->addTiming(-(float)elemDur);
-          vailRxAppendSilence(elemDur);
           playbackToneFrequency = 0;
           requestStopTone();  // Non-blocking - audio task handles stop
         }
@@ -1466,11 +1444,20 @@ void sendChatMessage(String message) {
   }
 
   StaticJsonDocument<512> doc;
-  doc["Timestamp"] = getCurrentTimestamp();
+  int64_t chatTs = getCurrentTimestamp();
+  doc["Timestamp"] = chatTs;
   doc["Callsign"] = vailCallsign;
   doc["TxTone"] = vailTxTone;
   doc["Text"] = message;
   doc.createNestedArray("Duration");  // empty — never synthesize morse
+
+  // Remember the timestamp so the server's echo of this chat is recognized as
+  // our own (exact-match, like the morse echo filter). Filtering by callsign
+  // is wrong: it mutes any OTHER station that happens to share our callsign.
+  recentChatTimestamps.push_back(chatTs);
+  while (recentChatTimestamps.size() > 8) {
+    recentChatTimestamps.pop_front();
+  }
 
   String output;
   serializeJson(doc, output);

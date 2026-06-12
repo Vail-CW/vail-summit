@@ -364,47 +364,35 @@ void saveLICWProgress() {
 }
 
 // Load per-character statistics
+// Stored as 4 fixed-size blobs (schema v2) - one NVS entry chain each instead
+// of 176 individual keys. Size-guarded: absent/mismatched blobs leave zeros.
 void loadLICWCharStats() {
+    memset(licwProgress.charCorrect, 0, sizeof(licwProgress.charCorrect));
+    memset(licwProgress.charTotal, 0, sizeof(licwProgress.charTotal));
+    memset(licwProgress.charTTR, 0, sizeof(licwProgress.charTTR));
+    memset(licwProgress.charTTRCount, 0, sizeof(licwProgress.charTTRCount));
+
     licwPrefs.begin("licwstats", true);  // Read-only
-
-    for (int i = 0; i < 44; i++) {
-        char key[12];
-        snprintf(key, sizeof(key), "cc%d", i);
-        licwProgress.charCorrect[i] = licwPrefs.getInt(key, 0);
-
-        snprintf(key, sizeof(key), "ct%d", i);
-        licwProgress.charTotal[i] = licwPrefs.getInt(key, 0);
-
-        snprintf(key, sizeof(key), "ttr%d", i);
-        licwProgress.charTTR[i] = licwPrefs.getULong(key, 0);
-
-        snprintf(key, sizeof(key), "ttrc%d", i);
-        licwProgress.charTTRCount[i] = licwPrefs.getInt(key, 0);
-    }
-
+    if (licwPrefs.getBytesLength("cc") == sizeof(licwProgress.charCorrect))
+        licwPrefs.getBytes("cc", licwProgress.charCorrect, sizeof(licwProgress.charCorrect));
+    if (licwPrefs.getBytesLength("ct") == sizeof(licwProgress.charTotal))
+        licwPrefs.getBytes("ct", licwProgress.charTotal, sizeof(licwProgress.charTotal));
+    if (licwPrefs.getBytesLength("ttr") == sizeof(licwProgress.charTTR))
+        licwPrefs.getBytes("ttr", licwProgress.charTTR, sizeof(licwProgress.charTTR));
+    if (licwPrefs.getBytesLength("ttrc") == sizeof(licwProgress.charTTRCount))
+        licwPrefs.getBytes("ttrc", licwProgress.charTTRCount, sizeof(licwProgress.charTTRCount));
     licwPrefs.end();
+
     Serial.println("[LICW] Character statistics loaded");
 }
 
-// Save per-character statistics
+// Save per-character statistics (blob format, schema v2)
 void saveLICWCharStats() {
     licwPrefs.begin("licwstats", false);  // Read-write
-
-    for (int i = 0; i < 44; i++) {
-        char key[12];
-        snprintf(key, sizeof(key), "cc%d", i);
-        licwPrefs.putInt(key, licwProgress.charCorrect[i]);
-
-        snprintf(key, sizeof(key), "ct%d", i);
-        licwPrefs.putInt(key, licwProgress.charTotal[i]);
-
-        snprintf(key, sizeof(key), "ttr%d", i);
-        licwPrefs.putULong(key, licwProgress.charTTR[i]);
-
-        snprintf(key, sizeof(key), "ttrc%d", i);
-        licwPrefs.putInt(key, licwProgress.charTTRCount[i]);
-    }
-
+    licwPrefs.putBytes("cc", licwProgress.charCorrect, sizeof(licwProgress.charCorrect));
+    licwPrefs.putBytes("ct", licwProgress.charTotal, sizeof(licwProgress.charTotal));
+    licwPrefs.putBytes("ttr", licwProgress.charTTR, sizeof(licwProgress.charTTR));
+    licwPrefs.putBytes("ttrc", licwProgress.charTTRCount, sizeof(licwProgress.charTTRCount));
     licwPrefs.end();
     Serial.println("[LICW] Character statistics saved");
 }

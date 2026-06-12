@@ -12,6 +12,7 @@
 #include <math.h>
 #include <Preferences.h>
 #include "../core/config.h"
+#include "../core/deferred_save.h"
 
 // I2S port number
 #define I2S_NUM I2S_NUM_0
@@ -125,8 +126,8 @@ void saveVolume() {
  */
 void setVolume(int vol) {
   audio_volume = constrain(vol, VOLUME_MIN, VOLUME_MAX);
-  Serial.printf("[Audio] Volume set to %d%%\n", audio_volume);
-  saveVolume();
+  // Deferred: an NVS commit per slider tick crunches the live beep
+  markDeferredSave(saveVolume);
 }
 
 /*
@@ -444,11 +445,8 @@ void startTone(int frequency) {
   if (current_frequency != frequency) {
     phase = 0.0;  // Reset phase only on frequency change
     current_frequency = frequency;
-    Serial.printf("Starting tone: %d Hz\n", frequency);
-  } else if (!tone_playing) {
-    // Restarting same frequency - don't reset phase to avoid click
-    Serial.printf("Resuming tone: %d Hz\n", frequency);
   }
+  // (no per-tone serial prints - this runs per keyed element)
 
   tone_playing = true;
 

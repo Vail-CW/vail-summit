@@ -47,7 +47,10 @@ void loadCWSettings();
 
 // Load CW settings from flash
 void loadCWSettings() {
-  cwPrefs.begin("cw", true);
+  if (!cwPrefs.begin("cw", true)) {
+    // Namespace missing (fresh device) or NVS unhealthy - keep defaults
+    Serial.println("[CW] WARNING: could not open 'cw' namespace read-only, using defaults");
+  }
   cwSpeed = cwPrefs.getInt("speed", DEFAULT_WPM);
   cwTone = cwPrefs.getInt("tone", TONE_SIDETONE);
   cwKeyType = (KeyType)cwPrefs.getInt("keytype", KEY_IAMBIC_B);
@@ -69,13 +72,22 @@ void loadCWSettings() {
 
 // Save CW settings to flash
 void saveCWSettings() {
-  cwPrefs.begin("cw", false);
-  cwPrefs.putInt("speed", cwSpeed);
-  cwPrefs.putInt("tone", cwTone);
-  cwPrefs.putInt("keytype", (int)cwKeyType);
+  if (!cwPrefs.begin("cw", false)) {
+    Serial.println("[CW] ERROR: cannot open 'cw' namespace for write - settings NOT saved");
+    return;
+  }
+  // putInt returns bytes written (0 = failure, e.g. NVS partition full)
+  bool ok = true;
+  ok &= cwPrefs.putInt("speed", cwSpeed) > 0;
+  ok &= cwPrefs.putInt("tone", cwTone) > 0;
+  ok &= cwPrefs.putInt("keytype", (int)cwKeyType) > 0;
   cwPrefs.end();
 
-  Serial.println("CW Settings saved");
+  if (ok) {
+    Serial.println("CW Settings saved");
+  } else {
+    Serial.println("[CW] ERROR: NVS write failed (partition full or corrupt?) - settings NOT saved");
+  }
 }
 
 // Start CW settings mode

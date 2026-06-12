@@ -775,7 +775,7 @@ static void cw_settings_key_handler(lv_event_t* e) {
             // Update display and save
             lv_label_set_text_fmt(cw_keytype_value, "< %s >", cw_keytype_names[current]);
             setCwKeyTypeFromInt(current);
-            saveCWSettings();
+            markDeferredSave(saveCWSettings);
         }
         else if (cw_settings_focus == 3 && cw_decoder_value) {
             // Decoder type - toggle between Adaptive and Direct
@@ -789,7 +789,7 @@ static void cw_settings_key_handler(lv_event_t* e) {
 
             decoderType = (DecoderType)current;
             lv_label_set_text_fmt(cw_decoder_value, "< %s >", cw_decoder_names[current]);
-            saveDecoderSettings();
+            markDeferredSave(saveDecoderSettings);
         }
         return;
     }
@@ -807,7 +807,7 @@ static void cw_speed_event_cb(lv_event_t* e) {
     if (cw_speed_value != NULL) {
         lv_label_set_text_fmt(cw_speed_value, "%d WPM", cwSpeed);
     }
-    saveCWSettings();
+    markDeferredSave(saveCWSettings);
     // Play preview tone at current CW frequency to confirm change
     beep(cwTone, 100);
 }
@@ -819,7 +819,7 @@ static void cw_tone_event_cb(lv_event_t* e) {
     if (cw_tone_value != NULL) {
         lv_label_set_text_fmt(cw_tone_value, "%d Hz", cwTone);
     }
-    saveCWSettings();
+    markDeferredSave(saveCWSettings);
     // Play preview tone
     beep(cwTone, 100);
 }

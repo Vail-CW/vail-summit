@@ -92,6 +92,24 @@ inline void checkFactoryResetGesture(int ditPin, int dahPin, int activeLevel) {
   factoryReset();  // erases NVS and reboots; does not return
 }
 
+// Log NVS partition health at boot. The Preferences API swallows write errors,
+// so a full or degraded NVS partition silently stops settings from persisting -
+// this report makes that failure mode visible in any tester's serial log.
+inline void logNvsStats() {
+  nvs_stats_t stats;
+  esp_err_t err = nvs_get_stats(NULL, &stats);
+  if (err != ESP_OK) {
+    Serial.printf("[Settings] WARNING: nvs_get_stats failed: %d\n", (int)err);
+    return;
+  }
+  Serial.printf("[Settings] NVS: %d/%d entries used (%d free), %d namespaces\n",
+                stats.used_entries, stats.total_entries, stats.free_entries,
+                stats.namespace_count);
+  if (stats.free_entries < 32) {
+    Serial.println("[Settings] WARNING: NVS nearly full - settings writes may start failing!");
+  }
+}
+
 // Read the schema version currently stored on the device (0 = unversioned).
 inline int getStoredSettingsVersion() {
   Preferences meta;
@@ -111,20 +129,97 @@ inline void writeSettingsVersion(int version) {
 
 // ---------------------------------------------------------------------------
 // Migration steps. Each migrateToVN() upgrades stored data FROM version N-1 TO
-// version N. None exist yet (we are at schema v1, the baseline). Examples:
-//
-//   static void migrateToV2() {
-//     // A renamed namespace whose old data is meaningless under the new code:
-//     const char* dead[] = { "oldns" };
-//     clearNvsNamespaces(dead, 1);
-//   }
+// version N.
 // ---------------------------------------------------------------------------
+
+// v1 -> v2: consolidate the large per-key stat arrays into single putBytes()
+// blobs. The per-key layout burned ~300 of the ~504 usable entries in the 20KB
+// NVS partition; a full partition makes every put() fail silently, which users
+// saw as "settings don't persist across reboots". Existing data is preserved.
+// Idempotent: each block converts only if the old key layout is present.
+static void migrateToV2() {
+  char key[12];
+
+  // licwstats: cc%d/ct%d/ttr%d/ttrc%d (4 x 44 keys) -> blobs cc/ct/ttr/ttrc
+  {
+    Preferences p;
+    if (p.begin("licwstats", false)) {
+      if (p.isKey("cc0")) {
+        int32_t cc[44], ct[44], ttrc[44];
+        uint32_t ttr[44];
+        for (int i = 0; i < 44; i++) {
+          snprintf(key, sizeof(key), "cc%d", i);   cc[i]   = p.getInt(key, 0);
+          snprintf(key, sizeof(key), "ct%d", i);   ct[i]   = p.getInt(key, 0);
+          snprintf(key, sizeof(key), "ttr%d", i);  ttr[i]  = p.getULong(key, 0);
+          snprintf(key, sizeof(key), "ttrc%d", i); ttrc[i] = p.getInt(key, 0);
+        }
+        p.clear();  // namespace holds only these arrays
+        p.putBytes("cc", cc, sizeof(cc));
+        p.putBytes("ct", ct, sizeof(ct));
+        p.putBytes("ttr", ttr, sizeof(ttr));
+        p.putBytes("ttrc", ttrc, sizeof(ttrc));
+        Serial.println("[Settings] v2: licwstats consolidated to blobs");
+      }
+      p.end();
+    }
+  }
+
+  // vcmastery: m%d/a%d/c%d (3 x 40 keys) -> blobs m/a/c
+  {
+    Preferences p;
+    if (p.begin("vcmastery", false)) {
+      if (p.isKey("m0")) {
+        int32_t m[40], a[40], c[40];
+        for (int i = 0; i < 40; i++) {
+          snprintf(key, sizeof(key), "m%d", i); m[i] = p.getInt(key, 0);
+          snprintf(key, sizeof(key), "a%d", i); a[i] = p.getInt(key, 0);
+          snprintf(key, sizeof(key), "c%d", i); c[i] = p.getInt(key, 0);
+        }
+        p.clear();  // namespace holds only these arrays
+        p.putBytes("m", m, sizeof(m));
+        p.putBytes("a", a, sizeof(a));
+        p.putBytes("c", c, sizeof(c));
+        Serial.println("[Settings] v2: vcmastery consolidated to blobs");
+      }
+      p.end();
+    }
+  }
+
+  // vailcourse: lc%d (12 keys) -> blob lc. Other keys in this namespace
+  // (module/lesson/unlocked/...) are untouched, so remove per-key, no clear().
+  {
+    Preferences p;
+    if (p.begin("vailcourse", false)) {
+      if (p.isKey("lc0")) {
+        uint32_t lc[12];
+        for (int i = 0; i < 12; i++) {
+          snprintf(key, sizeof(key), "lc%d", i);
+          lc[i] = (uint32_t)p.getInt(key, 0);
+          p.remove(key);
+        }
+        p.putBytes("lc", lc, sizeof(lc));
+        Serial.println("[Settings] v2: vailcourse lessons consolidated to blob");
+      }
+      p.end();
+    }
+  }
+}
 
 /*
  * Run any needed settings migrations. Call ONCE in setup(), early, before the
  * individual loadXxx() settings functions run, so stale data is fixed before it
  * is read.
  */
+// Set when boot finds an unversioned (fresh or wiped) NVS - the SD settings
+// backup uses this as the signal to offer a restore (see settings_sd_backup.h).
+bool g_nvsWasUnversioned = false;
+
+// True when runSettingsMigrations() will change stored data or stamp a new
+// version this boot - the caller takes a pre-migration SD snapshot first.
+inline bool settingsMigrationPending() {
+  return getStoredSettingsVersion() != SETTINGS_SCHEMA_VERSION;
+}
+
 inline void runSettingsMigrations() {
   int stored = getStoredSettingsVersion();
 
@@ -134,17 +229,19 @@ inline void runSettingsMigrations() {
 
   if (stored == 0) {
     // Unversioned NVS: either a fresh flash, or an existing in-field/dev unit
-    // whose data predates this framework. The current per-key schema reads such
-    // data compatibly (missing keys -> defaults, blobs are size-guarded), so we
-    // must NOT wipe it - just stamp the current version going forward.
-    Serial.println("[Settings] Unversioned NVS - stamping current schema (no data wipe)");
+    // whose data predates this framework. Don't wipe - run the (idempotent)
+    // migration steps so any pre-framework per-key data is converted, then
+    // stamp the current version going forward.
+    Serial.println("[Settings] Unversioned NVS - migrating any legacy data, stamping schema");
+    g_nvsWasUnversioned = true;
+    migrateToV2();
   } else if (stored < SETTINGS_SCHEMA_VERSION) {
     Serial.printf("[Settings] Migrating NVS schema v%d -> v%d\n",
                   stored, SETTINGS_SCHEMA_VERSION);
     // Run each step whose target version is ahead of the stored version, in
     // order. Add steps here as the schema evolves:
-    //   if (stored < 2) migrateToV2();
     //   if (stored < 3) migrateToV3();
+    if (stored < 2) migrateToV2();
   } else {
     // stored > current: the device previously ran NEWER firmware (a downgrade).
     // Leave the data as-is - older code simply ignores keys it doesn't know.

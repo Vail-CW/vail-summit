@@ -135,6 +135,9 @@ using namespace lgfx::v1::fonts;
 // SD Card Storage
 #include "src/storage/sd_card.h"
 
+// SD-card settings backup/restore (must come after sd_card.h)
+#include "src/settings/settings_sd_backup.h"
+
 // Web File Downloader (needed early for boot-time download check)
 #include "src/web/server/web_file_downloader.h"
 
@@ -170,6 +173,14 @@ using namespace lgfx::v1::fonts;
 // ============================================
 int getCwKeyTypeAsInt() { return (int)cwKeyType; }
 void setCwKeyTypeFromInt(int keyType) { cwKeyType = (KeyType)keyType; }
+
+// Deferred NVS saves (src/core/deferred_save.h) may only commit when no audio
+// is active: a flash commit disables both cores' caches, and even in an
+// inter-element gap it would delay the start of the next element.
+bool deferredSavesAllowed() {
+  if (isModeAudioCritical((int)currentMode)) return false;
+  return !isTonePlaying() && !isMorsePlaybackActive();
+}
 
 // ============================================
 // Global Hardware Objects
@@ -340,13 +351,11 @@ void setup() {
   }
   Serial.println("--- End PSRAM Diagnostic ---\n");
 
-  // ============================================
-  // Settings schema migration (must run before any settings load)
-  // ============================================
-  // Upgrade/stamp the persisted-settings (NVS) schema so a firmware update can't
-  // misread data written by an older build. Runs before loadBrightnessSettings()
-  // et al. below. See src/core/settings_migration.h.
-  runSettingsMigrations();
+  // NOTE: settings schema migration now runs AFTER initDisplay() below, so the
+  // SD card (which shares SPI with the display and must init second) can take
+  // a pre-migration backup. Constraint: only the "display" and "wifi"
+  // namespaces are read before migrations run - migrations must never alter
+  // the meaning of existing keys in those two namespaces.
 
   // Recovery gesture: hold BOTH paddles at power-on for 3s to factory-reset.
   // Display-independent so a misconfigured device can be recovered even if the
@@ -462,6 +471,22 @@ void setup() {
 
   // Initialize LCD (after I2S to avoid DMA conflicts)
   initDisplay();
+
+  // ============================================
+  // Settings schema migration + SD backup/restore
+  // ============================================
+  // Runs here (after display, so SD can init on the shared SPI bus) and before
+  // every settings/progress load below. Order: snapshot old data to SD if a
+  // migration is about to run, migrate, then - if NVS turned up empty - restore
+  // the full SD backup and reboot.
+  if (settingsMigrationPending()) {
+    if (sdCardAvailable || initSDCard()) {
+      dumpAllNvsToSD(NVS_PREMIGRATION_PATH);
+    }
+  }
+  runSettingsMigrations();
+  logNvsStats();  // surface NVS-full / corruption in serial logs (silent save failures)
+  restoreAllNvsIfWiped();  // reboots after a successful restore
 
   // Initialize LVGL library with display and input drivers
   Serial.println("Initializing LVGL...");
@@ -878,6 +903,15 @@ void loop() {
 
   // Update Morse Mailbox polling (runs in background regardless of mode)
   updateMailboxPolling();
+
+  // Commit deferred NVS saves once values settle and audio is idle
+  updateDeferredSaves();
+
+  // Mirror changed settings to the SD backup (debounced; skipped during
+  // audio-critical modes so an SD write never crunches active audio)
+  if (!isModeAudioCritical((int)currentMode)) {
+    updateSettingsBackup();
+  }
 
   // Update BLE Keyboard host (for auto-reconnect, skip during BT modes)
   if (currentMode != MODE_BT_HID && currentMode != MODE_BT_MIDI) {

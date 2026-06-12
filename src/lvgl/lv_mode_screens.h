@@ -394,7 +394,7 @@ static void radio_key_event_cb(lv_event_t* e) {
                     // WPM
                     if (cwSpeed > 5) {
                         cwSpeed--;
-                        saveCWSettings();
+                        markDeferredSave(saveCWSettings);
                         updateRadioSettingsDisplay();
                         if (radio_wpm_label) lv_label_set_text_fmt(radio_wpm_label, "%d WPM", cwSpeed);
                         beep(TONE_MENU_NAV, BEEP_SHORT);
@@ -405,7 +405,7 @@ static void radio_key_event_cb(lv_event_t* e) {
                     else if (cwKeyType == KEY_IAMBIC_B) cwKeyType = KEY_IAMBIC_A;
                     else if (cwKeyType == KEY_IAMBIC_A) cwKeyType = KEY_STRAIGHT;
                     else cwKeyType = KEY_ULTIMATIC;
-                    saveCWSettings();
+                    markDeferredSave(saveCWSettings);
                     updateRadioSettingsDisplay();
                     if (radio_keytype_label) lv_label_set_text(radio_keytype_label, getKeyTypeString(cwKeyType));
                     beep(TONE_MENU_NAV, BEEP_SHORT);
@@ -413,7 +413,7 @@ static void radio_key_event_cb(lv_event_t* e) {
                     // Tone
                     if (cwTone > 400) {
                         cwTone -= 50;
-                        saveCWSettings();
+                        markDeferredSave(saveCWSettings);
                         updateRadioSettingsDisplay();
                         if (radio_tone_label) lv_label_set_text_fmt(radio_tone_label, "%d Hz", cwTone);
                         beep(TONE_MENU_NAV, BEEP_SHORT);
@@ -427,7 +427,7 @@ static void radio_key_event_cb(lv_event_t* e) {
                     // WPM
                     if (cwSpeed < 40) {
                         cwSpeed++;
-                        saveCWSettings();
+                        markDeferredSave(saveCWSettings);
                         updateRadioSettingsDisplay();
                         if (radio_wpm_label) lv_label_set_text_fmt(radio_wpm_label, "%d WPM", cwSpeed);
                         beep(TONE_MENU_NAV, BEEP_SHORT);
@@ -438,7 +438,7 @@ static void radio_key_event_cb(lv_event_t* e) {
                     else if (cwKeyType == KEY_IAMBIC_A) cwKeyType = KEY_IAMBIC_B;
                     else if (cwKeyType == KEY_IAMBIC_B) cwKeyType = KEY_ULTIMATIC;
                     else cwKeyType = KEY_STRAIGHT;
-                    saveCWSettings();
+                    markDeferredSave(saveCWSettings);
                     updateRadioSettingsDisplay();
                     if (radio_keytype_label) lv_label_set_text(radio_keytype_label, getKeyTypeString(cwKeyType));
                     beep(TONE_MENU_NAV, BEEP_SHORT);
@@ -446,7 +446,7 @@ static void radio_key_event_cb(lv_event_t* e) {
                     // Tone
                     if (cwTone < 1000) {
                         cwTone += 50;
-                        saveCWSettings();
+                        markDeferredSave(saveCWSettings);
                         updateRadioSettingsDisplay();
                         if (radio_tone_label) lv_label_set_text_fmt(radio_tone_label, "%d Hz", cwTone);
                         beep(TONE_MENU_NAV, BEEP_SHORT);
@@ -1554,7 +1554,11 @@ static lv_obj_t* vail_loading_overlay = NULL;  // Loading overlay with spinner
 // having to look at the chat panel header.
 static lv_obj_t* vail_room_label = NULL;
 static lv_obj_t* vail_wpm_label = NULL;
-static lv_obj_t* vail_footer_label = NULL;
+static lv_obj_t* vail_strip_batt = NULL;    // status strip battery glyph
+static lv_obj_t* vail_strip_wifi = NULL;    // status strip WiFi glyph
+static lv_obj_t* vail_listen_badge = NULL;   // "TX OFF" strip badge when listen-only
+static lv_obj_t* vail_onair_pill = NULL;     // Red "ON AIR" pill, lit while transmitting
+static lv_obj_t* vail_tx_strip_label = NULL; // TX strip text: keying goes out vs local-only
 
 // Operating view + Settings sub-view. Operating view (1) is the default and
 // the equivalent of the web repeater's main screen — chat history, user
@@ -1563,18 +1567,23 @@ static lv_obj_t* vail_footer_label = NULL;
 // are modal overlays opened from the operating view via single-key hotkeys.
 static lv_obj_t* vail_chat_panel = NULL;     // Operating view
 static lv_obj_t* vail_settings_panel = NULL; // Settings sub-view (view 2)
-static lv_obj_t* vail_morse_row_bg = NULL;
-static lv_obj_t* vail_morse_row_label = NULL;
 static lv_obj_t* vail_decoded_row_bg = NULL;
 static lv_obj_t* vail_decoded_row_label = NULL;
-static lv_obj_t* vail_chat_room_label = NULL;
-static lv_obj_t* vail_users_label = NULL;    // Comma-separated callsigns + user count
+static lv_obj_t* vail_users_label = NULL;       // Side-pane operator list (newline-joined)
+static lv_obj_t* vail_side_ops_title = NULL;    // Side-pane kicker: "OPERATORS (n)"
+static lv_obj_t* vail_tile_listen_icon = NULL;  // Listen tile keycap (color reflects state)
+static lv_obj_t* vail_tile_listen_label = NULL; // Listen tile label (text reflects state)
 static int vail_current_view = 1;  // 1=Operating (chat panel), 2=Settings
+
+// Hero-card chat heights: full when the decoded row is hidden, reduced on the
+// Decoder room where the decoded-text row occupies the card's bottom strip.
+#define VAIL_CHAT_H_FULL 110
+#define VAIL_CHAT_H_DECODER 64
 
 // Settings screen rows.
 // Decoded-row visibility is no longer a toggle; it's automatic when joined
 // to the dedicated "Decoder" room (matches vailmorse.com behavior).
-#define VAIL_SETTINGS_ROW_COUNT 4
+#define VAIL_SETTINGS_ROW_COUNT 3
 static lv_obj_t* vail_srow_containers[VAIL_SETTINGS_ROW_COUNT];
 static lv_obj_t* vail_srow_values[VAIL_SETTINGS_ROW_COUNT];
 static int vail_settings_focus = 0;
@@ -1599,7 +1608,7 @@ static lv_obj_t* vail_user_list = NULL;
 
 // View state: 1=operating view (default), 2=rooms overlay, 3=users overlay,
 // 4=callsign required, 5=speed modal, 6=tone modal, 7=keytype modal,
-// 8=morse-row modal (legacy), 9=settings sub-view, 10=chat compose modal.
+// 9=settings sub-view, 10=chat compose modal.
 static int vail_view_mode = 1;
 static int vail_room_selection = 0;
 static int vail_user_scroll = 0;
@@ -1616,6 +1625,28 @@ static String vail_chat_input_text = "";  // Text being typed in chat view
 // audio-critical loop never blocks on delay().
 static char vail_pending_room[64] = "";
 static unsigned long vail_reconnect_at_ms = 0;
+
+// The room picker shows the server's active-rooms list (rooms with users in
+// them) plus a pinned "Decoder" entry when the server list doesn't include
+// it — Decoder is a special always-available room (RX morse→text decoding)
+// that would otherwise only appear while someone happens to be in it.
+static bool vailRoomsHasDecoder() {
+    for (size_t i = 0; i < activeRooms.size(); i++) {
+        if (activeRooms[i].name == "Decoder") return true;
+    }
+    return false;
+}
+
+// Number of joinable rooms shown (server rooms + pinned Decoder). The
+// "Custom room..." option sits at this index.
+static int vailRoomListCount() {
+    return (int)activeRooms.size() + (vailRoomsHasDecoder() ? 0 : 1);
+}
+
+static const char* vailRoomNameAt(int i) {
+    if (i < (int)activeRooms.size()) return activeRooms[i].name.c_str();
+    return "Decoder";  // the pinned entry
+}
 
 // Forward declarations
 static void showVailRoomOverlay();
@@ -1652,24 +1683,30 @@ static void switchVailView(int view) {
     updateVailFooter();
 }
 
-// Update footer hints based on current view. The operating-view footer also
-// reflects the current Listen-Only state so the operator can tell at a
-// glance whether their keying will go on the air.
+// Refresh the break-in (TX enabled vs listen-only) state indicators: the
+// Break-In tile in the bottom row, the TX strip between the panes and the
+// tiles, and the "TX OFF" badge in the status strip — so the operator can
+// always tell whether their keying will go on the air.
 static void updateVailFooter() {
-    if (vail_footer_label == NULL) return;
-
-    switch (vail_current_view) {
-        case 1: {
-            char buf[80];
-            if (vailListenOnly) {
-                snprintf(buf, sizeof(buf), "C Chat  R Room  S Set  L Resume TX  ESC Exit  [LISTEN ONLY]");
-            } else {
-                snprintf(buf, sizeof(buf), "C Chat  R Room  S Set  L Listen-only  ESC Exit");
-            }
-            lv_label_set_text(vail_footer_label, buf);
-            break;
+    if (vail_tile_listen_label != NULL) {
+        lv_label_set_text(vail_tile_listen_label, vailListenOnly ? "Break-In OFF" : "Break-In ON");
+    }
+    if (vail_tile_listen_icon != NULL) {
+        lv_obj_set_style_text_color(vail_tile_listen_icon,
+            vailListenOnly ? LV_COLOR_WARNING : LV_COLOR_ACCENT_PRIMARY, 0);
+    }
+    if (vail_tx_strip_label != NULL) {
+        if (vailListenOnly) {
+            lv_label_set_text(vail_tx_strip_label, "Break-in OFF: keying stays local");
+            lv_obj_set_style_text_color(vail_tx_strip_label, LV_COLOR_WARNING, 0);
+        } else {
+            lv_label_set_text(vail_tx_strip_label, "TX ready: paddle sends CW to the room");
+            lv_obj_set_style_text_color(vail_tx_strip_label, LV_COLOR_SUCCESS, 0);
         }
-        case 2: lv_label_set_text(vail_footer_label, FOOTER_NAV_ADJUST_ESC); break;
+    }
+    if (vail_listen_badge != NULL) {
+        if (vailListenOnly) lv_obj_clear_flag(vail_listen_badge, LV_OBJ_FLAG_HIDDEN);
+        else                lv_obj_add_flag(vail_listen_badge, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -1677,16 +1714,64 @@ static void updateVailFooter() {
 static void updateVailSettingsDisplay() {
     if (vail_wpm_label != NULL) {
         char wpm_str[16];
-        snprintf(wpm_str, sizeof(wpm_str), "WPM: %d", cwSpeed);
+        snprintf(wpm_str, sizeof(wpm_str), "%d WPM", cwSpeed);
         lv_label_set_text(vail_wpm_label, wpm_str);
     }
+}
+
+// Status-strip battery/WiFi glyphs (mirrors home-screen strip behaviour).
+static void vailApplyStripBattery(lv_obj_t* lbl) {
+    if (!lbl) return;
+    if (batteryPercent > 80)      { lv_label_set_text(lbl, LV_SYMBOL_BATTERY_FULL);  lv_obj_set_style_text_color(lbl, LV_COLOR_SUCCESS, 0); }
+    else if (batteryPercent > 60) { lv_label_set_text(lbl, LV_SYMBOL_BATTERY_3);     lv_obj_set_style_text_color(lbl, LV_COLOR_SUCCESS, 0); }
+    else if (batteryPercent > 40) { lv_label_set_text(lbl, LV_SYMBOL_BATTERY_2);     lv_obj_set_style_text_color(lbl, LV_COLOR_ACCENT_PRIMARY, 0); }
+    else if (batteryPercent > 20) { lv_label_set_text(lbl, LV_SYMBOL_BATTERY_1);     lv_obj_set_style_text_color(lbl, LV_COLOR_WARNING, 0); }
+    else                          { lv_label_set_text(lbl, LV_SYMBOL_BATTERY_EMPTY); lv_obj_set_style_text_color(lbl, LV_COLOR_ERROR, 0); }
+}
+
+static void vailApplyStripWifi(lv_obj_t* lbl) {
+    if (!lbl) return;
+    InternetStatus s = getInternetStatus();
+    if (s == INET_CONNECTED || s == INET_CHECKING) lv_obj_set_style_text_color(lbl, LV_COLOR_SUCCESS, 0);
+    else if (s == INET_WIFI_ONLY)                  lv_obj_set_style_text_color(lbl, LV_COLOR_WARNING, 0);
+    else                                           lv_obj_set_style_text_color(lbl, LV_COLOR_ERROR, 0);
+}
+
+// One bottom-row hint tile: keycap letter over action label, styled like the
+// home dashboard's launcher tiles. Purely visual — actions fire via the
+// single-key hotkeys handled in vail_key_event_cb, not via focus/click.
+static lv_obj_t* vailMakeHintTile(lv_obj_t* parent, const char* keycap, const char* name,
+                                  int x, int y, int w, int h,
+                                  lv_obj_t** keycap_out, lv_obj_t** name_out) {
+    lv_obj_t* tile = lv_obj_create(parent);
+    lv_obj_set_size(tile, w, h);
+    lv_obj_set_pos(tile, x, y);
+    lv_obj_clear_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
+    applyMenuCardStyle(tile);
+    lv_obj_set_style_pad_all(tile, 4, 0);
+
+    lv_obj_t* kc = lv_label_create(tile);
+    lv_label_set_text(kc, keycap);
+    lv_obj_set_style_text_font(kc, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(kc, LV_COLOR_ACCENT_PRIMARY, 0);
+    lv_obj_align(kc, LV_ALIGN_TOP_MID, 0, 4);
+
+    lv_obj_t* nm = lv_label_create(tile);
+    lv_label_set_text(nm, name);
+    lv_obj_set_style_text_font(nm, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(nm, LV_COLOR_TEXT_PRIMARY, 0);
+    lv_obj_align(nm, LV_ALIGN_BOTTOM_MID, 0, -2);
+
+    if (keycap_out) *keycap_out = kc;
+    if (name_out)   *name_out = nm;
+    return tile;
 }
 
 // (updateLandingButtonFocus removed — landing screen retired in favor of the
 //  always-visible operating view.)
 
 // Refresh all settings row value labels from current globals.
-// Settings: Speed (WPM), Tone (Hz), Key Type, Show TX Morse Row.
+// Settings: Speed (WPM), Tone (Hz), Key Type.
 // (RX decoded row is no longer a setting — it's automatic on the Decoder room.)
 static void refreshVailSettingsValues() {
     if (vail_srow_values[0] == NULL) return;
@@ -1696,7 +1781,6 @@ static void refreshVailSettingsValues() {
     snprintf(buf, sizeof(buf), "%d Hz", cwTone);
     lv_label_set_text(vail_srow_values[1], buf);
     lv_label_set_text(vail_srow_values[2], vail_keytype_names[cwKeyType]);
-    lv_label_set_text(vail_srow_values[3], vailShowMorseRow ? "Show" : "Hide");
 }
 
 // Highlight the focused settings row
@@ -1719,26 +1803,17 @@ static void adjustVailSettingsRow(int delta) {
         case 0:
             cwSpeed = constrain(cwSpeed + delta, 5, 40);
             if (vailKeyer) vailKeyer->setDitDuration(DIT_DURATION(cwSpeed));
-            saveCWSettings();
+            markDeferredSave(saveCWSettings);
             break;
-        case 1: cwTone = constrain(cwTone + delta * 50, 400, 1200); saveCWSettings(); break;
+        case 1: cwTone = constrain(cwTone + delta * 50, 400, 1200); markDeferredSave(saveCWSettings); break;
         case 2:
             cwKeyType = (KeyType)((cwKeyType + delta + 4) % 4);
             vailKeyer = getKeyer(cwKeyType);
             vailKeyer->reset();
             vailKeyer->setDitDuration(DIT_DURATION(cwSpeed));
             vailKeyer->setTxCallback(vailKeyerCallback);
-            saveCWSettings();
-            break;
-        case 3:
-            vailShowMorseRow = !vailShowMorseRow;
-            saveVailSettings();
-            if (vail_morse_row_bg != NULL) {
-                if (vailShowMorseRow) lv_obj_clear_flag(vail_morse_row_bg, LV_OBJ_FLAG_HIDDEN);
-                else                  lv_obj_add_flag(vail_morse_row_bg,   LV_OBJ_FLAG_HIDDEN);
-            }
-            break;
-    }
+            markDeferredSave(saveCWSettings);
+            break;    }
     refreshVailSettingsValues();
     updateVailSettingsDisplay();
 }
@@ -1753,7 +1828,6 @@ static void showVailSettingsModal(int type) {
         case 1: vail_settings_temp_value = cwSpeed; break;
         case 2: vail_settings_temp_value = cwTone; break;
         case 3: vail_settings_temp_value = cwKeyType; break;
-        case 4: vail_settings_temp_value = vailShowMorseRow ? 1 : 0; break;
     }
 
     // Create modal if not exists
@@ -1804,18 +1878,13 @@ static void showVailSettingsModal(int type) {
         case 3:
             title = "KEY TYPE";
             snprintf(value_str, sizeof(value_str), "%s", vail_keytype_names[vail_settings_temp_value]);
-            break;
-        case 4:
-            title = "MORSE ROW";
-            snprintf(value_str, sizeof(value_str), "%s", vail_settings_temp_value ? "Show" : "Hide");
-            break;
-    }
+            break;    }
 
     lv_label_set_text(vail_settings_title_label, title);
     lv_label_set_text(vail_settings_value_label, value_str);
 
     lv_obj_clear_flag(vail_settings_modal, LV_OBJ_FLAG_HIDDEN);
-    vail_view_mode = 4 + type;  // 5=speed, 6=tone, 7=keytype, 8=morse row
+    vail_view_mode = 4 + type;  // 5=speed, 6=tone, 7=keytype
 }
 
 // Hide settings modal
@@ -1843,12 +1912,7 @@ static void adjustVailSetting(int delta) {
         case 3:  // Key type
             vail_settings_temp_value = (vail_settings_temp_value + delta + 4) % 4;
             snprintf(value_str, sizeof(value_str), "%s", vail_keytype_names[vail_settings_temp_value]);
-            break;
-        case 4:  // Morse row toggle
-            vail_settings_temp_value = (vail_settings_temp_value == 0) ? 1 : 0;
-            snprintf(value_str, sizeof(value_str), "%s", vail_settings_temp_value ? "Show" : "Hide");
-            break;
-    }
+            break;    }
 
     if (vail_settings_value_label != NULL) {
         lv_label_set_text(vail_settings_value_label, value_str);
@@ -1858,18 +1922,9 @@ static void adjustVailSetting(int delta) {
 // Confirm and apply setting
 static void confirmVailSetting() {
     switch (vail_settings_modal_type) {
-        case 1: cwSpeed = vail_settings_temp_value; saveCWSettings(); break;
-        case 2: cwTone = vail_settings_temp_value; saveCWSettings(); break;
-        case 3: cwKeyType = (KeyType)vail_settings_temp_value; saveCWSettings(); break;
-        case 4:
-            vailShowMorseRow = (vail_settings_temp_value == 1);
-            saveVailSettings();
-            if (vail_morse_row_bg != NULL) {
-                if (vailShowMorseRow) lv_obj_clear_flag(vail_morse_row_bg, LV_OBJ_FLAG_HIDDEN);
-                else                  lv_obj_add_flag(vail_morse_row_bg, LV_OBJ_FLAG_HIDDEN);
-            }
-            break;
-    }
+        case 1: cwSpeed = vail_settings_temp_value; markDeferredSave(saveCWSettings); break;
+        case 2: cwTone = vail_settings_temp_value; markDeferredSave(saveCWSettings); break;
+        case 3: cwKeyType = (KeyType)vail_settings_temp_value; markDeferredSave(saveCWSettings); break;    }
     hideVailSettingsModal();
     updateVailSettingsDisplay();
     beep(TONE_SUCCESS, BEEP_SHORT);
@@ -1927,7 +1982,7 @@ static void vail_key_event_cb(lv_event_t* e) {
                     // Toggle Listen-Only mode (block outgoing TX, paddle still
                     // produces local sidetone)
                     vailListenOnly = !vailListenOnly;
-                    saveVailSettings();
+                    markDeferredSave(saveVailSettings);
                     updateVailFooter();
                     beep(vailListenOnly ? TONE_ERROR : TONE_SUCCESS, BEEP_SHORT);
                     break;
@@ -2038,7 +2093,7 @@ static void vail_key_event_cb(lv_event_t* e) {
                 case LV_KEY_DOWN:
                 case LV_KEY_NEXT:
                     if (!vail_custom_room_mode) {
-                        int maxSelection = activeRooms.size(); // +1 for custom room option, but 0-indexed
+                        int maxSelection = vailRoomListCount(); // index of "Custom room..."
                         if (vail_room_selection < maxSelection) {
                             vail_room_selection++;
                             updateVailRoomList();
@@ -2060,7 +2115,7 @@ static void vail_key_event_cb(lv_event_t* e) {
                             roomInput = "";
                             beep(TONE_SUCCESS, BEEP_SHORT);
                         }
-                    } else if (vail_room_selection == (int)activeRooms.size()) {
+                    } else if (vail_room_selection == vailRoomListCount()) {
                         // Selected "Custom room..." option
                         vail_custom_room_mode = true;
                         roomInput = "";
@@ -2072,14 +2127,17 @@ static void vail_key_event_cb(lv_event_t* e) {
                             lv_textarea_set_text(vail_room_input_textarea, "");
                         }
                         beep(TONE_MENU_NAV, BEEP_SHORT);
-                    } else if (vail_room_selection < (int)activeRooms.size()) {
-                        // Connect to selected room
+                    } else if (vail_room_selection < vailRoomListCount()) {
+                        // Connect to selected room. Copy the name BEFORE
+                        // disconnecting: disconnectFromVail() clears
+                        // activeRooms, so reading the entry afterwards is a
+                        // use-after-free (crashed on every list-pick join).
+                        strlcpy(vail_pending_room, vailRoomNameAt(vail_room_selection),
+                                sizeof(vail_pending_room));
                         hideVailRoomOverlay();
                         // Disconnect now, reconnect after 250ms settle
                         // (deferred via updateVailScreenLVGL, no blocking)
                         disconnectFromVail();
-                        strlcpy(vail_pending_room, activeRooms[vail_room_selection].name.c_str(),
-                                sizeof(vail_pending_room));
                         vail_reconnect_at_ms = millis() + 250;
                         beep(TONE_SUCCESS, BEEP_SHORT);
                     }
@@ -2266,17 +2324,23 @@ static void updateVailRoomList() {
     // Clear existing items
     lv_obj_clean(vail_room_list);
 
-    // Add room items
-    for (size_t i = 0; i < activeRooms.size() && i < 5; i++) {
+    // Add room items (server rooms + pinned Decoder when absent)
+    int room_count = vailRoomListCount();
+    for (int i = 0; i < room_count && i < 6; i++) {
         lv_obj_t* item = lv_label_create(vail_room_list);
         char item_text[64];
-        snprintf(item_text, sizeof(item_text), "%s %s (%d users)",
-                 (i == (size_t)vail_room_selection) ? ">" : " ",
-                 activeRooms[i].name.c_str(),
-                 activeRooms[i].users);
+        if (i < (int)activeRooms.size()) {
+            snprintf(item_text, sizeof(item_text), "%s %s (%d users)",
+                     (i == vail_room_selection) ? ">" : " ",
+                     activeRooms[i].name.c_str(),
+                     activeRooms[i].users);
+        } else {
+            snprintf(item_text, sizeof(item_text), "%s Decoder",
+                     (i == vail_room_selection) ? ">" : " ");
+        }
         lv_label_set_text(item, item_text);
         lv_obj_set_style_text_font(item, getThemeFonts()->font_body, 0);
-        if (i == (size_t)vail_room_selection) {
+        if (i == vail_room_selection) {
             lv_obj_set_style_text_color(item, LV_COLOR_ACCENT_PRIMARY, 0);
         } else {
             lv_obj_set_style_text_color(item, LV_COLOR_TEXT_PRIMARY, 0);
@@ -2287,10 +2351,10 @@ static void updateVailRoomList() {
     lv_obj_t* custom_item = lv_label_create(vail_room_list);
     char custom_text[32];
     snprintf(custom_text, sizeof(custom_text), "%s Custom room...",
-             (vail_room_selection == (int)activeRooms.size()) ? ">" : " ");
+             (vail_room_selection == vailRoomListCount()) ? ">" : " ");
     lv_label_set_text(custom_item, custom_text);
     lv_obj_set_style_text_font(custom_item, getThemeFonts()->font_body, 0);
-    if (vail_room_selection == (int)activeRooms.size()) {
+    if (vail_room_selection == vailRoomListCount()) {
         lv_obj_set_style_text_color(custom_item, LV_COLOR_ACCENT_PRIMARY, 0);
     } else {
         lv_obj_set_style_text_color(custom_item, LV_COLOR_TEXT_SECONDARY, 0);
@@ -2529,60 +2593,101 @@ lv_obj_t* createVailRepeaterScreen() {
         vail_srow_containers[i] = NULL;
         vail_srow_values[i] = NULL;
     }
-    vail_morse_row_bg = NULL;
-    vail_morse_row_label = NULL;
     vail_decoded_row_bg = NULL;
     vail_decoded_row_label = NULL;
     vail_users_label = NULL;
+    vail_side_ops_title = NULL;
     vail_room_label = NULL;
+    vail_strip_batt = NULL;
+    vail_strip_wifi = NULL;
+    vail_listen_badge = NULL;
+    vail_onair_pill = NULL;
+    vail_tx_strip_label = NULL;
+    vail_tile_listen_icon = NULL;
+    vail_tile_listen_label = NULL;
 
-    // Title bar — VAIL REPEATER * <room name> ... [WiFi][Battery]
-    lv_obj_t* title_bar = lv_obj_create(screen);
-    lv_obj_set_size(title_bar, SCREEN_WIDTH, HEADER_HEIGHT);
-    lv_obj_set_pos(title_bar, 0, 0);
-    lv_obj_set_layout(title_bar, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(title_bar, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(title_bar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_hor(title_bar, 15, 0);
-    lv_obj_set_style_pad_gap(title_bar, 8, 0);
-    lv_obj_add_style(title_bar, getStyleStatusBar(), 0);
-    lv_obj_clear_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
+    // ---- Status strip (matches the home dashboard) ----
+    // lamp * VAIL REPEATER * room ... [TX OFF] [WPM] [WiFi] [Battery]
+    lv_obj_t* strip = lv_obj_create(screen);
+    lv_obj_set_size(strip, SCREEN_WIDTH, 30);
+    lv_obj_set_pos(strip, 0, 0);
+    lv_obj_set_style_bg_color(strip, LV_COLOR_BG_LAYER2, 0);
+    lv_obj_set_style_border_width(strip, 0, 0);
+    lv_obj_set_style_radius(strip, 0, 0);
+    lv_obj_set_style_pad_all(strip, 0, 0);
+    lv_obj_clear_flag(strip, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t* title = lv_label_create(title_bar);
-    lv_label_set_text(title, "VAIL REPEATER");
-    lv_obj_add_style(title, getStyleLabelTitle(), 0);
+    // Left cluster: receiver lamp + title + current room (transparent flex row)
+    lv_obj_t* strip_left = lv_obj_create(strip);
+    lv_obj_set_size(strip_left, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(strip_left, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(strip_left, 0, 0);
+    lv_obj_set_style_pad_all(strip_left, 0, 0);
+    lv_obj_set_style_pad_gap(strip_left, 8, 0);
+    lv_obj_set_layout(strip_left, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(strip_left, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(strip_left, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_clear_flag(strip_left, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(strip_left, LV_ALIGN_LEFT_MID, 12, 0);
 
-    // Status indicator (receiver lamp dot)
-    vail_status_indicator = lv_obj_create(title_bar);
-    lv_obj_set_size(vail_status_indicator, 14, 14);
+    // Receiver lamp dot
+    vail_status_indicator = lv_obj_create(strip_left);
+    lv_obj_set_size(vail_status_indicator, 12, 12);
     lv_obj_set_style_radius(vail_status_indicator, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(vail_status_indicator, LV_COLOR_WARNING, 0);
     lv_obj_set_style_bg_opa(vail_status_indicator, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(vail_status_indicator, 0, 0);
     lv_obj_clear_flag(vail_status_indicator, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Current room name (always-visible in title bar so it's glanceable)
-    vail_room_label = lv_label_create(title_bar);
+    lv_obj_t* title = lv_label_create(strip_left);
+    lv_label_set_text(title, "VAIL REPEATER");
+    lv_obj_set_style_text_font(title, getThemeFonts()->font_subtitle, 0);
+    lv_obj_set_style_text_color(title, LV_COLOR_TEXT_PRIMARY, 0);
+
+    // Current room name (always glanceable in the strip)
+    vail_room_label = lv_label_create(strip_left);
     lv_label_set_text(vail_room_label, vailChannel.c_str());
     lv_obj_set_style_text_color(vail_room_label, LV_COLOR_TEXT_SECONDARY, 0);
     lv_obj_set_style_text_font(vail_room_label, getThemeFonts()->font_small, 0);
 
-    // Status bar (WiFi + battery)
-    createCompactStatusBar(screen);
+    // Right cluster: battery, WiFi, WPM, listen-only badge (absolute, like home)
+    vail_strip_batt = lv_label_create(strip);
+    lv_obj_set_style_text_font(vail_strip_batt, &lv_font_montserrat_20, 0);
+    lv_obj_align(vail_strip_batt, LV_ALIGN_RIGHT_MID, -10, 0);
+    vailApplyStripBattery(vail_strip_batt);
+
+    vail_strip_wifi = lv_label_create(strip);
+    lv_label_set_text(vail_strip_wifi, LV_SYMBOL_WIFI);
+    lv_obj_set_style_text_font(vail_strip_wifi, &lv_font_montserrat_20, 0);
+    lv_obj_align(vail_strip_wifi, LV_ALIGN_RIGHT_MID, -44, 0);
+    vailApplyStripWifi(vail_strip_wifi);
+
+    vail_wpm_label = lv_label_create(strip);
+    lv_obj_set_style_text_font(vail_wpm_label, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(vail_wpm_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_align(vail_wpm_label, LV_ALIGN_RIGHT_MID, -78, 0);
+    updateVailSettingsDisplay();
+
+    vail_listen_badge = lv_label_create(strip);
+    lv_label_set_text(vail_listen_badge, "TX OFF");
+    lv_obj_set_style_text_font(vail_listen_badge, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(vail_listen_badge, LV_COLOR_WARNING, 0);
+    lv_obj_align(vail_listen_badge, LV_ALIGN_RIGHT_MID, -136, 0);
+    lv_obj_add_flag(vail_listen_badge, LV_OBJ_FLAG_HIDDEN);
+
     vail_status_label = NULL;
 
-    // Main content area (below header, above footer)
-    int content_top = HEADER_HEIGHT;
-    int content_height = SCREEN_HEIGHT - HEADER_HEIGHT - FOOTER_HEIGHT;
+    // Main content area: everything below the strip (panes + tile row)
+    int content_top = 38;
+    int content_height = SCREEN_HEIGHT - content_top;
 
     // ============================================
     // OPERATING VIEW (View 1) - Always-visible default
-    // Layout (top to bottom):
-    //   - Header row: room name (left), WPM (right)
-    //   - Chat history textarea (most of the space)
-    //   - User list ticker (single line: "3 ops: KE9BOS, W1ABC, N0XYZ")
-    //   - Decoded row (visible only on Decoder room)
-    //   - TX morse row (visible only when vailShowMorseRow)
+    // Dashboard layout (mirrors the home screen):
+    //   - Hero card (left):  "ON THE AIR" kicker, chat/activity history,
+    //                        decoded-text strip (Decoder room only)
+    //   - Side card (right): operator list ("OPERATORS (n)")
+    //   - Tile row (bottom): hotkey hint tiles (C/R/S/L/ESC)
     // ============================================
     vail_chat_panel = lv_obj_create(screen);
     lv_obj_set_size(vail_chat_panel, SCREEN_WIDTH, content_height);
@@ -2593,93 +2698,144 @@ lv_obj_t* createVailRepeaterScreen() {
     lv_obj_clear_flag(vail_chat_panel, LV_OBJ_FLAG_SCROLLABLE);
     // Chat panel is the default visible view — no add_flag(HIDDEN) here.
 
-    // Header: room name (left), WPM (right)
-    vail_chat_room_label = lv_label_create(vail_chat_panel);
-    String chatRoomText = "Room: " + vailChannel;
-    lv_label_set_text(vail_chat_room_label, chatRoomText.c_str());
-    lv_obj_set_style_text_color(vail_chat_room_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(vail_chat_room_label, getThemeFonts()->font_small, 0);
-    lv_obj_set_pos(vail_chat_room_label, 10, 4);
+    // ---- Hero card: text chat ----
+    const int paneH = 160;
+    lv_obj_t* hero = lv_obj_create(vail_chat_panel);
+    lv_obj_set_size(hero, 286, paneH);
+    lv_obj_set_pos(hero, 8, 0);
+    lv_obj_clear_flag(hero, LV_OBJ_FLAG_SCROLLABLE);
+    applyCardStyle(hero);
+    lv_obj_set_style_pad_all(hero, 14, 0);
 
-    vail_wpm_label = lv_label_create(vail_chat_panel);
-    char wpm_str[16];
-    snprintf(wpm_str, sizeof(wpm_str), "WPM: %d", cwSpeed);
-    lv_label_set_text(vail_wpm_label, wpm_str);
-    lv_obj_set_style_text_color(vail_wpm_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(vail_wpm_label, getThemeFonts()->font_small, 0);
-    lv_obj_align(vail_wpm_label, LV_ALIGN_TOP_RIGHT, -10, 4);
+    lv_obj_t* hero_kicker = lv_label_create(hero);
+    lv_label_set_text(hero_kicker, "TEXT CHAT");
+    lv_obj_set_style_text_font(hero_kicker, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(hero_kicker, LV_COLOR_ACCENT_PRIMARY, 0);
+    lv_obj_align(hero_kicker, LV_ALIGN_TOP_LEFT, 0, 0);
 
-    // Layout heights
-    int chat_header_h = 20;
-    int users_row_h   = 22;   // single-line user-ticker
-    int morse_row_h   = 38;
-    int decoded_row_h = 38;
-    int history_h = content_height - chat_header_h - users_row_h - decoded_row_h - morse_row_h - 6;
-
-    vail_chat_textarea = lv_textarea_create(vail_chat_panel);
-    lv_obj_set_size(vail_chat_textarea, SCREEN_WIDTH - 20, history_h);
-    lv_obj_set_pos(vail_chat_textarea, 10, chat_header_h);
+    // Chat/activity history fills the card; shrinks when the decoded-text
+    // strip is visible (Decoder room). Borderless so it blends into the card.
+    bool onDecoder = vailIsOnDecoderChannel();
+    vail_chat_textarea = lv_textarea_create(hero);
+    lv_obj_set_size(vail_chat_textarea, 258, onDecoder ? VAIL_CHAT_H_DECODER : VAIL_CHAT_H_FULL);
+    lv_obj_align(vail_chat_textarea, LV_ALIGN_TOP_LEFT, 0, 22);
     lv_textarea_set_text(vail_chat_textarea, "");
     lv_textarea_set_placeholder_text(vail_chat_textarea, "Messages appear here...");
-    applyTextareaStyle(vail_chat_textarea);
+    lv_obj_set_style_bg_opa(vail_chat_textarea, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(vail_chat_textarea, 0, 0);
+    lv_obj_set_style_pad_all(vail_chat_textarea, 0, 0);
     lv_obj_set_style_text_font(vail_chat_textarea, getThemeFonts()->font_body, 0);
+    lv_obj_set_style_text_color(vail_chat_textarea, LV_COLOR_TEXT_PRIMARY, 0);
     lv_obj_clear_flag(vail_chat_textarea, LV_OBJ_FLAG_CLICK_FOCUSABLE);
     lv_textarea_set_cursor_click_pos(vail_chat_textarea, false);
 
-    // User list ticker — single line of comma-separated callsigns currently
-    // in the room (mirrors the web's user-list sidebar in compressed form).
-    // Updated each frame from connectedUsers in updateVailScreenLVGL.
-    int users_row_y = chat_header_h + history_h + 2;
-    vail_users_label = lv_label_create(vail_chat_panel);
-    lv_obj_set_size(vail_users_label, SCREEN_WIDTH - 20, users_row_h);
-    lv_obj_set_pos(vail_users_label, 10, users_row_y);
-    lv_label_set_text(vail_users_label, "");
-    lv_label_set_long_mode(vail_users_label, LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_color(vail_users_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(vail_users_label, getThemeFonts()->font_small, 0);
-
-    // RX decoded morse row — shows decoded text from incoming audio.
-    // Visible ONLY when joined to the dedicated "Decoder" room (matches
-    // vailmorse.com behavior). Auto-hidden on every other room.
-    int decoded_row_y = users_row_y + users_row_h + 2;
-    vail_decoded_row_bg = lv_obj_create(vail_chat_panel);
-    lv_obj_set_size(vail_decoded_row_bg, SCREEN_WIDTH - 20, decoded_row_h);
-    lv_obj_set_pos(vail_decoded_row_bg, 10, decoded_row_y);
+    // Decoded TEXT strip pinned to the bottom of the hero card: a single
+    // stream of decoded characters — both the operator's own keying and
+    // received morse. Visible ONLY on the dedicated "Decoder" room (matches
+    // vailmorse.com behavior). Accent border + label so it reads as a
+    // first-class element, not background trim.
+    vail_decoded_row_bg = lv_obj_create(hero);
+    lv_obj_set_size(vail_decoded_row_bg, 258, 42);
+    lv_obj_align(vail_decoded_row_bg, LV_ALIGN_BOTTOM_LEFT, 0, 0);
     lv_obj_set_style_pad_all(vail_decoded_row_bg, 0, 0);
     lv_obj_set_style_bg_color(vail_decoded_row_bg, LV_COLOR_BG_LAYER2, 0);
-    lv_obj_set_style_border_width(vail_decoded_row_bg, 0, 0);
+    lv_obj_set_style_border_color(vail_decoded_row_bg, LV_COLOR_ACCENT_PRIMARY, 0);
+    lv_obj_set_style_border_width(vail_decoded_row_bg, 1, 0);
     lv_obj_set_style_radius(vail_decoded_row_bg, 4, 0);
     lv_obj_clear_flag(vail_decoded_row_bg, LV_OBJ_FLAG_SCROLLABLE);
-    if (!vailIsOnDecoderChannel()) lv_obj_add_flag(vail_decoded_row_bg, LV_OBJ_FLAG_HIDDEN);
+    if (!onDecoder) lv_obj_add_flag(vail_decoded_row_bg, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t* decoded_kicker = lv_label_create(vail_decoded_row_bg);
+    lv_label_set_text(decoded_kicker, "DECODED");
+    lv_obj_set_style_text_font(decoded_kicker, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(decoded_kicker, LV_COLOR_ACCENT_PRIMARY, 0);
+    lv_obj_align(decoded_kicker, LV_ALIGN_TOP_LEFT, 6, 1);
 
     vail_decoded_row_label = lv_label_create(vail_decoded_row_bg);
     lv_label_set_text(vail_decoded_row_label, "");
     lv_obj_set_style_text_font(vail_decoded_row_label, &font_special_elite_18, 0);
-    lv_obj_set_style_text_color(vail_decoded_row_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_align(vail_decoded_row_label, LV_ALIGN_LEFT_MID, 4, 0);
+    lv_obj_set_style_text_color(vail_decoded_row_label, LV_COLOR_TEXT_PRIMARY, 0);
+    lv_obj_align(vail_decoded_row_label, LV_ALIGN_BOTTOM_LEFT, 6, -2);
 
-    // Morse symbol row — shows dits/dahs as user keys current character.
-    // Visible based on the vailShowMorseRow setting.
-    int morse_row_y = decoded_row_y + decoded_row_h + 2;
-    vail_morse_row_bg = lv_obj_create(vail_chat_panel);
-    lv_obj_set_size(vail_morse_row_bg, SCREEN_WIDTH - 20, morse_row_h);
-    lv_obj_set_pos(vail_morse_row_bg, 10, morse_row_y);
-    lv_obj_set_style_pad_all(vail_morse_row_bg, 0, 0);
-    lv_obj_set_style_bg_color(vail_morse_row_bg, LV_COLOR_BG_LAYER2, 0);
-    lv_obj_set_style_border_width(vail_morse_row_bg, 0, 0);
-    lv_obj_set_style_radius(vail_morse_row_bg, 4, 0);
-    lv_obj_clear_flag(vail_morse_row_bg, LV_OBJ_FLAG_SCROLLABLE);
-    if (!vailShowMorseRow) lv_obj_add_flag(vail_morse_row_bg, LV_OBJ_FLAG_HIDDEN);
+    // ---- Side card: operators in the room ----
+    lv_obj_t* side = lv_obj_create(vail_chat_panel);
+    lv_obj_set_size(side, 170, paneH);
+    lv_obj_set_pos(side, 302, 0);
+    lv_obj_clear_flag(side, LV_OBJ_FLAG_SCROLLABLE);
+    applyCardStyle(side);
+    lv_obj_set_style_pad_all(side, 12, 0);
 
-    vail_morse_row_label = lv_label_create(vail_morse_row_bg);
-    lv_label_set_text(vail_morse_row_label, "");
-    // Use Special Elite (typewriter-style) for distinctive dit/dah glyphs
-    // regardless of active theme.
-    lv_obj_set_style_text_font(vail_morse_row_label, &font_special_elite_18, 0);
-    lv_obj_set_style_text_color(vail_morse_row_label, LV_COLOR_ACCENT_PRIMARY, 0);
-    lv_obj_align(vail_morse_row_label, LV_ALIGN_LEFT_MID, 4, 0);
+    vail_side_ops_title = lv_label_create(side);
+    lv_label_set_text(vail_side_ops_title, "OPERATORS");
+    lv_obj_set_style_text_font(vail_side_ops_title, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(vail_side_ops_title, LV_COLOR_ACCENT_PRIMARY, 0);
+    lv_obj_align(vail_side_ops_title, LV_ALIGN_TOP_LEFT, 0, 0);
 
-    // (Chat compose input is now an on-demand modal opened with C, not an
+    vail_users_label = lv_label_create(side);
+    lv_obj_set_size(vail_users_label, 146, 106);
+    lv_obj_align(vail_users_label, LV_ALIGN_TOP_LEFT, 0, 26);
+    lv_label_set_text(vail_users_label, "");
+    lv_label_set_long_mode(vail_users_label, LV_LABEL_LONG_CLIP);
+    lv_obj_set_style_text_color(vail_users_label, LV_COLOR_TEXT_PRIMARY, 0);
+    lv_obj_set_style_text_font(vail_users_label, getThemeFonts()->font_body, 0);
+
+    // ---- TX strip: between the panes and the tile row, on every room ----
+    // Tells the operator whether keying goes on the air (break-in state) and
+    // hosts the red "ON AIR" pill that lights while transmitting. Text and
+    // colors are driven by updateVailFooter(); the pill by updateVailScreenLVGL.
+    {
+        lv_obj_t* tx_strip = lv_obj_create(vail_chat_panel);
+        lv_obj_set_size(tx_strip, SCREEN_WIDTH - 16, 32);
+        lv_obj_set_pos(tx_strip, 8, paneH + 6);
+        lv_obj_set_style_bg_color(tx_strip, LV_COLOR_BG_LAYER2, 0);
+        lv_obj_set_style_bg_opa(tx_strip, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(tx_strip, 0, 0);
+        lv_obj_set_style_radius(tx_strip, 6, 0);
+        lv_obj_set_style_pad_all(tx_strip, 0, 0);
+        lv_obj_clear_flag(tx_strip, LV_OBJ_FLAG_SCROLLABLE);
+
+        vail_tx_strip_label = lv_label_create(tx_strip);
+        lv_obj_set_style_text_font(vail_tx_strip_label, getThemeFonts()->font_small, 0);
+        lv_obj_align(vail_tx_strip_label, LV_ALIGN_LEFT_MID, 12, 0);
+
+        // "ON AIR" pill — lit bright red while the operator's keying is going
+        // out on the network. Visibility is driven from updateVailScreenLVGL
+        // with a short hold so it stays solid across inter-element gaps
+        // instead of flickering per dit.
+        vail_onair_pill = lv_obj_create(tx_strip);
+        lv_obj_set_size(vail_onair_pill, 78, 24);
+        lv_obj_align(vail_onair_pill, LV_ALIGN_RIGHT_MID, -4, 0);
+        lv_obj_set_style_bg_color(vail_onair_pill, LV_COLOR_ERROR, 0);
+        lv_obj_set_style_bg_opa(vail_onair_pill, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(vail_onair_pill, 0, 0);
+        lv_obj_set_style_radius(vail_onair_pill, 12, 0);
+        lv_obj_set_style_pad_all(vail_onair_pill, 0, 0);
+        lv_obj_clear_flag(vail_onair_pill, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(vail_onair_pill, LV_OBJ_FLAG_HIDDEN);
+
+        lv_obj_t* onair_lbl = lv_label_create(vail_onair_pill);
+        lv_label_set_text(onair_lbl, "ON AIR");
+        lv_obj_set_style_text_font(onair_lbl, getThemeFonts()->font_small, 0);
+        lv_obj_set_style_text_color(onair_lbl, lv_color_white(), 0);
+        lv_obj_center(onair_lbl);
+    }
+
+    // ---- Bottom tile row: hotkey hints styled like home launchers ----
+    {
+        const int tileY = paneH + 44;  // panel-relative; screen y = 242
+        const int tileH = 70;
+        const int gap   = 6;
+        const int tileW = (SCREEN_WIDTH - (gap * 6)) / 5;
+        int tx = gap;
+        vailMakeHintTile(vail_chat_panel, "C",   "Chat",     tx, tileY, tileW, tileH, NULL, NULL); tx += tileW + gap;
+        vailMakeHintTile(vail_chat_panel, "R",   "Rooms",    tx, tileY, tileW, tileH, NULL, NULL); tx += tileW + gap;
+        vailMakeHintTile(vail_chat_panel, "S",   "Settings", tx, tileY, tileW, tileH, NULL, NULL); tx += tileW + gap;
+        vailMakeHintTile(vail_chat_panel, "L",   "Break-In", tx, tileY, tileW, tileH,
+                         &vail_tile_listen_icon, &vail_tile_listen_label);                         tx += tileW + gap;
+        vailMakeHintTile(vail_chat_panel, "ESC", "Exit",     tx, tileY, tileW, tileH, NULL, NULL);
+    }
+
+    // (Chat compose input is an on-demand modal opened with C, not an
     // always-visible row. See showVailChatInputOverlay().)
 
     // ============================================
@@ -2694,8 +2850,17 @@ lv_obj_t* createVailRepeaterScreen() {
     lv_obj_clear_flag(vail_settings_panel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(vail_settings_panel, LV_OBJ_FLAG_HIDDEN);
 
-    static const char* srow_names[VAIL_SETTINGS_ROW_COUNT] = {"Speed", "Tone", "Key Type", "Morse Row"};
-    int row_h = content_height / VAIL_SETTINGS_ROW_COUNT;
+    static const char* srow_names[VAIL_SETTINGS_ROW_COUNT] = {"Speed", "Tone", "Key Type"};
+    const int settings_hint_h = 26;
+    int row_h = (content_height - settings_hint_h) / VAIL_SETTINGS_ROW_COUNT;
+
+    // Hint footer inside the settings panel (the operating view's hints live
+    // on the bottom tiles, which this panel covers)
+    lv_obj_t* settings_hint = lv_label_create(vail_settings_panel);
+    lv_label_set_text(settings_hint, FOOTER_NAV_ADJUST_ESC);
+    lv_obj_set_style_text_font(settings_hint, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(settings_hint, LV_COLOR_WARNING, 0);
+    lv_obj_align(settings_hint, LV_ALIGN_BOTTOM_MID, 0, -4);
 
     for (int i = 0; i < VAIL_SETTINGS_ROW_COUNT; i++) {
         vail_srow_containers[i] = lv_obj_create(vail_settings_panel);
@@ -2730,25 +2895,7 @@ lv_obj_t* createVailRepeaterScreen() {
     }
     refreshVailSettingsValues();
 
-    // ============================================
-    // Footer (always visible)
-    // ============================================
-    lv_obj_t* footer = lv_obj_create(screen);
-    lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
-    lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
-    lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_layout(footer, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(footer, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(footer, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_hor(footer, 10, 0);
-
-    vail_footer_label = lv_label_create(footer);
-    lv_label_set_text(vail_footer_label, "");  // Filled in by updateVailFooter() below
-    lv_obj_set_style_text_color(vail_footer_label, LV_COLOR_WARNING, 0);
-    lv_obj_set_style_text_font(vail_footer_label, getThemeFonts()->font_small, 0);
-    // (Max-chars hint moved into the chat compose modal where it's relevant.)
+    // Sync the Listen tile + strip badge with the saved Listen-Only state.
     updateVailFooter();
 
     // Invisible focus container for keyboard input
@@ -2861,6 +3008,26 @@ void updateVailScreenLVGL() {
         lv_obj_set_style_bg_color(vail_status_indicator, status_color, 0);
     }
 
+    // "ON AIR" pill: solid while keying, with an 800ms hold so it doesn't
+    // flicker across inter-element and inter-character gaps. Toggled only on
+    // state change to avoid needless redraws on the audio-critical loop.
+    if (vail_onair_pill != NULL) {
+        bool onAir = lastTxLitMs != 0 && (millis() - lastTxLitMs) < 800;
+        bool pillVisible = !lv_obj_has_flag(vail_onair_pill, LV_OBJ_FLAG_HIDDEN);
+        if (onAir != pillVisible) {
+            if (onAir) lv_obj_clear_flag(vail_onair_pill, LV_OBJ_FLAG_HIDDEN);
+            else       lv_obj_add_flag(vail_onair_pill, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    // Status strip battery/WiFi refresh (throttled; matches home's 3s cadence)
+    static unsigned long lastStripRefreshMs = 0;
+    if (millis() - lastStripRefreshMs > 3000) {
+        lastStripRefreshMs = millis();
+        vailApplyStripBattery(vail_strip_batt);
+        vailApplyStripWifi(vail_strip_wifi);
+    }
+
     // Show/hide loading overlay based on connection state
     if (vail_loading_overlay != NULL) {
         if (vailState == VAIL_CONNECTING) {
@@ -2872,13 +3039,9 @@ void updateVailScreenLVGL() {
         }
     }
 
-    // Update room name labels
+    // Update room name label in the status strip
     if (vail_room_label != NULL) {
         lv_label_set_text(vail_room_label, vailChannel.c_str());
-    }
-    if (vail_chat_room_label != NULL) {
-        String chatRoomText = "Room: " + vailChannel;
-        lv_label_set_text(vail_chat_room_label, chatRoomText.c_str());
     }
 
     // Sync chat messages if new ones arrived
@@ -2907,64 +3070,75 @@ void updateVailScreenLVGL() {
         vail_last_chat_count = chatHistory.size();
     }
 
-    // Update morse history row (full accumulated symbols).
-    // No String allocations: compare via strcmp + cache last value in a fixed
-    // char buffer so this loop has zero heap activity on the audio-critical
-    // Vail Repeater screen.
-    if (vail_morse_row_label != NULL && vail_current_view == 1) {
-        static char lastMorse[VAIL_MORSE_BUF_SIZE] = {0};
-        if (strcmp(vailTxMorseSymbols, lastMorse) != 0) {
-            strncpy(lastMorse, vailTxMorseSymbols, VAIL_MORSE_BUF_SIZE - 1);
-            lastMorse[VAIL_MORSE_BUF_SIZE - 1] = '\0';
-            lv_label_set_text(vail_morse_row_label, vailTxMorseSymbols);
+    // Update RX decoded TEXT row (characters decoded from incoming audio on
+    // the Decoder room). Shows text only - never dot/dash symbols.
+    if (vail_decoded_row_label != NULL && vail_current_view == 1 && vailDecodedNeedsUpdate) {
+        vailDecodedNeedsUpdate = false;
+        char buf[VAIL_DECODE_SLOTS + 1];
+        int n = 0;
+        for (; n < vailDecodedCount && n < VAIL_DECODE_SLOTS; n++) {
+            buf[n] = vailDecodedEntries[n].ch;
         }
-    }
-
-    // Update RX decoded row (dits/dahs from incoming durations)
-    if (vail_decoded_row_label != NULL && vail_current_view == 1) {
-        static char lastRxMorse[VAIL_MORSE_BUF_SIZE] = {0};
-        if (strcmp(vailRxMorseSymbols, lastRxMorse) != 0) {
-            strncpy(lastRxMorse, vailRxMorseSymbols, VAIL_MORSE_BUF_SIZE - 1);
-            lastRxMorse[VAIL_MORSE_BUF_SIZE - 1] = '\0';
-            lv_label_set_text(vail_decoded_row_label, vailRxMorseSymbols);
-        }
+        buf[n] = '\0';
+        lv_label_set_text(vail_decoded_row_label, buf);
     }
 
     // (Auto-decode-to-chat-input pipeline removed — chat is text-only via the
     //  on-demand compose modal. Operator's own keying is heard locally and
     //  transmitted on the air, but does not auto-type into chat.)
 
-    // User list ticker — rebuild whenever connectedUsers changes. Format:
-    // "3 ops: KE9BOS, W1ABC, N0XYZ" with elision via LV_LABEL_LONG_DOT if
-    // the list overflows.
+    // Side-pane operator list — rebuild whenever connectedUsers changes.
+    // Title shows the count ("OPERATORS (3)"); the list shows up to five
+    // callsigns, one per line, then "+N more".
     if (vail_users_label != NULL && vail_current_view == 1) {
         static size_t lastUserCount = SIZE_MAX;
-        static String lastFirstUser = "";  // crude change-detection
+        static char lastFirstUser[16] = "";  // crude change-detection, heap-free
         size_t curCount = connectedUsers.size();
-        const String& curFirst = curCount > 0 ? connectedUsers[0].callsign : String();
-        if (curCount != lastUserCount || curFirst != lastFirstUser) {
+        const char* curFirst = curCount > 0 ? connectedUsers[0].callsign.c_str() : "";
+        if (curCount != lastUserCount || strncmp(curFirst, lastFirstUser, sizeof(lastFirstUser) - 1) != 0) {
             lastUserCount = curCount;
-            lastFirstUser = curFirst;
-            char buf[160];
-            int off = snprintf(buf, sizeof(buf), "%u op%s: ",
-                (unsigned)curCount, curCount == 1 ? "" : "s");
-            for (size_t i = 0; i < curCount && off < (int)sizeof(buf) - 12; i++) {
-                off += snprintf(buf + off, sizeof(buf) - off,
-                    "%s%s", i == 0 ? "" : ", ", connectedUsers[i].callsign.c_str());
+            strlcpy(lastFirstUser, curFirst, sizeof(lastFirstUser));
+
+            if (vail_side_ops_title != NULL) {
+                char ttl[32];
+                snprintf(ttl, sizeof(ttl), "OPERATORS (%u)", (unsigned)curCount);
+                lv_label_set_text(vail_side_ops_title, ttl);
             }
-            lv_label_set_text(vail_users_label, buf);
+
+            if (curCount == 0) {
+                lv_label_set_text(vail_users_label, "No one else here");
+            } else {
+                const size_t maxLines = 5;
+                char buf[160];
+                int off = 0;
+                size_t shown = curCount < maxLines ? curCount : maxLines;
+                for (size_t i = 0; i < shown && off < (int)sizeof(buf) - 16; i++) {
+                    off += snprintf(buf + off, sizeof(buf) - off,
+                        "%s%s", i == 0 ? "" : "\n", connectedUsers[i].callsign.c_str());
+                }
+                if (curCount > shown) {
+                    snprintf(buf + off, sizeof(buf) - off, "\n+%u more",
+                        (unsigned)(curCount - shown));
+                }
+                lv_label_set_text(vail_users_label, buf);
+            }
         }
     }
 
     // Decoded row visibility tracks the room: only on the dedicated "Decoder"
     // room (matches vailmorse.com behavior). Re-checked each frame so a room
-    // change immediately hides/shows the row.
+    // change immediately hides/shows the row; the chat history resizes to
+    // give back / make room for the strip at the bottom of the hero card.
     if (vail_decoded_row_bg != NULL) {
         bool wantVisible = vailIsOnDecoderChannel();
         bool isVisible = !lv_obj_has_flag(vail_decoded_row_bg, LV_OBJ_FLAG_HIDDEN);
         if (wantVisible != isVisible) {
             if (wantVisible) lv_obj_clear_flag(vail_decoded_row_bg, LV_OBJ_FLAG_HIDDEN);
             else             lv_obj_add_flag(vail_decoded_row_bg, LV_OBJ_FLAG_HIDDEN);
+            if (vail_chat_textarea != NULL) {
+                lv_obj_set_height(vail_chat_textarea,
+                    wantVisible ? VAIL_CHAT_H_DECODER : VAIL_CHAT_H_FULL);
+            }
         }
     }
 }
@@ -2995,15 +3169,19 @@ void cleanupVailRepeaterScreen() {
     vail_loading_overlay = NULL;
     vail_room_label = NULL;
     vail_wpm_label = NULL;
-    vail_footer_label = NULL;
+    vail_strip_batt = NULL;
+    vail_strip_wifi = NULL;
+    vail_listen_badge = NULL;
+    vail_onair_pill = NULL;
+    vail_tx_strip_label = NULL;
+    vail_tile_listen_icon = NULL;
+    vail_tile_listen_label = NULL;
     vail_chat_panel = NULL;
     vail_settings_panel = NULL;
-    vail_morse_row_bg = NULL;
-    vail_morse_row_label = NULL;
     vail_decoded_row_bg = NULL;
     vail_decoded_row_label = NULL;
-    vail_chat_room_label = NULL;
     vail_users_label = NULL;
+    vail_side_ops_title = NULL;
     for (int i = 0; i < VAIL_SETTINGS_ROW_COUNT; i++) {
         vail_srow_containers[i] = NULL;
         vail_srow_values[i] = NULL;
