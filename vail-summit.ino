@@ -653,7 +653,16 @@ void setup() {
   // itself can legitimately take many seconds, so it must not be watched). If
   // loop() ever stalls > LOOP_WDT_TIMEOUT_S, panic=true reboots the device with
   // a backtrace instead of leaving it hung. loop() feeds it via esp_task_wdt_reset().
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+  esp_task_wdt_config_t wdt_cfg = {
+      .timeout_ms = LOOP_WDT_TIMEOUT_S * 1000,
+      .idle_core_mask = 0,
+      .trigger_panic = true,
+  };
+  esp_task_wdt_init(&wdt_cfg);
+#else
   esp_task_wdt_init(LOOP_WDT_TIMEOUT_S, true);
+#endif
   esp_task_wdt_add(NULL);   // subscribe the Arduino loop task
   Serial.printf("[WDT] Loop watchdog armed (%ds)\n", LOOP_WDT_TIMEOUT_S);
 

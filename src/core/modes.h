@@ -158,6 +158,9 @@ enum MenuMode {
     // Factory reset action (103) — shows a confirm dialog, not a screen
     MODE_FACTORY_RESET = 103,
 
+    // First-run device onboarding wizard (104)
+    MODE_ONBOARDING = 104,
+
     // LICW Training modes (120-133)
     MODE_LICW_CAROUSEL_SELECT = 120,
     MODE_LICW_LESSON_SELECT = 121,

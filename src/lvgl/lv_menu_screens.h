@@ -106,12 +106,13 @@ static const LVMenuItem wifiSubmenuItems[] = {
 
 // General submenu items
 static const LVMenuItem generalSubmenuItems[] = {
+    MENU_ITEM_LV(LV_SYMBOL_HOME, "Device Tour", MODE_ONBOARDING),
     MENU_ITEM_LV(LV_SYMBOL_CALL, "Callsign", MODE_CALLSIGN_SETTINGS),
     MENU_ITEM_LV(LV_SYMBOL_VOLUME_MAX, "Volume", MODE_VOLUME_SETTINGS),
     MENU_ITEM_LV(LV_SYMBOL_IMAGE, "Brightness", MODE_BRIGHTNESS_SETTINGS),
     MENU_ITEM_LV(LV_SYMBOL_EYE_OPEN, "UI Theme", MODE_THEME_SETTINGS)
 };
-#define GENERAL_SUBMENU_COUNT 4
+#define GENERAL_SUBMENU_COUNT 5
 
 // Ham Tools submenu items
 static const LVMenuItem hamToolsMenuItems[] = {

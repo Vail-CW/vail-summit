@@ -31,6 +31,7 @@
 #include "lv_morse_notes_screens.h"
 #include "lv_cwschool_screens.h"
 #include "lv_vail_course_screens.h"
+#include "lv_onboarding_screens.h"
 #include "../core/config.h"
 #include "../settings/settings_practice_time.h"
 #include "../network/progress_sync.h"
@@ -303,6 +304,8 @@ lv_obj_t* createScreenForModeInt(int mode) {
 
     // Placeholder screens for unimplemented features
     switch (mode) {
+        case MODE_ONBOARDING:
+            return createOnboardingScreen();
         case MODE_BAND_PLANS:
             return createBandPlansScreen();
         case MODE_PROPAGATION:
@@ -544,6 +547,10 @@ void initializeModeInt(int mode) {
             Serial.println("[ModeInit] Starting Web Password Settings");
             startWebPasswordSettings(tft);
             break;
+        case MODE_ONBOARDING:
+            Serial.println("[ModeInit] Resuming onboarding wizard");
+            onboardingActive = false;
+            break;
 
         // QSO Logger modes - now handled by LVGL screens in lv_mode_screens.h
         // Screen creation handles data loading, no legacy init needed
@@ -691,6 +698,10 @@ static void factoryResetConfirmCb(lv_event_t* e) {
 void onLVGLMenuSelect(int target_mode) {
     Serial.printf("[ModeIntegration] Menu selected mode: %d\n", target_mode);
 
+    if (target_mode == MODE_ONBOARDING) {
+        startOnboarding(true);
+    }
+
     // Factory Reset - confirm, then erase all settings/progress/WiFi and reboot
     if (target_mode == MODE_FACTORY_RESET) {
         playAlertChirp();
@@ -812,6 +823,17 @@ int getParentModeInt(int mode) {
         return MODE_HOME;
     }
 
+    // Onboarding WiFi branch: return to wizard instead of WiFi submenu
+    if (onboardingActive && mode == MODE_WIFI_SETTINGS) {
+        Serial.println("[ModeIntegration] Returning from onboarding WiFi to wizard");
+        return MODE_ONBOARDING;
+    }
+
+    // Device Tour launched from Settings > General
+    if (mode == MODE_ONBOARDING && onboardingLaunchFromSettings) {
+        return MODE_GENERAL_SUBMENU;
+    }
+
     return lookupParentMode(mode);
 }
 
@@ -894,6 +916,7 @@ static const ModeCallbackEntry cleanupTable[] = {
     { MODE_WEB_HEAR_IT,                  cleanupWebHearItMode },
     { MODE_WEB_MEMORY_CHAIN,             cleanupWebMemoryChainMode },
     { MODE_WEB_FILES_UPDATE,             cleanupWebDownloadScreen },
+    { MODE_ONBOARDING,                   cleanupOnboardingScreen },
 };
 static const int cleanupTableSize = sizeof(cleanupTable) / sizeof(cleanupTable[0]);
 
@@ -971,11 +994,19 @@ void initLVGLModeIntegration() {
  * Show the initial LVGL screen (main menu)
  */
 void showInitialLVGLScreen() {
-    Serial.println("[ModeIntegration] Loading initial LVGL screen (home dashboard)");
+    Serial.println("[ModeIntegration] Loading initial LVGL screen");
 
     // Clear any widgets from splash screen before creating the home screen
     clearNavigationGroup();
 
+    if (!isOnboardingComplete()) {
+        Serial.println("[ModeIntegration] First run - showing onboarding wizard");
+        startOnboarding(false);
+        showOnboardingScreen();
+        return;
+    }
+
+    Serial.println("[ModeIntegration] Loading home dashboard");
     lv_obj_t* home = createHomeScreen();
     if (home != NULL) {
         loadScreen(home, SCREEN_ANIM_NONE);

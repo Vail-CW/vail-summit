@@ -147,12 +147,7 @@ class MIDICharacteristicCallbacks : public NimBLECharacteristicCallbacks {
     Serial.println("MIDI onRead");
   }
 
-  // Note: onNotify() removed - not in NimBLECharacteristicCallbacks base class
-
-  void onStatus(NimBLECharacteristic* pCharacteristic, Status s, int code) override {
-    Serial.print("MIDI onStatus: code=");
-    Serial.println(code);
-  }
+  // Note: onNotify() and onStatus() removed - not in NimBLECharacteristicCallbacks base class
 };
 
 // Process received MIDI data
