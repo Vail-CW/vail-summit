@@ -260,8 +260,8 @@ lv_obj_t* createPracticeScreen() {
     lv_label_set_text(practice_decoder_text, "_");
     lv_obj_set_style_text_color(practice_decoder_text, LV_COLOR_SUCCESS, 0);
     lv_obj_set_style_text_font(practice_decoder_text, getThemeFonts()->font_title, 0);
-    lv_label_set_long_mode(practice_decoder_text, LV_LABEL_LONG_WRAP);  // Wrap with newlines
-    lv_obj_set_width(practice_decoder_text, lv_pct(100));  // Use full width of parent content area
+    lv_label_set_long_mode(practice_decoder_text, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(practice_decoder_text, SCREEN_WIDTH - 40);  // Box width minus horizontal padding
     lv_obj_align(practice_decoder_text, LV_ALIGN_TOP_LEFT, 0, 18);  // Below "Decoded:" label
 
     // Footer with keyboard shortcuts
@@ -312,12 +312,23 @@ lv_obj_t* createPracticeScreen() {
 
 // Update decoder display with new text
 void updatePracticeDecoderDisplay(const char* text) {
-    if (practice_decoder_text != NULL) {
-        if (text == NULL || strlen(text) == 0) {
-            lv_label_set_text(practice_decoder_text, "_");
-        } else {
-            lv_label_set_text(practice_decoder_text, text);
-        }
+    if (practice_decoder_text == NULL) {
+        return;
+    }
+
+    if (text == NULL || strlen(text) == 0) {
+        lv_label_set_text(practice_decoder_text, "_");
+        return;
+    }
+
+    lv_label_set_text(practice_decoder_text, text);
+    lv_obj_update_layout(practice_decoder_text);
+
+    const lv_font_t* font = lv_obj_get_style_text_font(practice_decoder_text, 0);
+    lv_coord_t max_height = lv_font_get_line_height(font) * 4;
+    if (lv_obj_get_height(practice_decoder_text) > max_height) {
+        decodedText = "";
+        lv_label_set_text(practice_decoder_text, "_");
     }
 }
 
