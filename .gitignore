@@ -4,6 +4,18 @@
 .idea/
 .vs/
 
+# AI / agent tooling (local only, never commit)
+.claude/
+.cursor/
+CLAUDE.md
+AGENTS.md
+.cursorrules
+
+# Local debug / session logs
+boot_log.txt
+vail_session.log
+*.session.log
+
 # Build artifacts
 build/
 *.elf
