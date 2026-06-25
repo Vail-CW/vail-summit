@@ -1024,6 +1024,19 @@ lv_obj_t* createCWSettingsScreen() {
 
 static lv_obj_t* callsign_screen = NULL;
 static lv_obj_t* callsign_textarea = NULL;
+// Re-entry guard so a stuck/repeating ENTER can't fire the save+back-nav twice
+// before the screen actually swaps. Reset in createCallsignSettingsScreen().
+static bool callsign_saving = false;
+
+// Async callback that runs the back-navigation OUTSIDE the textarea's event
+// dispatch. Calling onLVGLBackNavigation() directly from the key handler tore
+// the current screen down while LVGL was still walking event callbacks on
+// objects belonging to it — a likely crash source on save. lv_async_call
+// defers execution until after the current event finishes.
+static void callsign_deferred_back_nav(void* user_data) {
+    (void)user_data;
+    onLVGLBackNavigation();
+}
 
 // Key handler for callsign textarea - handles ENTER to save
 static void callsign_textarea_key_handler(lv_event_t* e) {
@@ -1031,6 +1044,13 @@ static void callsign_textarea_key_handler(lv_event_t* e) {
     uint32_t key = lv_event_get_key(e);
 
     if (key == LV_KEY_ENTER) {
+        if (callsign_saving) {
+            // Already saving from a prior ENTER in this burst; swallow the repeat.
+            lv_event_stop_bubbling(e);
+            return;
+        }
+        callsign_saving = true;
+
         // Save callsign
         if (callsign_textarea != NULL) {
             const char* text = lv_textarea_get_text(callsign_textarea);
@@ -1048,14 +1068,16 @@ static void callsign_textarea_key_handler(lv_event_t* e) {
                 Serial.printf("[Callsign] Saved: %s\n", callsign.c_str());
             }
         }
-        // Navigate back
-        onLVGLBackNavigation();
+        // Defer the back-nav so the screen tear-down doesn't race the event
+        // dispatcher still walking sibling handlers on this textarea.
+        lv_async_call(callsign_deferred_back_nav, NULL);
         lv_event_stop_bubbling(e);
     }
     // ESC is handled by the global back navigation system
 }
 
 lv_obj_t* createCallsignSettingsScreen() {
+    callsign_saving = false;  // fresh entry, allow ENTER to save again
     lv_obj_t* screen = createScreen();
     applyScreenStyle(screen);
 
@@ -1095,7 +1117,12 @@ lv_obj_t* createCallsignSettingsScreen() {
     lv_textarea_set_one_line(callsign_textarea, true);
     lv_textarea_set_max_length(callsign_textarea, 12);
     lv_textarea_set_placeholder_text(callsign_textarea, "e.g. W1ABC");
-    lv_textarea_set_text(callsign_textarea, vailCallsign.c_str());
+    // Only pre-fill if the user has actually saved a callsign before. Loading
+    // "GUEST" into the input box made users type behind it (producing strings
+    // like "GUESTW1ABC") instead of replacing it.
+    if (vailCallsign.length() > 0 && vailCallsign != "GUEST") {
+        lv_textarea_set_text(callsign_textarea, vailCallsign.c_str());
+    }
     applyTextareaStyle(callsign_textarea);
     lv_obj_set_style_text_font(callsign_textarea, getThemeFonts()->font_subtitle, 0);
     // Add key handler to process ENTER for save
