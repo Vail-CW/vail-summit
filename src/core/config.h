@@ -9,8 +9,8 @@
 // ============================================
 // Firmware Version Information
 // ============================================
-#define FIRMWARE_VERSION "0.73"
-#define FIRMWARE_DATE "2026-06-12"  // Update this date each time you build new firmware
+#define FIRMWARE_VERSION "0.74"
+#define FIRMWARE_DATE "2026-06-25"  // Update this date each time you build new firmware
 #define FIRMWARE_NAME "VAIL SUMMIT"
 #define WEB_FILES_VERSION "1.6.0"   // Expected web interface version for this firmware
 
