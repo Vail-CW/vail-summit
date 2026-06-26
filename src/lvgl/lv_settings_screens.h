@@ -1250,21 +1250,11 @@ static bool web_password_try_save() {
     return true;
 }
 
-// ESC = leave without destroying existing settings. Saves a valid new entry if
-// present; otherwise keeps whatever was already configured (no surprise wipe).
+// ESC = true cancel: exit without saving the typed password (ENTER is the save
+// key). A toggle to "disabled" is persisted at the moment it's toggled, so that
+// already-applied change correctly survives the cancel; only an unsaved password
+// edit is discarded here, which matches the "ESC Cancel" label.
 static void web_password_cancel_and_exit() {
-    if (web_password_enabled_state) {
-        String password;
-        int len = web_password_read_sanitized(password);
-        if (len >= 8 && len <= 16) {
-            strncpy(webPassword, password.c_str(), 16);
-            webPassword[16] = '\0';
-            webAuthEnabled = true;
-            saveWebPassword(webPassword);
-            Serial.println("[WebPW] Saved valid entry on exit");
-        }
-        // else: leave existing webPassword/webAuthEnabled untouched
-    }
     beep(TONE_MENU_NAV, BEEP_SHORT);
     lv_async_call(web_password_deferred_back_nav, NULL);
 }
@@ -1310,6 +1300,15 @@ static void web_password_toggle_key_handler(lv_event_t* e) {
             if (web_password_textarea != NULL) {
                 lv_group_focus_obj(web_password_textarea);
             }
+        } else {
+            // Disabling is a complete action - persist immediately so it sticks
+            // regardless of how the user leaves the screen. (Without this,
+            // turning protection off never took effect: the old password and
+            // auth flag survived because ESC is a pure cancel.)
+            webPassword[0] = '\0';
+            webAuthEnabled = false;
+            clearWebPassword();
+            Serial.println("[WebPW] Password protection disabled");
         }
         lv_event_stop_processing(e);
         return;
