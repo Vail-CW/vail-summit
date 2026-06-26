@@ -1068,6 +1068,15 @@ static void callsign_textarea_key_handler(lv_event_t* e) {
                 Serial.printf("[Callsign] Saved: %s\n", callsign.c_str());
             }
         }
+        // Swallow the rest of this ENTER press. Without this, the key's RELEASE
+        // synthesizes a CLICKED on whatever the parent menu focuses after we
+        // navigate back - which is the "Callsign" row itself (mode 29). That
+        // phantom click re-enters this screen mid-teardown and crashes
+        // (LoadProhibited). This is the real cause of the save crash; the
+        // onboarding callsign field already guards the same way.
+        lv_indev_t* kp = getLVGLKeypad();
+        if (kp != NULL) lv_indev_wait_release(kp);
+
         // Defer the back-nav so the screen tear-down doesn't race the event
         // dispatcher still walking sibling handlers on this textarea.
         lv_async_call(callsign_deferred_back_nav, NULL);
@@ -1341,7 +1350,13 @@ static void web_password_field_key_handler(lv_event_t* e) {
     // ENTER - the natural "save" key (matches every other settings screen)
     if (key == LV_KEY_ENTER) {
         lv_event_stop_processing(e);
-        web_password_try_save();  // shows an error and stays put if invalid
+        // When the save succeeds we navigate back; swallow the rest of this
+        // ENTER press so its release doesn't synthesize a CLICKED on the parent
+        // menu item (which would re-enter a screen mid-teardown and crash).
+        if (web_password_try_save()) {
+            lv_indev_t* kp = getLVGLKeypad();
+            if (kp != NULL) lv_indev_wait_release(kp);
+        }
         return;
     }
 

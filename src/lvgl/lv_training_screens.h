@@ -310,6 +310,36 @@ lv_obj_t* createPracticeScreen() {
     return screen;
 }
 
+// Explicitly wrap a decoded string to a pixel width by measuring glyph widths
+// and inserting newlines. LVGL's label wrap won't break a long run of
+// characters that has no spaces (LV_TXT_LINE_BREAK_LONG_LEN == 0 in lv_conf.h),
+// so a continuous stream like "EEEEEEEE..." overflows the box instead of
+// wrapping. Breaking before the overflowing glyph keeps every line within the
+// box and fills lines edge-to-edge.
+static void buildWrappedDecode(const char* src, lv_coord_t max_w,
+                               const lv_font_t* font, lv_coord_t letter_space,
+                               String& out) {
+    out = "";
+    lv_coord_t line_w = 0;
+    for (int i = 0; src[i] != '\0'; i++) {
+        char c = src[i];
+        if (c == '\n') {            // honor any existing hard breaks
+            out += c;
+            line_w = 0;
+            continue;
+        }
+        lv_coord_t cw = lv_txt_get_width(&c, 1, font, letter_space, 0);
+        // Break before adding a glyph that would overrun the line (but never
+        // emit a leading break on an empty line).
+        if (line_w > 0 && line_w + cw > max_w) {
+            out += '\n';
+            line_w = 0;
+        }
+        out += c;
+        line_w += cw + letter_space;
+    }
+}
+
 // Update decoder display with new text
 void updatePracticeDecoderDisplay(const char* text) {
     if (practice_decoder_text == NULL) {
@@ -321,10 +351,16 @@ void updatePracticeDecoderDisplay(const char* text) {
         return;
     }
 
-    lv_label_set_text(practice_decoder_text, text);
+    const lv_font_t* font = lv_obj_get_style_text_font(practice_decoder_text, 0);
+    lv_coord_t letter_space = lv_obj_get_style_text_letter_space(practice_decoder_text, 0);
+
+    // Pre-wrap so long unbroken streams wrap instead of overflowing the box.
+    // Width matches the label width set in createPracticeScreen().
+    String wrapped;
+    buildWrappedDecode(text, SCREEN_WIDTH - 40, font, letter_space, wrapped);
+    lv_label_set_text(practice_decoder_text, wrapped.c_str());
     lv_obj_update_layout(practice_decoder_text);
 
-    const lv_font_t* font = lv_obj_get_style_text_font(practice_decoder_text, 0);
     lv_coord_t max_height = lv_font_get_line_height(font) * 4;
     if (lv_obj_get_height(practice_decoder_text) > max_height) {
         decodedText = "";
