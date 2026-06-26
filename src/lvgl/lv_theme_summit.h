@@ -263,10 +263,13 @@ void initStyleList() {
     lv_style_set_pad_all(&style_list_btn, 10);
     lv_style_set_text_color(&style_list_btn, c->text_primary);
 
-    // List button (focused)
+    // List button (focused) - the focus fill (card_focused) is the same teal as
+    // the accent, so the text MUST switch to the dark on-accent color or it's
+    // unreadable (light text on teal).
     if (styles_first_init) lv_style_reset(&style_list_btn_focused);
     lv_style_init(&style_list_btn_focused);
     lv_style_set_bg_color(&style_list_btn_focused, c->card_focused);
+    lv_style_set_text_color(&style_list_btn_focused, c->text_on_accent);
     lv_style_set_border_color(&style_list_btn_focused, c->accent_primary);
     lv_style_set_border_width(&style_list_btn_focused, 2);
 }

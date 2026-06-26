@@ -1173,6 +1173,102 @@ static bool web_password_enabled_state = false;
 // Forward declarations
 static void update_web_password_display();
 
+// Deferred back-navigation: calling onLVGLBackNavigation() directly from a key
+// handler tears the screen down while LVGL is still dispatching the event on
+// objects that belong to it. Run it after the event unwinds. (Same pattern as
+// the callsign screen.)
+static void web_password_deferred_back_nav(void* user_data) {
+    (void)user_data;
+    onLVGLBackNavigation();
+}
+
+// Show a validation message in the error label (created in the screen builder).
+static void web_password_show_error(const char* msg) {
+    if (web_password_error_label == NULL) return;
+    lv_label_set_text(web_password_error_label, msg);
+    lv_obj_clear_flag(web_password_error_label, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Read the textarea, stripping any non-printable characters, into `out`.
+// Returns the resulting length.
+static int web_password_read_sanitized(String& out) {
+    out = "";
+    if (web_password_textarea == NULL) return 0;
+    const char* text = lv_textarea_get_text(web_password_textarea);
+    for (int i = 0; text[i] != '\0'; i++) {
+        if (text[i] >= 32 && text[i] <= 126) out += text[i];
+    }
+    return out.length();
+}
+
+// Attempt to save from the ENTER key (explicit "Save"). On invalid input shows
+// a specific reason and keeps the user on the screen so they can fix it.
+// Returns true if saved (and a back-nav was scheduled).
+static bool web_password_try_save() {
+    if (!web_password_enabled_state) {
+        // Disabling protection is always a valid, complete action.
+        webPassword[0] = '\0';
+        webAuthEnabled = false;
+        clearWebPassword();
+        beep(TONE_SELECT, BEEP_SHORT);
+        Serial.println("[WebPW] Password protection disabled");
+        showToast("Saved");
+        lv_async_call(web_password_deferred_back_nav, NULL);
+        return true;
+    }
+
+    String password;
+    int len = web_password_read_sanitized(password);
+
+    if (len == 0) {
+        web_password_show_error("Enter a password (8-16 characters)");
+        beep(TONE_ERROR, BEEP_SHORT);
+        return false;
+    }
+    if (len < 8) {
+        char msg[48];
+        snprintf(msg, sizeof(msg), "Too short - need 8-16 (have %d)", len);
+        web_password_show_error(msg);
+        beep(TONE_ERROR, BEEP_SHORT);
+        return false;
+    }
+    if (len > 16) {  // defensive; textarea max_length already caps at 16
+        web_password_show_error("Too long - max 16 characters");
+        beep(TONE_ERROR, BEEP_SHORT);
+        return false;
+    }
+
+    // Valid - save it
+    strncpy(webPassword, password.c_str(), 16);
+    webPassword[16] = '\0';
+    webAuthEnabled = true;
+    saveWebPassword(webPassword);
+    beep(TONE_SELECT, BEEP_MEDIUM);
+    Serial.println("[WebPW] Password saved");
+    showToast("Saved");
+    lv_async_call(web_password_deferred_back_nav, NULL);
+    return true;
+}
+
+// ESC = leave without destroying existing settings. Saves a valid new entry if
+// present; otherwise keeps whatever was already configured (no surprise wipe).
+static void web_password_cancel_and_exit() {
+    if (web_password_enabled_state) {
+        String password;
+        int len = web_password_read_sanitized(password);
+        if (len >= 8 && len <= 16) {
+            strncpy(webPassword, password.c_str(), 16);
+            webPassword[16] = '\0';
+            webAuthEnabled = true;
+            saveWebPassword(webPassword);
+            Serial.println("[WebPW] Saved valid entry on exit");
+        }
+        // else: leave existing webPassword/webAuthEnabled untouched
+    }
+    beep(TONE_MENU_NAV, BEEP_SHORT);
+    lv_async_call(web_password_deferred_back_nav, NULL);
+}
+
 // Update the toggle button display and show/hide password field
 static void update_web_password_display() {
     if (web_password_toggle_label != NULL) {
@@ -1190,60 +1286,16 @@ static void update_web_password_display() {
     }
 }
 
-// Key handler for web password toggle button - ENTER to toggle, ESC to save and exit
+// Key handler for web password toggle button.
+// ENTER flips protection on/off; turning it OFF saves immediately (no password
+// needed). Turning it ON moves focus to the field so ENTER there saves.
 static void web_password_toggle_key_handler(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
     uint32_t key = lv_event_get_key(e);
 
-    // ESC - save current state and exit
     if (key == LV_KEY_ESC) {
         lv_event_stop_processing(e);
-
-        if (web_password_enabled_state) {
-            // Enabled - check if we have a valid password
-            if (web_password_textarea != NULL) {
-                const char* text = lv_textarea_get_text(web_password_textarea);
-                // Trim non-printable characters from password
-                String password = "";
-                for (int i = 0; text[i] != '\0'; i++) {
-                    if (text[i] >= 32 && text[i] <= 126) {
-                        password += text[i];
-                    }
-                }
-
-                if (password.length() >= 8 && password.length() <= 16) {
-                    // Valid password - save it
-                    strncpy(webPassword, password.c_str(), 16);
-                    webPassword[16] = '\0';
-                    webAuthEnabled = true;
-                    saveWebPassword(webPassword);
-                    beep(TONE_SELECT, BEEP_MEDIUM);
-                    Serial.println("[WebPW] Password saved on exit");
-                } else if (strlen(webPassword) >= 8) {
-                    // Keep existing password
-                    webAuthEnabled = true;
-                    beep(TONE_SELECT, BEEP_SHORT);
-                    Serial.println("[WebPW] Keeping existing password");
-                } else {
-                    // No valid password - disable protection
-                    webPassword[0] = '\0';
-                    webAuthEnabled = false;
-                    clearWebPassword();
-                    beep(TONE_ERROR, BEEP_SHORT);
-                    Serial.println("[WebPW] No valid password, disabling");
-                }
-            }
-        } else {
-            // Disabled - clear password
-            webPassword[0] = '\0';
-            webAuthEnabled = false;
-            clearWebPassword();
-            beep(TONE_SELECT, BEEP_SHORT);
-            Serial.println("[WebPW] Password protection disabled");
-        }
-
-        showToast("Saved");
-        onLVGLBackNavigation();
+        web_password_cancel_and_exit();
         return;
     }
 
@@ -1253,11 +1305,12 @@ static void web_password_toggle_key_handler(lv_event_t* e) {
         update_web_password_display();
         beep(TONE_SELECT, BEEP_SHORT);
 
-        // Focus moves to textarea when enabled
-        if (web_password_enabled_state && web_password_textarea != NULL) {
-            lv_group_focus_obj(web_password_textarea);
+        if (web_password_enabled_state) {
+            // Enabling - move to the field so they can type, then ENTER saves
+            if (web_password_textarea != NULL) {
+                lv_group_focus_obj(web_password_textarea);
+            }
         }
-
         lv_event_stop_processing(e);
         return;
     }
@@ -1281,50 +1334,22 @@ static void web_password_toggle_key_handler(lv_event_t* e) {
     lv_event_stop_processing(e);
 }
 
-// Key handler for web password textarea - ESC to save and exit
+// Key handler for web password textarea - ENTER to save, ESC to cancel/exit.
 static void web_password_field_key_handler(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
     uint32_t key = lv_event_get_key(e);
 
-    // ESC - validate, save, and exit
+    // ENTER - the natural "save" key (matches every other settings screen)
+    if (key == LV_KEY_ENTER) {
+        lv_event_stop_processing(e);
+        web_password_try_save();  // shows an error and stays put if invalid
+        return;
+    }
+
+    // ESC - leave without wiping an existing password
     if (key == LV_KEY_ESC) {
         lv_event_stop_processing(e);
-
-        if (web_password_textarea != NULL) {
-            const char* text = lv_textarea_get_text(web_password_textarea);
-            // Trim non-printable characters from password
-            String password = "";
-            for (int i = 0; text[i] != '\0'; i++) {
-                if (text[i] >= 32 && text[i] <= 126) {
-                    password += text[i];
-                }
-            }
-
-            if (password.length() >= 8 && password.length() <= 16) {
-                // Valid password - save it
-                strncpy(webPassword, password.c_str(), 16);
-                webPassword[16] = '\0';
-                webAuthEnabled = true;
-                saveWebPassword(webPassword);
-                beep(TONE_SELECT, BEEP_MEDIUM);
-                Serial.println("[WebPW] Password saved on exit");
-            } else if (strlen(webPassword) >= 8) {
-                // Keep existing password
-                webAuthEnabled = true;
-                beep(TONE_SELECT, BEEP_SHORT);
-                Serial.println("[WebPW] Keeping existing password");
-            } else {
-                // No valid password - disable protection
-                webPassword[0] = '\0';
-                webAuthEnabled = false;
-                clearWebPassword();
-                beep(TONE_ERROR, BEEP_SHORT);
-                Serial.println("[WebPW] No valid password, disabling");
-            }
-        }
-
-        showToast("Saved");
-        onLVGLBackNavigation();
+        web_password_cancel_and_exit();
         return;
     }
 
@@ -1346,8 +1371,7 @@ static void web_password_field_key_handler(lv_event_t* e) {
         return;
     }
 
-    // Block ENTER from doing anything special (just types in textarea)
-    // User must press ESC to save and exit
+    // Other keys (printable characters) fall through to the textarea as input.
 }
 
 lv_obj_t* createWebPasswordSettingsScreen() {
@@ -1397,11 +1421,15 @@ lv_obj_t* createWebPasswordSettingsScreen() {
     web_password_toggle_btn = lv_btn_create(toggle_row);
     lv_obj_set_size(web_password_toggle_btn, 80, 28);
     lv_obj_set_style_bg_color(web_password_toggle_btn, LV_COLOR_BG_CARD, 0);
-    lv_obj_set_style_bg_color(web_password_toggle_btn, LV_COLOR_BG_CARD_ACTIVE, LV_STATE_FOCUSED);
+    // Keep the dark card background on focus and show focus via the accent
+    // border instead. Filling with the accent teal made the green/yellow
+    // ENABLED/DISABLED label low-contrast and hard to read.
+    lv_obj_set_style_bg_color(web_password_toggle_btn, LV_COLOR_BG_CARD, LV_STATE_FOCUSED);
     lv_obj_set_style_radius(web_password_toggle_btn, 4, 0);
     lv_obj_set_style_border_width(web_password_toggle_btn, 1, 0);
     lv_obj_set_style_border_color(web_password_toggle_btn, LV_COLOR_BORDER_LIGHT, 0);
     lv_obj_set_style_border_color(web_password_toggle_btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(web_password_toggle_btn, 2, LV_STATE_FOCUSED);
     lv_obj_set_style_pad_all(web_password_toggle_btn, 4, 0);
 
     // Initialize state from saved preference
@@ -1428,8 +1456,14 @@ lv_obj_t* createWebPasswordSettingsScreen() {
 
     // Password label
     lv_obj_t* pw_label = lv_label_create(web_password_field_container);
-    lv_label_set_text(pw_label, "Password (8-16 characters):");
+    lv_label_set_text(pw_label, "Password:");
     lv_obj_add_style(pw_label, getStyleLabelBody(), 0);
+
+    // Requirements guide - tells the user up front what is allowed
+    lv_obj_t* pw_hint = lv_label_create(web_password_field_container);
+    lv_label_set_text(pw_hint, "8-16 chars. Letters, numbers & symbols OK.");
+    lv_obj_set_style_text_color(pw_hint, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_style_text_font(pw_hint, getThemeFonts()->font_small, 0);
 
     // Password text area
     web_password_textarea = lv_textarea_create(web_password_field_container);
@@ -1466,7 +1500,7 @@ lv_obj_t* createWebPasswordSettingsScreen() {
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, "ENTER Toggle   ESC Save & Exit");
+    lv_label_set_text(help, "ENTER Save   ESC Cancel");
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
