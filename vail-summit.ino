@@ -684,7 +684,14 @@ void setup() {
 char readKeyboardNonBlocking() {
   Wire.requestFrom(CARDKB_ADDR, 1);
   if (Wire.available()) {
-    return Wire.read();
+    char c = Wire.read();
+    if (c != 0) {
+      return c;
+    }
+  }
+  // Fall back to a paired external BLE keyboard (same char format as CardKB)
+  if (hasBLEKeyboardInput()) {
+    return getBLEKeyboardKey();
   }
   return 0;
 }

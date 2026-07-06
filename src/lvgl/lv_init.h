@@ -135,9 +135,16 @@ void lvgl_disp_flush(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* colo
 // CardKB Input Driver
 // ============================================
 
+// External BLE keyboard input buffer (src/bluetooth/ble_keyboard_host.h,
+// included later in the single translation unit)
+bool hasBLEKeyboardInput();
+char getBLEKeyboardKey();
+
 /*
  * Read CardKB keyboard via I2C
  * Returns the key code or 0 if no key pressed
+ * Also drains a paired external BLE keyboard, which delivers keys in the
+ * same CardKB char format (see hid_keycodes.h)
  */
 char readCardKBForLVGL() {
     Wire.requestFrom(CARDKB_ADDR, 1);
@@ -146,6 +153,9 @@ char readCardKBForLVGL() {
         if (c != 0) {
             return c;
         }
+    }
+    if (hasBLEKeyboardInput()) {
+        return getBLEKeyboardKey();
     }
     return 0;
 }
