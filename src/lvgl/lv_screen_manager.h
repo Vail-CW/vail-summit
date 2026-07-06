@@ -307,6 +307,92 @@ static void linear_nav_handler(lv_event_t* e) {
 }
 
 // ============================================
+// Two-Panel Navigation Handler
+// ============================================
+
+/*
+ * Navigation context for screens with two side-by-side vertical lists of
+ * different lengths (e.g. action buttons + results list), where a uniform
+ * grid doesn't fit. Passed as user_data to panel_nav_handler.
+ */
+struct NavPanelContext {
+    lv_obj_t** left;       // Left column button array
+    int* left_count;       // Pointer to left column count
+    lv_obj_t** right;      // Right column button array
+    int* right_count;      // Pointer to right column count
+};
+
+/*
+ * Two-panel navigation handler
+ * - UP/DOWN: move within the current column (no wrap at edges)
+ * - LEFT/RIGHT: jump to the same row (clamped) in the other column
+ * - Blocks TAB
+ *
+ * Usage: Add to buttons before addNavigableWidget():
+ *   static NavPanelContext ctx = { actions, &action_count, items, &item_count };
+ *   lv_obj_add_event_cb(btn, panel_nav_handler, LV_EVENT_KEY, &ctx);
+ *   addNavigableWidget(btn);
+ */
+static void panel_nav_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+
+    uint32_t key = lv_event_get_key(e);
+
+    // Block TAB key - only arrow keys should navigate
+    if (key == '\t' || key == LV_KEY_NEXT) {
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    if (key != LV_KEY_UP && key != LV_KEY_DOWN && key != LV_KEY_PREV &&
+        key != LV_KEY_LEFT && key != LV_KEY_RIGHT) {
+        return;  // Not a nav key: let other handlers (ESC, ENTER) see it
+    }
+
+    // Always consume nav keys to prevent LVGL's default linear navigation
+    lv_event_stop_processing(e);
+
+    NavPanelContext* ctx = (NavPanelContext*)lv_event_get_user_data(e);
+    if (ctx == NULL || ctx->left == NULL || ctx->right == NULL) return;
+
+    lv_obj_t* target = lv_event_get_target(e);
+    int lCount = ctx->left_count ? *ctx->left_count : 0;
+    int rCount = ctx->right_count ? *ctx->right_count : 0;
+
+    // Locate the focused widget in either column
+    int idx = -1;
+    bool inLeft = false;
+    for (int i = 0; i < lCount; i++) {
+        if (ctx->left[i] == target) { idx = i; inLeft = true; break; }
+    }
+    if (idx < 0) {
+        for (int i = 0; i < rCount; i++) {
+            if (ctx->right[i] == target) { idx = i; break; }
+        }
+    }
+    if (idx < 0) return;
+
+    lv_obj_t** col = inLeft ? ctx->left : ctx->right;
+    int count = inLeft ? lCount : rCount;
+    lv_obj_t* next = NULL;
+
+    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
+        if (idx > 0) next = col[idx - 1];
+    } else if (key == LV_KEY_DOWN) {
+        if (idx < count - 1) next = col[idx + 1];
+    } else if (key == LV_KEY_RIGHT && inLeft && rCount > 0) {
+        next = ctx->right[idx < rCount ? idx : rCount - 1];
+    } else if (key == LV_KEY_LEFT && !inLeft && lCount > 0) {
+        next = ctx->left[idx < lCount ? idx : lCount - 1];
+    }
+
+    if (next != NULL) {
+        lv_group_focus_obj(next);
+        lv_obj_scroll_to_view(next, LV_ANIM_ON);
+    }
+}
+
+// ============================================
 // Screen Management
 // ============================================
 

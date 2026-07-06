@@ -9,8 +9,13 @@
 
 #include <NimBLEDevice.h>
 #include <Preferences.h>
+#include <esp_task_wdt.h>
 #include "../core/config.h"
 #include "hid_keycodes.h"
+
+// Fixed passkey shown to the user when a keyboard demands PIN entry during
+// pairing (we are the "display" side; the user types this on the keyboard)
+#define BLE_KB_PASSKEY 123456
 
 // BLE HID Service and Characteristic UUIDs
 #define HID_SERVICE_UUID        "1812"
@@ -96,7 +101,10 @@ void deinitBLEKeyboardHost();
 void startBLEKeyboardScan();
 void stopBLEKeyboardScan();
 bool connectToBLEKeyboard(int deviceIndex);
-bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType);
+// freshPair: user-initiated pairing from the scan list. Deletes any stale
+// bond first - a bond we remember but the keyboard forgot (it's back in
+// pairing mode) makes encryption fail until both sides are power-cycled.
+bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool freshPair = false);
 void disconnectBLEKeyboard();
 void updateBLEKeyboardHost();
 bool isBLEKeyboardConnected();
@@ -131,6 +139,20 @@ class BLEKBClientCallbacks : public NimBLEClientCallbacks {
   void onAuthenticationComplete(ble_gap_conn_desc* desc) override {
     Serial.printf("BLEKB: Auth complete - encrypted=%d bonded=%d\n",
                   desc->sec_state.encrypted, desc->sec_state.bonded);
+  }
+
+  // Keyboard demands PIN entry: we are the display side, the user types
+  // this passkey on the keyboard. The settings screen shows the number
+  // before the connect starts.
+  uint32_t onPassKeyRequest() override {
+    Serial.printf("BLEKB: Passkey requested, displaying %d\n", BLE_KB_PASSKEY);
+    return BLE_KB_PASSKEY;
+  }
+
+  // Numeric comparison pairing: no way to show/confirm mid-connect, accept
+  bool onConfirmPIN(uint32_t pin) override {
+    Serial.printf("BLEKB: Confirm PIN %lu - accepting\n", (unsigned long)pin);
+    return true;
   }
 };
 
@@ -300,9 +322,11 @@ void initBLEKeyboardHost() {
 
   // HID keyboards require bonding + link encryption before they will send
   // input reports. Just Works pairing (bond, no MITM, secure connections)
-  // works with virtually all BLE keyboards.
+  // works with most keyboards; DISPLAY_ONLY additionally enables passkey
+  // entry for keyboards that demand a PIN (user types BLE_KB_PASSKEY on the
+  // keyboard - Just Works still applies when neither side requires MITM).
   NimBLEDevice::setSecurityAuth(true, false, true);
-  NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
+  NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
 
   bleKBHost.state = BLEKB_STATE_READY;
   Serial.println("BLEKB: Initialized successfully");
@@ -395,11 +419,12 @@ bool connectToBLEKeyboard(int deviceIndex) {
 
   return connectToBLEKeyboardByAddress(
     bleKBHost.foundDevices[deviceIndex].address.c_str(),
-    bleKBHost.foundDevices[deviceIndex].addrType);
+    bleKBHost.foundDevices[deviceIndex].addrType,
+    true /* user-initiated fresh pairing */);
 }
 
 // Connect to a keyboard by address
-bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType) {
+bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool freshPair) {
   if (bleKBHost.state == BLEKB_STATE_IDLE) {
     initBLEKeyboardHost();
   }
@@ -434,14 +459,28 @@ bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType) {
   // drop the connection and redo it - by then the bond exists, so attempt 2
   // encrypts immediately (this replaces the manual disconnect/reconnect that
   // used to be needed after the first pairing).
+  NimBLEAddress bleAddr(std::string(address), addrType);
+
+  // Fresh pairing: the keyboard is in pairing mode, so it has forgotten any
+  // previous bond. A stale bond on our side then makes encryption fail with
+  // "missing key" until both devices are power-cycled - delete it up front.
+  if (freshPair && NimBLEDevice::isBonded(bleAddr)) {
+    Serial.println("BLEKB: Removing stale bond before fresh pairing");
+    NimBLEDevice::deleteBond(bleAddr);
+  }
+
   int subscribedCount = 0;
   for (int attempt = 0; attempt < 2; attempt++) {
     subscribedCount = 0;
     bleKBHost.pReportChar = nullptr;
 
+    // The connect/pair sequence can block for tens of seconds worst-case
+    // (10s connect timeout + SM procedure); feed the loop watchdog between
+    // attempts so a slow pairing doesn't panic-reboot the device
+    esp_task_wdt_reset();
+
     // Connect to the device (address type matters: keyboards almost always use
     // random-static addresses, and a connect with the wrong type never succeeds)
-    NimBLEAddress bleAddr(std::string(address), addrType);
     if (!bleKBHost.pClient->connect(bleAddr)) {
       Serial.println("BLEKB: Connection failed");
       bleKBHost.state = BLEKB_STATE_ERROR;
@@ -509,6 +548,11 @@ bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType) {
     if (attempt == 0) {
       Serial.println("BLEKB: Link not encrypted after pairing, redoing connection...");
       bleKBHost.pClient->disconnect();
+      // A half-established bond from the failed pairing would poison the
+      // retry the same way a stale bond poisons a fresh pairing
+      if (NimBLEDevice::isBonded(bleAddr)) {
+        NimBLEDevice::deleteBond(bleAddr);
+      }
       delay(300);  // let the disconnect complete before reconnecting
     } else {
       Serial.println("BLEKB: Link still unencrypted, continuing anyway");

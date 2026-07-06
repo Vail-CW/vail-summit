@@ -1876,6 +1876,17 @@ static lv_timer_t* btkb_timer = NULL;
 static BLEKBHostState btkb_last_state = BLEKB_STATE_IDLE;
 static int btkb_last_found_count = -1;
 
+// Two-panel navigation: action buttons (left) <-> device list (right)
+#define BTKB_ACTION_BTN_MAX 3
+static lv_obj_t* btkb_action_btns[BTKB_ACTION_BTN_MAX];
+static int btkb_action_count = 0;
+static lv_obj_t* btkb_device_btns[BLE_MAX_FOUND_DEVICES];
+static int btkb_device_count = 0;
+static NavPanelContext btkb_nav_ctx = {
+    btkb_action_btns, &btkb_action_count,
+    btkb_device_btns, &btkb_device_count
+};
+
 static void btkb_update_status_labels() {
     if (btkb_status_label != NULL) {
         lv_label_set_text(btkb_status_label, getBLEKBStateString());
@@ -1906,6 +1917,7 @@ static void btkb_update_status_labels() {
 static void btkb_show_list_message(const char* msg) {
     if (btkb_device_list == NULL) return;
     lv_obj_clean(btkb_device_list);
+    btkb_device_count = 0;  // buttons were just deleted
     lv_obj_t* lbl = lv_label_create(btkb_device_list);
     lv_label_set_text(lbl, msg);
     lv_obj_set_style_text_color(lbl, LV_COLOR_TEXT_SECONDARY, 0);
@@ -1920,7 +1932,12 @@ static void btkb_device_btn_event_cb(lv_event_t* e) {
         lv_label_set_text(btkb_status_label, "Connecting...");
         lv_obj_set_style_text_color(btkb_status_label, LV_COLOR_WARNING, 0);
     }
-    lv_refr_now(NULL);  // paint "Connecting..." before the blocking connect
+    // The UI is blocked during connect/pairing, so the PIN prompt must be
+    // on screen before it starts (only keyboards requiring a PIN use it)
+    if (btkb_paired_label != NULL) {
+        lv_label_set_text(btkb_paired_label, "If keyboard asks for a PIN: type 123456 then ENTER");
+    }
+    lv_refr_now(NULL);  // paint the status before the blocking connect
 
     connectToBLEKeyboard(idx);  // blocks for a few seconds (incl. pairing + retry)
     btkb_last_state = bleKBHost.state;
@@ -1930,13 +1947,14 @@ static void btkb_device_btn_event_cb(lv_event_t* e) {
 static void btkb_rebuild_device_list() {
     if (btkb_device_list == NULL) return;
     lv_obj_clean(btkb_device_list);  // deleted widgets auto-leave the input group
+    btkb_device_count = 0;
 
     if (bleKBHost.foundCount == 0) {
         btkb_show_list_message("No keyboards found.\nPut keyboard in pairing\nmode and scan again.");
         return;
     }
 
-    for (int i = 0; i < bleKBHost.foundCount; i++) {
+    for (int i = 0; i < bleKBHost.foundCount && i < BLE_MAX_FOUND_DEVICES; i++) {
         lv_obj_t* btn = lv_btn_create(btkb_device_list);
         lv_obj_set_size(btn, lv_pct(100), 34);
         lv_obj_set_style_bg_color(btn, LV_COLOR_BG_CARD, 0);
@@ -1958,7 +1976,8 @@ static void btkb_rebuild_device_list() {
         lv_obj_center(lbl);
 
         lv_obj_add_event_cb(btn, btkb_device_btn_event_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
-        lv_obj_add_event_cb(btn, linear_nav_handler, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(btn, panel_nav_handler, LV_EVENT_KEY, &btkb_nav_ctx);
+        btkb_device_btns[btkb_device_count++] = btn;
         addNavigableWidget(btn);
     }
 }
@@ -2038,7 +2057,10 @@ static lv_obj_t* btkb_make_button(lv_obj_t* parent, int y, const char* text,
     if (label_out != NULL) *label_out = lbl;
 
     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(btn, linear_nav_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(btn, panel_nav_handler, LV_EVENT_KEY, &btkb_nav_ctx);
+    if (btkb_action_count < BTKB_ACTION_BTN_MAX) {
+        btkb_action_btns[btkb_action_count++] = btn;
+    }
     addNavigableWidget(btn);
     return btn;
 }
@@ -2080,6 +2102,8 @@ lv_obj_t* createBTKeyboardSettingsScreen() {
 
     // Action buttons (left column)
     int btn_y = HEADER_HEIGHT + 72;
+    btkb_action_count = 0;
+    btkb_device_count = 0;
     btkb_make_button(screen, btn_y, "Scan for Keyboards", btkb_scan_btn_event_cb, NULL);
     btkb_make_button(screen, btn_y + 44, "Auto-Reconnect: ON", btkb_auto_btn_event_cb, &btkb_auto_btn_label);
     btkb_make_button(screen, btn_y + 88, "Forget Pairing", btkb_forget_btn_event_cb, NULL);
@@ -2140,6 +2164,8 @@ void cleanupBTKeyboardSettingsScreen() {
     btkb_paired_label = NULL;
     btkb_auto_btn_label = NULL;
     btkb_device_list = NULL;
+    btkb_action_count = 0;
+    btkb_device_count = 0;
 }
 
 lv_obj_t* createSettingsScreenForMode(int mode) {
