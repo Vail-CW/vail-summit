@@ -1874,6 +1874,7 @@ static lv_obj_t* btkb_auto_btn_label = NULL;
 static lv_obj_t* btkb_device_list = NULL;
 static lv_timer_t* btkb_timer = NULL;
 static BLEKBHostState btkb_last_state = BLEKB_STATE_IDLE;
+static int btkb_last_found_count = -1;
 
 static void btkb_update_status_labels() {
     if (btkb_status_label != NULL) {
@@ -1921,7 +1922,7 @@ static void btkb_device_btn_event_cb(lv_event_t* e) {
     }
     lv_refr_now(NULL);  // paint "Connecting..." before the blocking connect
 
-    connectToBLEKeyboard(idx);  // blocks for a few seconds
+    connectToBLEKeyboard(idx);  // blocks for a few seconds (incl. pairing + retry)
     btkb_last_state = bleKBHost.state;
     btkb_update_status_labels();
 }
@@ -1965,6 +1966,7 @@ static void btkb_rebuild_device_list() {
 static void btkb_scan_btn_event_cb(lv_event_t* e) {
     if (bleKBHost.state == BLEKB_STATE_SCANNING) return;  // already scanning
     btkb_show_list_message("Scanning...");
+    btkb_last_found_count = 0;
     startBLEKeyboardScan();
     btkb_last_state = bleKBHost.state;
     btkb_update_status_labels();
@@ -1987,6 +1989,24 @@ static void btkb_forget_btn_event_cb(lv_event_t* e) {
 static void btkb_timer_cb(lv_timer_t* timer) {
     // Bail out if the screen was torn down
     if (!btkb_screen || !lv_obj_is_valid(btkb_screen)) return;
+
+    // Live feedback while scanning: animated dots + devices pop in as found
+    if (bleKBHost.state == BLEKB_STATE_SCANNING) {
+        if (btkb_status_label != NULL) {
+            static const char* dots[] = {".", "..", "..."};
+            static int dot_i = 0;
+            dot_i = (dot_i + 1) % 3;
+            lv_label_set_text_fmt(btkb_status_label, "Scanning%s (%d found)",
+                                  dots[dot_i], bleKBHost.foundCount);
+            lv_obj_set_style_text_color(btkb_status_label, LV_COLOR_WARNING, 0);
+        }
+        if (bleKBHost.foundCount != btkb_last_found_count) {
+            btkb_last_found_count = bleKBHost.foundCount;
+            if (bleKBHost.foundCount > 0) {
+                btkb_rebuild_device_list();
+            }
+        }
+    }
 
     if (bleKBHost.state != btkb_last_state) {
         BLEKBHostState prev = btkb_last_state;

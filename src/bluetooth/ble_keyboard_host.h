@@ -120,10 +120,17 @@ class BLEKBClientCallbacks : public NimBLEClientCallbacks {
     bleKBHost.state = BLEKB_STATE_DISCONNECTED;
     bleKBHost.pReportChar = nullptr;
 
-    // Schedule reconnect attempt if auto-reconnect is enabled
+    // Schedule a reconnect scan ~2s out. Keyboards commonly drop the link
+    // right after initial bonding; a fast rescan reconnects them promptly
+    // instead of waiting the full reconnect interval.
     if (bleKBHost.autoReconnect && bleKBHost.pairedDevice.valid) {
-      bleKBHost.lastReconnectAttempt = millis();
+      bleKBHost.lastReconnectAttempt = millis() - BLE_RECONNECT_INTERVAL + 2000;
     }
+  }
+
+  void onAuthenticationComplete(ble_gap_conn_desc* desc) override {
+    Serial.printf("BLEKB: Auth complete - encrypted=%d bonded=%d\n",
+                  desc->sec_state.encrypted, desc->sec_state.bonded);
   }
 };
 
@@ -183,6 +190,15 @@ class BLEKBScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
 // Static callback instances (a new'd instance per scan/connect would leak)
 static BLEKBClientCallbacks bleKBClientCallbacks;
 static BLEKBScanCallbacks bleKBScanCallbacks;
+
+// Scan-complete callback. Runs on the NimBLE host task, so it must not touch
+// LVGL or connect - updateBLEKeyboardHost() advances the state machine from
+// the main loop. Its real purpose is selecting the NON-BLOCKING overload of
+// NimBLEScan::start(); the (duration, bool) overload blocks the caller for
+// the entire scan, which froze the UI for 10s per scan.
+static void bleKBScanCompleteCB(NimBLEScanResults results) {
+  Serial.printf("BLEKB: Scan finished, %d HID device(s) found\n", bleKBHost.foundCount);
+}
 
 // HID Report notification callback
 void hidReportNotifyCallback(NimBLERemoteCharacteristic* pChar,
@@ -356,7 +372,9 @@ void startBLEKeyboardScan() {
   pScan->setWindow(99);
 
   bleKBHost.state = BLEKB_STATE_SCANNING;
-  pScan->start(BLE_SCAN_DURATION_SEC, false);  // Non-blocking
+  // The callback overload is the non-blocking one; start(duration, bool)
+  // blocks the calling task until the scan completes
+  pScan->start(BLE_SCAN_DURATION_SEC, bleKBScanCompleteCB, false);
 }
 
 // Stop scanning
@@ -409,70 +427,92 @@ bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType) {
   // Set connection parameters for low latency
   bleKBHost.pClient->setConnectionParams(12, 12, 0, 200);
 
-  // Connect to the device (address type matters: keyboards almost always use
-  // random-static addresses, and a connect with the wrong type never succeeds)
-  NimBLEAddress bleAddr(std::string(address), addrType);
-  if (!bleKBHost.pClient->connect(bleAddr)) {
-    Serial.println("BLEKB: Connection failed");
-    bleKBHost.state = BLEKB_STATE_ERROR;
-    bleKBHost.lastError = "Connection failed";
-    return false;
-  }
-
-  Serial.println("BLEKB: Connected, requesting encryption...");
-
-  // Pair/bond and encrypt the link. Most keyboards refuse to send input
-  // reports (or reject the subscribe) on an unencrypted link.
-  if (!bleKBHost.pClient->secureConnection()) {
-    Serial.println("BLEKB: Pairing failed (continuing, some keyboards allow it)");
-  }
-
-  Serial.println("BLEKB: Discovering services...");
-
-  // Get HID service
-  NimBLERemoteService* pService = bleKBHost.pClient->getService(NimBLEUUID(HID_SERVICE_UUID));
-  if (pService == nullptr) {
-    Serial.println("BLEKB: HID service not found");
-    bleKBHost.pClient->disconnect();
-    bleKBHost.state = BLEKB_STATE_ERROR;
-    bleKBHost.lastError = "HID service not found";
-    return false;
-  }
-
-  Serial.println("BLEKB: Found HID service, looking for report characteristics...");
-
-  // Subscribe to every notifiable input report. Combo devices expose several
-  // (keyboard, media keys, mouse) and only one carries key presses - the
-  // notify callback parses keyboard-format reports and ignores the rest.
-  // Fall back to the Boot Keyboard Input Report (2A22) if no 2A4D notifies.
-  std::vector<NimBLERemoteCharacteristic*>* chars = pService->getCharacteristics(true);
-  bleKBHost.pReportChar = nullptr;
+  // Up to two full attempts: on a first-time pairing the notification
+  // subscription can land before link encryption is fully established, in
+  // which case the keyboard silently never sends reports even though every
+  // call returned success. If the link isn't encrypted after attempt 1,
+  // drop the connection and redo it - by then the bond exists, so attempt 2
+  // encrypts immediately (this replaces the manual disconnect/reconnect that
+  // used to be needed after the first pairing).
   int subscribedCount = 0;
+  for (int attempt = 0; attempt < 2; attempt++) {
+    subscribedCount = 0;
+    bleKBHost.pReportChar = nullptr;
 
-  for (auto pChar : *chars) {
-    bool isInputReport = (pChar->getUUID() == NimBLEUUID(HID_REPORT_CHAR_UUID) ||
-                          pChar->getUUID() == NimBLEUUID(HID_BOOT_INPUT_UUID)) &&
-                         pChar->canNotify();
-    if (!isInputReport) continue;
-
-    if (pChar->subscribe(true, hidReportNotifyCallback)) {
-      if (bleKBHost.pReportChar == nullptr) {
-        bleKBHost.pReportChar = pChar;
-      }
-      subscribedCount++;
-      Serial.printf("BLEKB: Subscribed to report char %s (handle %d)\n",
-                    pChar->getUUID().toString().c_str(), pChar->getHandle());
-    } else {
-      Serial.printf("BLEKB: Subscribe failed for handle %d\n", pChar->getHandle());
+    // Connect to the device (address type matters: keyboards almost always use
+    // random-static addresses, and a connect with the wrong type never succeeds)
+    NimBLEAddress bleAddr(std::string(address), addrType);
+    if (!bleKBHost.pClient->connect(bleAddr)) {
+      Serial.println("BLEKB: Connection failed");
+      bleKBHost.state = BLEKB_STATE_ERROR;
+      bleKBHost.lastError = "Connection failed";
+      return false;
     }
-  }
 
-  if (subscribedCount == 0) {
-    Serial.println("BLEKB: No input report characteristic could be subscribed");
-    bleKBHost.pClient->disconnect();
-    bleKBHost.state = BLEKB_STATE_ERROR;
-    bleKBHost.lastError = "Report char not found";
-    return false;
+    Serial.println("BLEKB: Connected, requesting encryption...");
+
+    // Pair/bond and encrypt the link. Most keyboards refuse to send input
+    // reports (or reject the subscribe) on an unencrypted link.
+    if (!bleKBHost.pClient->secureConnection()) {
+      Serial.println("BLEKB: Pairing failed (continuing, some keyboards allow it)");
+    }
+
+    Serial.println("BLEKB: Discovering services...");
+
+    // Get HID service
+    NimBLERemoteService* pService = bleKBHost.pClient->getService(NimBLEUUID(HID_SERVICE_UUID));
+    if (pService == nullptr) {
+      Serial.println("BLEKB: HID service not found");
+      bleKBHost.pClient->disconnect();
+      bleKBHost.state = BLEKB_STATE_ERROR;
+      bleKBHost.lastError = "HID service not found";
+      return false;
+    }
+
+    // Subscribe to every notifiable input report. Combo devices expose several
+    // (keyboard, media keys, mouse) and only one carries key presses - the
+    // notify callback parses keyboard-format reports and ignores the rest.
+    // Fall back to the Boot Keyboard Input Report (2A22) if no 2A4D notifies.
+    std::vector<NimBLERemoteCharacteristic*>* chars = pService->getCharacteristics(true);
+
+    for (auto pChar : *chars) {
+      bool isInputReport = (pChar->getUUID() == NimBLEUUID(HID_REPORT_CHAR_UUID) ||
+                            pChar->getUUID() == NimBLEUUID(HID_BOOT_INPUT_UUID)) &&
+                           pChar->canNotify();
+      if (!isInputReport) continue;
+
+      if (pChar->subscribe(true, hidReportNotifyCallback)) {
+        if (bleKBHost.pReportChar == nullptr) {
+          bleKBHost.pReportChar = pChar;
+        }
+        subscribedCount++;
+        Serial.printf("BLEKB: Subscribed to report char %s (handle %d)\n",
+                      pChar->getUUID().toString().c_str(), pChar->getHandle());
+      } else {
+        Serial.printf("BLEKB: Subscribe failed for handle %d\n", pChar->getHandle());
+      }
+    }
+
+    if (subscribedCount == 0) {
+      Serial.println("BLEKB: No input report characteristic could be subscribed");
+      bleKBHost.pClient->disconnect();
+      bleKBHost.state = BLEKB_STATE_ERROR;
+      bleKBHost.lastError = "Report char not found";
+      return false;
+    }
+
+    // Encrypted link with subscriptions in place: reports will flow
+    if (bleKBHost.pClient->getConnInfo().isEncrypted()) {
+      break;
+    }
+
+    if (attempt == 0) {
+      Serial.println("BLEKB: Link not encrypted after pairing, redoing connection...");
+      bleKBHost.pClient->disconnect();
+      delay(300);  // let the disconnect complete before reconnecting
+    } else {
+      Serial.println("BLEKB: Link still unencrypted, continuing anyway");
+    }
   }
 
   Serial.println("BLEKB: Subscribed to keyboard input notifications");
