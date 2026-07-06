@@ -23,6 +23,9 @@
 #define HID_BOOT_INPUT_UUID     "2A22"  // Boot Keyboard Input Report
 #define HID_REPORT_MAP_UUID     "2A4B"
 #define HID_INFO_UUID           "2A4A"
+#define HID_PROTO_MODE_UUID     "2A4E"  // Protocol Mode (0=Boot, 1=Report)
+#define DIS_SERVICE_UUID        "180A"  // Device Information Service
+#define DIS_PNP_ID_UUID         "2A50"
 
 // Key buffer size (circular buffer for incoming keys)
 #define BLE_KEY_BUFFER_SIZE     16
@@ -86,6 +89,9 @@ struct BLEKBHostContext {
   bool autoReconnect;
   unsigned long lastReconnectAttempt;
   volatile bool reconnectDeviceSeen;  // set from scan callback when the paired keyboard advertises
+  char reconnectAddr[18];             // currently advertised address of the paired keyboard
+  uint8_t reconnectAddrType;          // (keyboards rotate their private address, so the
+                                      //  saved identity address may not be what's on air)
   String lastError;
 
   // Activity tracking
@@ -154,6 +160,19 @@ class BLEKBClientCallbacks : public NimBLEClientCallbacks {
     Serial.printf("BLEKB: Confirm PIN %lu - accepting\n", (unsigned long)pin);
     return true;
   }
+
+  // Accept the keyboard's preferred connection parameters. NimBLE's default
+  // counter-proposes OUR stored params; some keyboard firmwares won't start
+  // sending reports until their (battery-friendly) parameters are granted.
+  bool onConnParamsUpdateRequest(NimBLEClient* pClient,
+                                 const ble_gap_upd_params* params) override {
+    Serial.printf("BLEKB: Peer conn params itvl %d-%d lat %d timeout %d - accepting\n",
+                  params->itvl_min, params->itvl_max,
+                  params->latency, params->supervision_timeout);
+    pClient->setConnectionParams(params->itvl_min, params->itvl_max,
+                                 params->latency, params->supervision_timeout);
+    return true;
+  }
 };
 
 // Scan callbacks for device discovery
@@ -172,20 +191,28 @@ class BLEKBScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     if (!isHid) return;
 
     String addr = advertisedDevice->getAddress().toString().c_str();
+    String name = advertisedDevice->getName().c_str();
+    if (name.length() == 0) {
+      name = "Unknown Device";
+    }
 
     // If this is the paired keyboard, flag it so the main loop can reconnect
-    // (connecting from the scan callback context is not allowed)
+    // (connecting from the scan callback context is not allowed). Match by
+    // identity address or by name - keyboards advertise with a rotating
+    // private address, so the address alone stops matching within minutes.
     if (bleKBHost.pairedDevice.valid &&
-        addr.equalsIgnoreCase(bleKBHost.pairedDevice.address)) {
+        (addr.equalsIgnoreCase(bleKBHost.pairedDevice.address) ||
+         (bleKBHost.pairedDevice.name[0] != '\0' &&
+          name == bleKBHost.pairedDevice.name))) {
+      // Record what's actually on the air right now - connecting to the
+      // advertised address always works; the stored identity may not
+      strncpy(bleKBHost.reconnectAddr, addr.c_str(), sizeof(bleKBHost.reconnectAddr) - 1);
+      bleKBHost.reconnectAddr[sizeof(bleKBHost.reconnectAddr) - 1] = '\0';
+      bleKBHost.reconnectAddrType = advertisedDevice->getAddress().getType();
       bleKBHost.reconnectDeviceSeen = true;
     }
 
     if (bleKBHost.foundCount < BLE_MAX_FOUND_DEVICES) {
-      String name = advertisedDevice->getName().c_str();
-      if (name.length() == 0) {
-        name = "Unknown Device";
-      }
-
       // Check for duplicates
       for (int i = 0; i < bleKBHost.foundCount; i++) {
         if (bleKBHost.foundDevices[i].address == addr) {
@@ -225,6 +252,13 @@ static void bleKBScanCompleteCB(NimBLEScanResults results) {
 // HID Report notification callback
 void hidReportNotifyCallback(NimBLERemoteCharacteristic* pChar,
                               uint8_t* pData, size_t length, bool isNotify) {
+  // Raw report trace - proves whether the keyboard is sending anything at all
+  Serial.printf("BLEKB: Report h=%d len=%d:", pChar->getHandle(), (int)length);
+  for (size_t i = 0; i < length && i < 10; i++) {
+    Serial.printf(" %02X", pData[i]);
+  }
+  Serial.println();
+
   // HID Boot Protocol keyboard report is 8 bytes:
   // [0] = Modifier keys (Ctrl, Shift, Alt, GUI)
   // [1] = Reserved (always 0)
@@ -311,6 +345,8 @@ void initBLEKeyboardHost() {
   // full interval, so a keyboard that's already on reconnects shortly after boot
   bleKBHost.lastReconnectAttempt = millis() - BLE_RECONNECT_INTERVAL + 5000;
   bleKBHost.reconnectDeviceSeen = false;
+  bleKBHost.reconnectAddr[0] = '\0';
+  bleKBHost.reconnectAddrType = 0;
   bleKBHost.lastKeyTime = 0;
   memset(bleKBHost.prevKeys, 0, sizeof(bleKBHost.prevKeys));
 
@@ -449,8 +485,11 @@ bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool f
     bleKBHost.pClient->setConnectTimeout(10);
   }
 
-  // Set connection parameters for low latency
-  bleKBHost.pClient->setConnectionParams(12, 12, 0, 200);
+  // Standard host-like connection parameters (30-60ms interval, 5s timeout).
+  // The previous aggressive 15ms/2s params are exactly what a battery
+  // keyboard fights against; its own update request is accepted in
+  // onConnParamsUpdateRequest anyway.
+  bleKBHost.pClient->setConnectionParams(24, 48, 0, 500);
 
   // Up to two full attempts: on a first-time pairing the notification
   // subscription can land before link encryption is fully established, in
@@ -461,12 +500,20 @@ bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool f
   // used to be needed after the first pairing).
   NimBLEAddress bleAddr(std::string(address), addrType);
 
-  // Fresh pairing: the keyboard is in pairing mode, so it has forgotten any
-  // previous bond. A stale bond on our side then makes encryption fail with
-  // "missing key" until both devices are power-cycled - delete it up front.
-  if (freshPair && NimBLEDevice::isBonded(bleAddr)) {
-    Serial.println("BLEKB: Removing stale bond before fresh pairing");
-    NimBLEDevice::deleteBond(bleAddr);
+  // Fresh pairing: the keyboard is in pairing mode and expects a full SMP
+  // pairing exchange. A bond left on our side makes NimBLE silently RESUME
+  // the old encrypted session instead of pairing - the link encrypts and
+  // subscribes fine, but the keyboard's pairing slot never completes, so it
+  // keeps blinking and never sends a report. Delete our bonds for both the
+  // target address and the previously saved identity so a real pairing runs.
+  if (freshPair) {
+    NimBLEDevice::deleteBond(bleAddr);  // no-op if absent
+    if (bleKBHost.pairedDevice.valid && bleKBHost.pairedDevice.address[0] != '\0') {
+      NimBLEAddress oldAddr(std::string(bleKBHost.pairedDevice.address),
+                            bleKBHost.pairedDevice.addrType);
+      NimBLEDevice::deleteBond(oldAddr);
+    }
+    Serial.println("BLEKB: Cleared stored bonds for fresh pairing");
   }
 
   int subscribedCount = 0;
@@ -508,6 +555,39 @@ bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool f
       return false;
     }
 
+    // Full HOGP host enumeration, mirroring what a real OS host does before
+    // enabling input: read PnP ID, HID Information and the Report Map, then
+    // select Report Protocol. Some keyboards treat the Report Map read as
+    // "enumeration complete" and never send a single report (staying in
+    // pairing mode) when the host skips it.
+    NimBLERemoteService* pDis = bleKBHost.pClient->getService(NimBLEUUID(DIS_SERVICE_UUID));
+    if (pDis != nullptr) {
+      NimBLERemoteCharacteristic* pPnp = pDis->getCharacteristic(NimBLEUUID(DIS_PNP_ID_UUID));
+      if (pPnp != nullptr && pPnp->canRead()) {
+        NimBLEAttValue v = pPnp->readValue();
+        Serial.printf("BLEKB: PnP ID read (%d bytes)\n", (int)v.size());
+      }
+    }
+
+    NimBLERemoteCharacteristic* pEnum = pService->getCharacteristic(NimBLEUUID(HID_INFO_UUID));
+    if (pEnum != nullptr && pEnum->canRead()) {
+      NimBLEAttValue v = pEnum->readValue();
+      Serial.printf("BLEKB: HID info read (%d bytes)\n", (int)v.size());
+    }
+
+    pEnum = pService->getCharacteristic(NimBLEUUID(HID_REPORT_MAP_UUID));
+    if (pEnum != nullptr && pEnum->canRead()) {
+      NimBLEAttValue v = pEnum->readValue();
+      Serial.printf("BLEKB: Report map read (%d bytes)\n", (int)v.size());
+    }
+
+    pEnum = pService->getCharacteristic(NimBLEUUID(HID_PROTO_MODE_UUID));
+    if (pEnum != nullptr && pEnum->canWriteNoResponse()) {
+      uint8_t reportMode = 0x01;
+      pEnum->writeValue(&reportMode, 1, false);
+      Serial.println("BLEKB: Protocol mode set to Report");
+    }
+
     // Subscribe to every notifiable input report. Combo devices expose several
     // (keyboard, media keys, mouse) and only one carries key presses - the
     // notify callback parses keyboard-format reports and ignores the rest.
@@ -520,7 +600,22 @@ bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool f
                            pChar->canNotify();
       if (!isInputReport) continue;
 
-      if (pChar->subscribe(true, hidReportNotifyCallback)) {
+      // Read the Report Reference descriptor (report ID + type). Hosts read
+      // these during enumeration; also logs which report ID is which handle.
+      NimBLERemoteDescriptor* pDesc = pChar->getDescriptor(NimBLEUUID((uint16_t)0x2908));
+      if (pDesc != nullptr) {
+        NimBLEAttValue rr = pDesc->readValue();
+        if (rr.size() >= 2) {
+          Serial.printf("BLEKB: Report handle %d: id=%d type=%d\n",
+                        pChar->getHandle(), rr[0], rr[1]);
+        }
+      }
+
+      // response=true: enable notifications with a confirmed Write Request.
+      // The default (write command, no response) is silently ignored by some
+      // keyboard stacks AND reports success either way - the classic result
+      // is "connected but never sends a single report".
+      if (pChar->subscribe(true, hidReportNotifyCallback, true)) {
         if (bleKBHost.pReportChar == nullptr) {
           bleKBHost.pReportChar = pChar;
         }
@@ -561,9 +656,25 @@ bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool f
 
   Serial.println("BLEKB: Subscribed to keyboard input notifications");
 
-  // Save pairing info
-  strncpy(bleKBHost.pairedDevice.address, address, sizeof(bleKBHost.pairedDevice.address) - 1);
-  bleKBHost.pairedDevice.addrType = addrType;
+  // Nudge quirky firmwares: read the first input report once - some only
+  // start notifying after the host performs an initial read
+  if (bleKBHost.pReportChar != nullptr && bleKBHost.pReportChar->canRead()) {
+    NimBLEAttValue initial = bleKBHost.pReportChar->readValue();
+    Serial.printf("BLEKB: Initial report read (%d bytes)\n", (int)initial.size());
+  }
+
+  // Save pairing info using the peer's IDENTITY address: the advertised
+  // address is a rotating private address that goes stale within minutes,
+  // which made reconnect-by-saved-address impossible.
+  NimBLEConnInfo connInfo = bleKBHost.pClient->getConnInfo();
+  NimBLEAddress idAddr = connInfo.getIdAddress();
+  Serial.printf("BLEKB: OTA addr %s / identity addr %s (type %d), MTU %d, itvl %d\n",
+                connInfo.getAddress().toString().c_str(),
+                idAddr.toString().c_str(), idAddr.getType(),
+                connInfo.getMTU(), connInfo.getConnInterval());
+  strncpy(bleKBHost.pairedDevice.address, idAddr.toString().c_str(),
+          sizeof(bleKBHost.pairedDevice.address) - 1);
+  bleKBHost.pairedDevice.addrType = idAddr.getType();
 
   // Get device name
   String deviceName = bleKBHost.pClient->getPeerAddress().toString().c_str();
@@ -622,8 +733,15 @@ void updateBLEKeyboardHost() {
         bleKBHost.state != BLEKB_STATE_CONNECTED &&
         bleKBHost.state != BLEKB_STATE_CONNECTING) {
       Serial.println("BLEKB: Paired keyboard in range, reconnecting...");
-      connectToBLEKeyboardByAddress(bleKBHost.pairedDevice.address,
-                                    bleKBHost.pairedDevice.addrType);
+      // Connect to the address it is advertising right now; the stored
+      // identity address may differ from the rotating on-air address
+      if (bleKBHost.reconnectAddr[0] != '\0') {
+        connectToBLEKeyboardByAddress(bleKBHost.reconnectAddr,
+                                      bleKBHost.reconnectAddrType);
+      } else {
+        connectToBLEKeyboardByAddress(bleKBHost.pairedDevice.address,
+                                      bleKBHost.pairedDevice.addrType);
+      }
     }
   }
 
@@ -720,6 +838,16 @@ void forgetBLEKeyboardPairing() {
   // Disconnect if connected
   if (bleKBHost.pClient != nullptr && bleKBHost.pClient->isConnected()) {
     bleKBHost.pClient->disconnect();
+  }
+
+  // Delete the NimBLE bond too - keeping it makes the next "pairing" to the
+  // same keyboard silently resume the old session instead of freshly pairing
+  if (bleKBHost.state != BLEKB_STATE_IDLE &&
+      bleKBHost.pairedDevice.valid && bleKBHost.pairedDevice.address[0] != '\0') {
+    NimBLEAddress oldAddr(std::string(bleKBHost.pairedDevice.address),
+                          bleKBHost.pairedDevice.addrType);
+    NimBLEDevice::deleteBond(oldAddr);
+    Serial.println("BLEKB: Bond deleted");
   }
 
   // Clear pairing info
