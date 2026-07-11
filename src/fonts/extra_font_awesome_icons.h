@@ -35,6 +35,9 @@ LV_FONT_DECLARE(ExtraFontAwesomeIcons);
 /* U+F0AC — FA5 "globe" (Americas-style globe in older sets) */
 #define FA_EXTRA_GLOBE "\xEF\x82\xAC"
 
+/* U+F7C0 — satellite-dish */
+#define FA_EXTRA_SATELLITE_DISH "\xEF\x9F\x80"
+
 /* U+F549 — school */
 #define FA_EXTRA_SCHOOL "\xEF\x95\x89"
 

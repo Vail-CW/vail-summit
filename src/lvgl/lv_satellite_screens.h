@@ -39,6 +39,17 @@ static int sat_list_selected_row = 0;
 static bool sat_search_entry = false;             // typing into the search filter
 static char sat_search_filter[13] = "";
 
+// Background next-pass computation for favorites (shown in the NEXT PASS
+// column). aos/los per catalog index: 0 = not computed, -1 = no pass found
+// within the lookahead window.
+static time_t sat_np_aos[MAX_SATELLITES];
+static time_t sat_np_los[MAX_SATELLITES];
+static lv_timer_t* sat_list_np_timer = NULL;
+static int sat_np_queue[24];
+static int sat_np_qcount = 0;
+static int sat_np_qpos = 0;
+static bool sat_np_inflight = false;
+
 // Selection carried between screens
 static int sat_selected_catalog_idx = -1;
 static SatPass satSelectedPass;
@@ -72,6 +83,8 @@ void cleanupSatelliteScreens() {
     if (sat_passes_timer) { lv_timer_del(sat_passes_timer); sat_passes_timer = NULL; }
     if (sat_detail_timer) { lv_timer_del(sat_detail_timer); sat_detail_timer = NULL; }
     if (sat_live_timer)   { lv_timer_del(sat_live_timer);   sat_live_timer = NULL; }
+    if (sat_list_np_timer) { lv_timer_del(sat_list_np_timer); sat_list_np_timer = NULL; }
+    sat_np_inflight = false;
     satSearch.active = false;
 
     sat_list_table = NULL;
@@ -155,6 +168,24 @@ static void satStyleTable(lv_obj_t* table) {
     lv_obj_set_style_pad_left(table, 4, LV_PART_ITEMS);
 }
 
+// Keep the highlighted row visible. Row height is derived from the table's
+// actual content height (hardcoding it causes the scroll position to drift
+// away from the selection a few pixels per row).
+static void satScrollTableToRow(lv_obj_t* table, int row, int rowCount) {
+    if (!table || rowCount <= 0) return;
+    lv_coord_t rowH = lv_obj_get_self_height(table) / rowCount;
+    if (rowH <= 0) rowH = 28;
+    lv_coord_t viewH = lv_obj_get_height(table);
+    lv_coord_t rowTop = (lv_coord_t)(row * rowH);
+    lv_coord_t scrollY = lv_obj_get_scroll_y(table);
+    if (rowTop < scrollY) {
+        lv_obj_scroll_to_y(table, rowTop, LV_ANIM_OFF);
+    } else if (rowTop + rowH > scrollY + viewH) {
+        lv_obj_scroll_to_y(table, rowTop + rowH - viewH, LV_ANIM_OFF);
+    }
+    lv_obj_invalidate(table);
+}
+
 // Blocking TLE download behind a modal overlay (POTA refresh pattern).
 // Returns true on success.
 static bool satRunTLEUpdate() {
@@ -171,6 +202,9 @@ static bool satRunTLEUpdate() {
     bool ok = satFetchTLEs();
     lv_obj_del(overlay);
     if (ok) {
+        // Catalog indexes changed - the cached next-pass times are invalid
+        memset(sat_np_aos, 0, sizeof(sat_np_aos));
+        memset(sat_np_los, 0, sizeof(sat_np_los));
         beep(1000, 100);
         showToast("TLEs updated");
     } else {
@@ -178,6 +212,101 @@ static bool satRunTLEUpdate() {
         createAlertDialog("Download Failed", "Could not fetch TLEs from\nCelestrak. Try again later.");
     }
     return ok;
+}
+
+// ============================================
+// Favorite Next-Pass Column (background compute)
+// ============================================
+
+// "14:32 in 1h05m" / "NOW" / "none" for a favorite's cached next pass
+static void satFmtNextPassCell(int catIdx, char* buf, size_t n) {
+    buf[0] = '\0';
+    if (!ntpSynced) return;
+    time_t aos = sat_np_aos[catIdx];
+    time_t los = sat_np_los[catIdx];
+    time_t now = time(nullptr);
+    if (aos == (time_t)-1) { strlcpy(buf, "none", n); return; }
+    if (aos == 0 || now > los) { strlcpy(buf, "...", n); return; }  // computing / stale
+    if (now >= aos) { strlcpy(buf, "NOW", n); return; }
+    char lt[12];
+    satFmtLocalTime(aos, lt, sizeof(lt));
+    long mins = (long)(aos - now) / 60;
+    if (mins < 60) snprintf(buf, n, "%s in %ldm", lt, mins);
+    else snprintf(buf, n, "%s in %ldh%02ldm", lt, mins / 60, mins % 60);
+}
+
+// Queue every favorite whose cached next pass is missing or already over.
+static void satQueueNextPassCompute() {
+    sat_np_qcount = 0;
+    sat_np_qpos = 0;
+    sat_np_inflight = false;
+    if (!satCatalog.valid || !ntpSynced) return;
+    double lat, lon;
+    if (!gridToLatLon(satEffectiveGrid(), &lat, &lon)) return;
+
+    time_t now = time(nullptr);
+    for (int i = 0; i < satCatalog.count && sat_np_qcount < (int)(sizeof(sat_np_queue) / sizeof(int)); i++) {
+        if (!isSatFavorite(satCatalog.sats[i].norad)) continue;
+        if (sat_np_aos[i] > 0 && sat_np_los[i] >= now) continue;  // still current
+        sat_np_aos[i] = 0;
+        sat_np_los[i] = 0;
+        sat_np_queue[sat_np_qcount++] = i;
+    }
+}
+
+static void satRefreshListTable();  // forward
+static void sat_list_np_timer_cb(lv_timer_t* t);  // forward
+
+// (Re)build the queue and make sure the worker timer is running at full speed.
+static void satEnsureNextPassWorker() {
+    satQueueNextPassCompute();
+    if (!sat_list_np_timer) {
+        sat_list_np_timer = lv_timer_create(sat_list_np_timer_cb, 60, NULL);
+    } else {
+        lv_timer_set_period(sat_list_np_timer, 60);
+    }
+}
+
+// Chunked worker: one favorite at a time through the shared pass-search state
+// machine, stopping at the first pass found. When the queue drains, drop to a
+// slow 30s tick that keeps the relative times fresh and requeues stale birds.
+static void sat_list_np_timer_cb(lv_timer_t* t) {
+    if (!sat_list_table || !lv_obj_is_valid(sat_list_table)) return;
+
+    if (sat_np_qpos >= sat_np_qcount) {
+        satQueueNextPassCompute();
+        satRefreshListTable();
+        lv_timer_set_period(t, sat_np_qcount > 0 ? 60 : 30000);
+        return;
+    }
+    lv_timer_set_period(t, 60);
+
+    int idx = sat_np_queue[sat_np_qpos];
+    if (!sat_np_inflight) {
+        if (!satStartPassSearch(idx)) {
+            sat_np_aos[idx] = (time_t)-1;
+            sat_np_los[idx] = (time_t)-1;
+            sat_np_qpos++;
+            return;
+        }
+        sat_np_inflight = true;
+    }
+
+    satPassSearchStep(25);
+    if (satSearch.count > 0 || satSearch.done) {
+        if (satSearch.count > 0) {
+            sat_np_aos[idx] = satSearch.passes[0].aos;
+            sat_np_los[idx] = satSearch.passes[0].los;
+        } else {
+            sat_np_aos[idx] = (time_t)-1;
+            sat_np_los[idx] = (time_t)-1;
+        }
+        satSearch.active = false;
+        satSearch.done = true;
+        sat_np_inflight = false;
+        sat_np_qpos++;
+        satRefreshListTable();
+    }
 }
 
 // ============================================
@@ -250,11 +379,12 @@ static void satRefreshListTable() {
     lv_table_set_row_cnt(sat_list_table, satDisplayCount);
     for (int i = 0; i < satDisplayCount; i++) {
         SatEntry& e = satCatalog.sats[satDisplayIdx[i]];
-        lv_table_set_cell_value(sat_list_table, i, 0, isSatFavorite(e.norad) ? "*" : "");
+        bool fav = isSatFavorite(e.norad);
+        lv_table_set_cell_value(sat_list_table, i, 0, fav ? "*" : "");
         lv_table_set_cell_value(sat_list_table, i, 1, e.name);
-        char id[12];
-        snprintf(id, sizeof(id), "%lu", (unsigned long)e.norad);
-        lv_table_set_cell_value(sat_list_table, i, 2, id);
+        char next[24] = "";
+        if (fav) satFmtNextPassCell(satDisplayIdx[i], next, sizeof(next));
+        lv_table_set_cell_value(sat_list_table, i, 2, next);
     }
 
     if (sat_list_selected_row >= satDisplayCount) {
@@ -304,32 +434,34 @@ static void sat_list_key_handler(lv_event_t* e) {
         // fall through for arrows so navigation still works while searching
     }
 
-    if (key == '/') {
+    if (key == 'S' || key == 's') {
         sat_search_entry = true;
         satUpdateListHeaderLabels();
         lv_event_stop_processing(e);
         return;
     }
 
-    if (!sat_search_entry && (key == 'R' || key == 'r')) {
+    if (key == 'R' || key == 'r') {
         if (satRunTLEUpdate()) {
             sat_list_selected_row = 0;
+            satEnsureNextPassWorker();
             satRefreshListTable();
         }
         lv_event_stop_processing(e);
         return;
     }
 
-    if (!sat_search_entry && (key == 'S' || key == 's')) {
+    if (key == 'C' || key == 'c') {
         onLVGLMenuSelect(MODE_SAT_SETTINGS);
         lv_event_stop_processing(e);
         return;
     }
 
-    if (!sat_search_entry && (key == 'F' || key == 'f')) {
+    if (key == 'F' || key == 'f') {
         if (satDisplayCount > 0 && sat_list_selected_row < satDisplayCount) {
             toggleSatFavorite(satCatalog.sats[satDisplayIdx[sat_list_selected_row]].norad);
             beep(800, 60);
+            satEnsureNextPassWorker();
             satRefreshListTable();
         }
         lv_event_stop_processing(e);
@@ -339,8 +471,7 @@ static void sat_list_key_handler(lv_event_t* e) {
     if (key == LV_KEY_UP || key == LV_KEY_PREV) {
         if (sat_list_selected_row > 0) {
             sat_list_selected_row--;
-            lv_obj_scroll_to_y(sat_list_table, sat_list_selected_row * 30, LV_ANIM_ON);
-            lv_obj_invalidate(sat_list_table);
+            satScrollTableToRow(sat_list_table, sat_list_selected_row, satDisplayCount);
         }
         lv_event_stop_processing(e);
         return;
@@ -348,8 +479,7 @@ static void sat_list_key_handler(lv_event_t* e) {
     if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
         if (sat_list_selected_row < satDisplayCount - 1) {
             sat_list_selected_row++;
-            lv_obj_scroll_to_y(sat_list_table, sat_list_selected_row * 30, LV_ANIM_ON);
-            lv_obj_invalidate(sat_list_table);
+            satScrollTableToRow(sat_list_table, sat_list_selected_row, satDisplayCount);
         }
         lv_event_stop_processing(e);
         return;
@@ -365,7 +495,7 @@ static void sat_list_key_handler(lv_event_t* e) {
                 if (indev) lv_indev_wait_release(indev);
                 playAlertChirp();
                 createAlertDialog("Grid Square Needed",
-                    "Set your Maidenhead grid in\nSetup (press S) so passes can\nbe computed for your location.");
+                    "Set your Maidenhead grid in\nSetup (press C) so passes can\nbe computed for your location.");
             } else if (!ntpSynced) {
                 lv_indev_t* indev = getLVGLKeypad();
                 if (indev) lv_indev_wait_release(indev);
@@ -374,6 +504,10 @@ static void sat_list_key_handler(lv_event_t* e) {
                     "Time is not synced yet.\nConnect to WiFi so NTP can\nset the clock, then retry.");
             } else {
                 sat_selected_catalog_idx = satDisplayIdx[sat_list_selected_row];
+                // The passes screen owns the shared pass-search state machine;
+                // stop the background next-pass worker before handing over.
+                if (sat_list_np_timer) { lv_timer_del(sat_list_np_timer); sat_list_np_timer = NULL; }
+                sat_np_inflight = false;
                 onLVGLMenuSelect(MODE_SAT_PASSES);
             }
         }
@@ -453,8 +587,8 @@ lv_obj_t* createSatListScreen() {
     lv_obj_set_style_pad_all(header_bar, 0, 0);
     lv_obj_clear_flag(header_bar, LV_OBJ_FLAG_SCROLLABLE);
 
-    const char* colNames[3] = { "FAV", "NAME", "NORAD" };
-    int colX[3] = { 4, 48, 352 };
+    const char* colNames[3] = { "FAV", "NAME", "NEXT PASS" };
+    int colX[3] = { 4, 48, 292 };
     for (int i = 0; i < 3; i++) {
         lv_obj_t* h = lv_label_create(header_bar);
         lv_label_set_text(h, colNames[i]);
@@ -472,9 +606,9 @@ lv_obj_t* createSatListScreen() {
     lv_obj_set_pos(sat_list_table, 10, table_y);
     satStyleTable(sat_list_table);
     lv_table_set_col_cnt(sat_list_table, 3);
-    lv_table_set_col_width(sat_list_table, 0, 44);
-    lv_table_set_col_width(sat_list_table, 1, 304);
-    lv_table_set_col_width(sat_list_table, 2, 110);
+    lv_table_set_col_width(sat_list_table, 0, 40);
+    lv_table_set_col_width(sat_list_table, 1, 244);
+    lv_table_set_col_width(sat_list_table, 2, 174);
 
     lv_obj_add_event_cb(sat_list_table, sat_table_highlight_cb, LV_EVENT_DRAW_PART_BEGIN, &sat_list_selected_row);
     lv_obj_add_flag(sat_list_table, LV_OBJ_FLAG_CLICKABLE);
@@ -490,9 +624,12 @@ lv_obj_t* createSatListScreen() {
     lv_obj_align(sat_list_empty_label, LV_ALIGN_CENTER, 0, 10);
     lv_obj_add_flag(sat_list_empty_label, LV_OBJ_FLAG_HIDDEN);
 
-    satCreateFooter(screen, "ENTER Passes   / Search   F Fav   R Update TLEs   S Setup   ESC Back");
+    satCreateFooter(screen, "ENTER Passes   S Search   F Fav   R Update TLEs   C Setup   ESC Back");
 
     satRefreshListTable();
+
+    // Kick off background next-pass computation for favorites
+    satEnsureNextPassWorker();
     return screen;
 }
 
@@ -588,8 +725,7 @@ static void sat_passes_key_handler(lv_event_t* e) {
     if (key == LV_KEY_UP || key == LV_KEY_PREV) {
         if (sat_passes_selected_row > 0) {
             sat_passes_selected_row--;
-            lv_obj_scroll_to_y(sat_passes_table, sat_passes_selected_row * 30, LV_ANIM_ON);
-            lv_obj_invalidate(sat_passes_table);
+            satScrollTableToRow(sat_passes_table, sat_passes_selected_row, satSearch.count);
         }
         lv_event_stop_processing(e);
         return;
@@ -597,8 +733,7 @@ static void sat_passes_key_handler(lv_event_t* e) {
     if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
         if (sat_passes_selected_row < satSearch.count - 1) {
             sat_passes_selected_row++;
-            lv_obj_scroll_to_y(sat_passes_table, sat_passes_selected_row * 30, LV_ANIM_ON);
-            lv_obj_invalidate(sat_passes_table);
+            satScrollTableToRow(sat_passes_table, sat_passes_selected_row, satSearch.count);
         }
         lv_event_stop_processing(e);
         return;
@@ -974,12 +1109,30 @@ lv_obj_t* createSatLiveScreen() {
         *(readouts[i].value) = val;
     }
 
+    // Frequency reference - operators need the downlink while pointing
+    uint32_t liveNorad = (sat_selected_catalog_idx >= 0 && sat_selected_catalog_idx < satCatalog.count)
+        ? satCatalog.sats[sat_selected_catalog_idx].norad : 0;
+    const SatFreqInfo* lfi = lookupSatFreqs(liveNorad);
+    if (lfi) {
+        char fbuf[80];
+        if (lfi->uplink[0] != '\0') {
+            snprintf(fbuf, sizeof(fbuf), "DN %s   UP %s", lfi->downlink, lfi->uplink);
+        } else {
+            snprintf(fbuf, sizeof(fbuf), "DN %s", lfi->downlink);
+        }
+        lv_obj_t* freq_lbl = lv_label_create(screen);
+        lv_label_set_text(freq_lbl, fbuf);
+        lv_obj_set_style_text_font(freq_lbl, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_color(freq_lbl, LV_COLOR_SUCCESS, 0);
+        lv_obj_align(freq_lbl, LV_ALIGN_TOP_MID, 0, HEADER_HEIGHT + 163);
+    }
+
     // Hint
     lv_obj_t* hint = lv_label_create(screen);
     lv_label_set_text(hint, "Point the antenna: azimuth is compass heading, elevation is tilt");
     lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(hint, LV_COLOR_TEXT_TERTIARY, 0);
-    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, HEADER_HEIGHT + 170);
+    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, HEADER_HEIGHT + 188);
 
     // Invisible focus anchor so ESC back-navigation works
     lv_obj_t* focus_anchor = lv_obj_create(screen);

@@ -291,20 +291,28 @@ int satTLEAgeDays() {
 static char satFavCsv[160] = "";
 static bool satFavsLoaded = false;
 
-void loadSatFavorites() {
-    if (satFavsLoaded) return;
-    Preferences p;
-    p.begin("sat", true);
-    p.getString("favs", satFavCsv, sizeof(satFavCsv));
-    p.end();
-    satFavsLoaded = true;
-}
-
 static void saveSatFavorites() {
     Preferences p;
     p.begin("sat", false);
     p.putString("favs", satFavCsv);
     p.end();
+}
+
+void loadSatFavorites() {
+    if (satFavsLoaded) return;
+    Preferences p;
+    p.begin("sat", true);
+    bool haveKey = p.isKey("favs");
+    p.getString("favs", satFavCsv, sizeof(satFavCsv));
+    p.end();
+    satFavsLoaded = true;
+
+    // First run: seed the popular starter birds (ISS, SO-50, AO-91, RS-44)
+    // so the list opens with something workable pinned on top.
+    if (!haveKey) {
+        strlcpy(satFavCsv, "25544,27607,43017,44909", sizeof(satFavCsv));
+        saveSatFavorites();
+    }
 }
 
 bool isSatFavorite(uint32_t norad) {
