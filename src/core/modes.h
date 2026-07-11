@@ -213,13 +213,19 @@ enum MenuMode {
     MODE_MORSE_NOTES_SETTINGS = 168,
     MODE_MORSE_NOTES_LIST = 169,
 
-    // Satellite tracker modes (170-175)
-    MODE_SAT_LIST = 170,
+    // Satellite tracker modes (170-181)
+    MODE_SAT_LIST = 170,          // All Satellites (A-Z, type to search)
     MODE_SAT_PASSES = 171,
     MODE_SAT_PASS_DETAIL = 172,
     MODE_SAT_LIVE = 173,
     MODE_SAT_SETTINGS = 174,
-    MODE_SAT_WINDOW = 175
+    MODE_SAT_WINDOW = 175,        // Sky window: plan by date & time
+    MODE_SAT_MENU = 176,          // Satellites hub menu
+    MODE_SAT_MY = 177,            // Favorites, sorted by next pass
+    MODE_SAT_POPULAR = 178,       // Curated SSTV/FM/linear birds
+    MODE_SAT_BYPASS = 179,        // Full catalog sorted by next pass
+    MODE_SAT_WINDOW_NOW = 180,    // Sky window: next 60 minutes from now
+    MODE_SAT_TLE_UPDATE = 181     // Action pseudo-mode (no screen)
 };
 
 extern MenuMode currentMode;

@@ -186,8 +186,21 @@ bool satPassSearchStep(uint32_t budgetMs) {
             return true;
         }
 
-        bool found = satPredictor.nextpass(&p, 1, false, (double)satSettings.minElevation);
-        if (!found) continue;  // this orbit peaked below min elevation - keep going
+        // nextpass() returns failure whenever its elevation loop exhausts the
+        // iteration count - INCLUDING when the last orbit it checked actually
+        // qualifies (the `i >= itterations` test fires before the result is
+        // considered). With 1 iteration it therefore *always* fails. Use 2
+        // iterations, and on failure rewind one orbit so the orbit that may
+        // have qualified on the exhausted final hop is re-checked as the
+        // first hop of the next call. Net progress stays ~one orbit per call,
+        // keeping this loop chunkable.
+        bool found = satPredictor.nextpass(&p, 2, false, (double)satSettings.minElevation);
+        if (!found) {
+            if (satPredictor.revpday > 0.1) {
+                satPredictor.setpredpoint(satPredictor.getpredpoint() - 1.0 / satPredictor.revpday);
+            }
+            continue;
+        }
 
         if (p.jdstop < satSearch.startJd) continue;      // pass already over
         if (p.jdstart > satSearch.endJd) {               // beyond the window

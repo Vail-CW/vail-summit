@@ -717,6 +717,13 @@ void onLVGLMenuSelect(int target_mode) {
         return;
     }
 
+    // Satellite TLE update: an action, not a screen - run it and stay put
+    if (target_mode == MODE_SAT_TLE_UPDATE) {
+        beep(TONE_SELECT, BEEP_MEDIUM);
+        satRunTLEUpdate();
+        return;
+    }
+
     // Web Files management screen - shows version info and allows force download
     if (target_mode == MODE_WEB_FILES_UPDATE) {
         // Play selection beep
@@ -828,6 +835,12 @@ int getParentModeInt(int mode) {
         return MODE_HOME;
     }
 
+    // Satellite passes: return to whichever list/window launched the search
+    // (My Sats, Popular, All, By Next Pass, or a sky window via pass detail)
+    if (mode == MODE_SAT_PASSES) {
+        return satPassesReturnMode;
+    }
+
     // Onboarding WiFi branch: return to wizard instead of WiFi submenu
     if (onboardingActive && mode == MODE_WIFI_SETTINGS) {
         Serial.println("[ModeIntegration] Returning from onboarding WiFi to wizard");
@@ -876,11 +889,15 @@ static const ModeCallbackEntry cleanupTable[] = {
     // Satellite tracker: every screen may own an LVGL timer (pass search,
     // countdown, live tracking) - one cleanup deletes whatever exists.
     { MODE_SAT_LIST,                     cleanupSatelliteScreens },
+    { MODE_SAT_MY,                       cleanupSatelliteScreens },
+    { MODE_SAT_POPULAR,                  cleanupSatelliteScreens },
+    { MODE_SAT_BYPASS,                   cleanupSatelliteScreens },
     { MODE_SAT_PASSES,                   cleanupSatelliteScreens },
     { MODE_SAT_PASS_DETAIL,              cleanupSatelliteScreens },
     { MODE_SAT_LIVE,                     cleanupSatelliteScreens },
     { MODE_SAT_SETTINGS,                 cleanupSatelliteScreens },
     { MODE_SAT_WINDOW,                   cleanupSatelliteScreens },
+    { MODE_SAT_WINDOW_NOW,               cleanupSatelliteScreens },
     { MODE_VAIL_REPEATER,                cleanupVailRepeaterMode },
     // CWA cleanup functions delete timers/widgets and call the core state
     // resets (resetCWA*PracticeState) internally.

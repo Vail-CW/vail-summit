@@ -29,25 +29,33 @@ static void playAlertChirp();  // defined in lv_mode_integration.h
 // Screen State
 // ============================================
 
-// Satellite list
+// Satellite list - one screen, four variants selected from the hub menu
+enum SatListVariant {
+    SAT_LIST_ALL = 0,   // full catalog A-Z, type-to-search
+    SAT_LIST_MY,        // favorites only, sorted by next pass
+    SAT_LIST_POPULAR,   // curated freq-table birds, sorted by next pass
+    SAT_LIST_BYPASS     // full catalog sorted by next pass, type-to-search
+};
+static SatListVariant sat_list_variant = SAT_LIST_ALL;
 static lv_obj_t* sat_list_table = NULL;
 static lv_obj_t* sat_list_count_label = NULL;
-static lv_obj_t* sat_list_info_label = NULL;      // search text (left)
+static lv_obj_t* sat_list_info_label = NULL;      // search text / progress (left)
 static lv_obj_t* sat_list_tle_label = NULL;       // TLE age (right)
 static lv_obj_t* sat_list_empty_label = NULL;     // "no TLE data" message
 static int sat_list_selected_row = 0;
-static bool sat_search_entry = false;             // typing into the search filter
 static char sat_search_filter[13] = "";
+
+// Where ESC from the passes screen returns (whichever list/window launched it)
+int satPassesReturnMode = MODE_SAT_LIST;
 
 // Background next-pass computation (shown in the NEXT PASS column).
 // aos/los per catalog index: 0 = not computed, -1 = no pass found within the
-// lookahead window. Favorites always compute; with sort-by-pass enabled the
-// worker sweeps the whole catalog (favorites first).
+// lookahead window. Favorites + curated birds always compute; the "by next
+// pass" variant sweeps the whole catalog (favorites first).
 static time_t sat_np_aos[MAX_SATELLITES];
 static time_t sat_np_los[MAX_SATELLITES];
 static lv_timer_t* sat_list_np_timer = NULL;
 static int sat_np_current = -1;         // catalog index in-flight, -1 = idle
-static bool sat_sort_by_pass = false;   // P toggles: name sort vs next-pass sort
 
 // Selection carried between screens
 static int sat_selected_catalog_idx = -1;
@@ -88,6 +96,7 @@ static lv_obj_t* sat_win_status_label = NULL;
 static lv_obj_t* sat_win_date_val = NULL;
 static lv_obj_t* sat_win_time_val = NULL;
 static lv_timer_t* sat_win_timer = NULL;
+static bool sat_win_focus_table = false;   // true = "Next 60 Minutes" entry
 
 // ============================================
 // Cleanup (registered for all satellite modes)
@@ -260,10 +269,18 @@ static void satFmtNextPassCell(int catIdx, char* buf, size_t n) {
     else snprintf(buf, n, "%s in %ldh%02ldm", lt, mins / 60, mins % 60);
 }
 
-// Does this catalog index want a next-pass value?
+// Does this catalog index want a next-pass value? Favorites and the curated
+// birds always do (cheap, and their lists sort by it); the full-catalog
+// "by next pass" variant wants everything.
 static bool satNextPassWanted(int idx) {
-    return sat_sort_by_pass || isSatFavorite(satCatalog.sats[idx].norad);
+    uint32_t norad = satCatalog.sats[idx].norad;
+    if (isSatFavorite(norad) || lookupSatFreqs(norad) != NULL) return true;
+    return sat_list_variant == SAT_LIST_BYPASS;
 }
+
+// Membership predicates for buildSatDisplayList
+static bool satIncludeFavorite(uint32_t norad) { return isSatFavorite(norad); }
+static bool satIncludePopular(uint32_t norad) { return lookupSatFreqs(norad) != NULL; }
 
 // Next catalog index needing computation (favorites first), or -1 when
 // everything wanted is current. -1 ("no pass in window") entries stay sticky
@@ -356,25 +373,21 @@ static void sat_list_np_timer_cb(lv_timer_t* t) {
 static void satUpdateListHeaderLabels() {
     if (sat_list_count_label && lv_obj_is_valid(sat_list_count_label)) {
         char buf[24];
-        snprintf(buf, sizeof(buf), "SATELLITES (%d)", satDisplayCount);
+        static const char* variantTitles[4] = { "ALL SATELLITES", "MY SATS", "POPULAR BIRDS", "NEXT PASSES" };
+        snprintf(buf, sizeof(buf), "%s (%d)", variantTitles[sat_list_variant], satDisplayCount);
         lv_label_set_text(sat_list_count_label, buf);
     }
     if (sat_list_info_label && lv_obj_is_valid(sat_list_info_label)) {
         char buf[48];
-        if (sat_search_entry) {
+        buf[0] = '\0';
+        if (sat_search_filter[0] != '\0') {
             snprintf(buf, sizeof(buf), "Search: %s_", sat_search_filter);
-        } else if (sat_search_filter[0] != '\0') {
-            snprintf(buf, sizeof(buf), "Filter: %s", sat_search_filter);
-        } else if (sat_sort_by_pass) {
+        } else if (sat_list_variant != SAT_LIST_ALL) {
             int done = 0, wanted = 0;
             satNextPassProgress(&done, &wanted);
             if (done < wanted) {
-                snprintf(buf, sizeof(buf), "Sort: next pass (%d/%d)", done, wanted);
-            } else {
-                strlcpy(buf, "Sort: next pass", sizeof(buf));
+                snprintf(buf, sizeof(buf), "Computing passes %d/%d", done, wanted);
             }
-        } else {
-            strlcpy(buf, "", sizeof(buf));
         }
         lv_label_set_text(sat_list_info_label, buf);
     }
@@ -411,7 +424,11 @@ static void satRefreshListTable() {
         selNorad = satCatalog.sats[satDisplayIdx[sat_list_selected_row]].norad;
     }
 
-    buildSatDisplayList(sat_search_filter, sat_sort_by_pass ? sat_np_aos : NULL);
+    const time_t* sortKeys = (sat_list_variant == SAT_LIST_ALL) ? NULL : sat_np_aos;
+    SatIncludeFn include = NULL;
+    if (sat_list_variant == SAT_LIST_MY) include = satIncludeFavorite;
+    else if (sat_list_variant == SAT_LIST_POPULAR) include = satIncludePopular;
+    buildSatDisplayList(sat_search_filter, sortKeys, include);
     satUpdateListHeaderLabels();
 
     if (selNorad != 0) {
@@ -427,9 +444,15 @@ static void satRefreshListTable() {
     if (sat_list_empty_label && lv_obj_is_valid(sat_list_empty_label)) {
         if (empty) lv_obj_clear_flag(sat_list_empty_label, LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(sat_list_empty_label, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(sat_list_empty_label,
-            satCatalog.valid ? "No satellites match the filter"
-                             : "No TLE data on device.\nPress R to download from Celestrak.");
+        const char* emptyMsg;
+        if (!satCatalog.valid) {
+            emptyMsg = "No TLE data on device.\nUse Update TLEs in the Satellites menu.";
+        } else if (sat_list_variant == SAT_LIST_MY && sat_search_filter[0] == '\0') {
+            emptyMsg = "No favorites yet.\nAdd them with F from any other list.";
+        } else {
+            emptyMsg = "No satellites match the search";
+        }
+        lv_label_set_text(sat_list_empty_label, emptyMsg);
     }
 
     if (empty) {
@@ -447,7 +470,7 @@ static void satRefreshListTable() {
         lv_table_set_cell_value(sat_list_table, i, 0, fav ? "*" : "");
         lv_table_set_cell_value(sat_list_table, i, 1, e.name);
         char next[24] = "";
-        if (fav || sat_sort_by_pass || sat_np_aos[satDisplayIdx[i]] != 0) {
+        if (sat_list_variant != SAT_LIST_ALL || sat_np_aos[satDisplayIdx[i]] != 0) {
             satFmtNextPassCell(satDisplayIdx[i], next, sizeof(next));
         }
         lv_table_set_cell_value(sat_list_table, i, 2, next);
@@ -463,94 +486,13 @@ static void satRefreshListTable() {
 static void sat_list_key_handler(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
     uint32_t key = lv_event_get_key(e);
+    bool searchable = (sat_list_variant == SAT_LIST_ALL || sat_list_variant == SAT_LIST_BYPASS);
 
-    // --- Search entry mode: printable keys build the filter ---
-    if (sat_search_entry) {
-        if (key == LV_KEY_ESC) {
-            sat_search_entry = false;
-            sat_search_filter[0] = '\0';
-            satRefreshListTable();
-            lv_event_stop_processing(e);
-            return;
-        }
-        if (key == LV_KEY_ENTER) {
-            sat_search_entry = false;
-            satUpdateListHeaderLabels();
-            lv_event_stop_processing(e);
-            return;
-        }
-        if (key == LV_KEY_BACKSPACE) {
-            int len = strlen(sat_search_filter);
-            if (len > 0) sat_search_filter[len - 1] = '\0';
-            satRefreshListTable();
-            lv_event_stop_processing(e);
-            return;
-        }
-        if (key >= 32 && key < 127) {
-            int len = strlen(sat_search_filter);
-            if (len < (int)sizeof(sat_search_filter) - 1) {
-                sat_search_filter[len] = (char)toupper((int)key);
-                sat_search_filter[len + 1] = '\0';
-                sat_list_selected_row = 0;
-                satRefreshListTable();
-            }
-            lv_event_stop_processing(e);
-            return;
-        }
-        // fall through for arrows so navigation still works while searching
-    }
-
-    if (key == 'S' || key == 's') {
-        sat_search_entry = true;
-        satUpdateListHeaderLabels();
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    if (key == 'R' || key == 'r') {
-        if (satRunTLEUpdate()) {
-            sat_list_selected_row = 0;
-            satEnsureNextPassWorker();
-            satRefreshListTable();
-        }
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    if (key == 'C' || key == 'c') {
-        onLVGLMenuSelect(MODE_SAT_SETTINGS);
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    if (key == 'P' || key == 'p') {
-        sat_sort_by_pass = !sat_sort_by_pass;
-        beep(800, 60);
-        satRefreshListTable();
-        satScrollTableToRow(sat_list_table, sat_list_selected_row, satDisplayCount);
-        satEnsureNextPassWorker();  // sort mode widens the compute sweep to all sats
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    if (key == 'T' || key == 't') {
-        double lat, lon;
-        if (!gridToLatLon(satEffectiveGrid(), &lat, &lon) || !ntpSynced) {
-            lv_indev_t* indev = getLVGLKeypad();
-            if (indev) lv_indev_wait_release(indev);
-            playAlertChirp();
-            createAlertDialog("Not Ready",
-                "Sky Window needs a grid square\n(Setup, press C) and a synced\nclock (WiFi) to compute passes.");
-        } else {
-            if (sat_list_np_timer) { lv_timer_del(sat_list_np_timer); sat_list_np_timer = NULL; }
-            sat_np_current = -1;
-            onLVGLMenuSelect(MODE_SAT_WINDOW);
-        }
-        lv_event_stop_processing(e);
-        return;
-    }
-
-    if (key == 'F' || key == 'f') {
+    // Favorite toggle: F on the curated lists (they don't type), RIGHT on the
+    // searchable lists (letters there go to the search filter).
+    bool favKey = searchable ? (key == LV_KEY_RIGHT)
+                             : (key == 'F' || key == 'f');
+    if (favKey) {
         if (satDisplayCount > 0 && sat_list_selected_row < satDisplayCount) {
             toggleSatFavorite(satCatalog.sats[satDisplayIdx[sat_list_selected_row]].norad);
             beep(800, 60);
@@ -559,6 +501,31 @@ static void sat_list_key_handler(lv_event_t* e) {
         }
         lv_event_stop_processing(e);
         return;
+    }
+
+    // Type-to-search on the full-catalog lists: letters/digits filter live
+    if (searchable) {
+        if (key == LV_KEY_BACKSPACE) {
+            int len = strlen(sat_search_filter);
+            if (len > 0) {
+                sat_search_filter[len - 1] = '\0';
+                satRefreshListTable();
+            }
+            lv_event_stop_processing(e);
+            return;
+        }
+        if (key >= 32 && key < 127 && key != LV_KEY_ENTER) {
+            int len = strlen(sat_search_filter);
+            if (len < (int)sizeof(sat_search_filter) - 1) {
+                sat_search_filter[len] = (char)toupper((int)key);
+                sat_search_filter[len + 1] = '\0';
+                sat_list_selected_row = 0;
+                satRefreshListTable();
+                satScrollTableToRow(sat_list_table, 0, satDisplayCount);
+            }
+            lv_event_stop_processing(e);
+            return;
+        }
     }
 
     if (key == LV_KEY_UP || key == LV_KEY_PREV) {
@@ -588,7 +555,7 @@ static void sat_list_key_handler(lv_event_t* e) {
                 if (indev) lv_indev_wait_release(indev);
                 playAlertChirp();
                 createAlertDialog("Grid Square Needed",
-                    "Set your Maidenhead grid in\nSetup (press C) so passes can\nbe computed for your location.");
+                    "Set your Maidenhead grid in\nSatellites > Settings so passes\ncan be computed for your location.");
             } else if (!ntpSynced) {
                 lv_indev_t* indev = getLVGLKeypad();
                 if (indev) lv_indev_wait_release(indev);
@@ -601,6 +568,9 @@ static void sat_list_key_handler(lv_event_t* e) {
                 // stop the background next-pass worker before handing over.
                 if (sat_list_np_timer) { lv_timer_del(sat_list_np_timer); sat_list_np_timer = NULL; }
                 sat_np_current = -1;
+                // ESC from the passes screen returns to this list variant
+                static const int variantModes[4] = { MODE_SAT_LIST, MODE_SAT_MY, MODE_SAT_POPULAR, MODE_SAT_BYPASS };
+                satPassesReturnMode = variantModes[sat_list_variant];
                 onLVGLMenuSelect(MODE_SAT_PASSES);
             }
         }
@@ -609,18 +579,24 @@ static void sat_list_key_handler(lv_event_t* e) {
     }
 
     if (key == LV_KEY_ESC) {
-        onLVGLBackNavigation();
+        if (sat_search_filter[0] != '\0') {
+            // First ESC clears an active search, second one leaves the screen
+            sat_search_filter[0] = '\0';
+            satRefreshListTable();
+        } else {
+            onLVGLBackNavigation();
+        }
         lv_event_stop_processing(e);
         return;
     }
 
-    // Swallow stray printable keys outside search mode so they don't reach LVGL defaults
+    // Swallow stray printable keys so they don't reach LVGL defaults
     if (key >= 32 && key < 127) {
         lv_event_stop_processing(e);
     }
 }
 
-lv_obj_t* createSatListScreen() {
+static lv_obj_t* createSatListScreenVariant(SatListVariant variant) {
     clearNavigationGroup();
     lv_obj_t* screen = createScreen();
     applyScreenStyle(screen);
@@ -632,7 +608,12 @@ lv_obj_t* createSatListScreen() {
         satLoadTLEsFromSD();
     }
 
-    sat_search_entry = false;
+    // Entering a different list than last time starts clean
+    if (variant != sat_list_variant) {
+        sat_search_filter[0] = '\0';
+        sat_list_selected_row = 0;
+    }
+    sat_list_variant = variant;
 
     // Header
     lv_obj_t* header = lv_obj_create(screen);
@@ -717,13 +698,39 @@ lv_obj_t* createSatListScreen() {
     lv_obj_align(sat_list_empty_label, LV_ALIGN_CENTER, 0, 10);
     lv_obj_add_flag(sat_list_empty_label, LV_OBJ_FLAG_HIDDEN);
 
-    satCreateFooter(screen, "ENTER Passes  S Search  P Sort  T Window  F Fav  R TLEs  C Setup");
+    static const char* variantFooters[4] = {
+        "Type to Search   ENTER Passes   RIGHT Fav   ESC Back",   // ALL
+        "ENTER Passes   F Remove Favorite   ESC Back",            // MY
+        "ENTER Passes   F Favorite   ESC Back",                   // POPULAR
+        "Type to Search   ENTER Passes   RIGHT Fav   ESC Back",   // BYPASS
+    };
+    satCreateFooter(screen, variantFooters[variant]);
 
     satRefreshListTable();
 
-    // Kick off background next-pass computation for favorites
+    // Kick off background next-pass computation
     satEnsureNextPassWorker();
     return screen;
+}
+
+// ============================================
+// Satellites Hub Menu
+// ============================================
+
+static const LVMenuItem satMenuItems[] = {
+    MENU_ITEM_LV(LV_SYMBOL_HOME, "My Sats", MODE_SAT_MY),
+    MENU_ITEM_FA(FA_EXTRA_SATELLITE_DISH, "Popular Birds", MODE_SAT_POPULAR),
+    MENU_ITEM_LV(LV_SYMBOL_BELL, "Next 60 Minutes", MODE_SAT_WINDOW_NOW),
+    MENU_ITEM_LV(LV_SYMBOL_EDIT, "Plan Date & Time", MODE_SAT_WINDOW),
+    MENU_ITEM_LV(LV_SYMBOL_LIST, "All Satellites", MODE_SAT_LIST),
+    MENU_ITEM_LV(LV_SYMBOL_LOOP, "By Next Pass", MODE_SAT_BYPASS),
+    MENU_ITEM_LV(LV_SYMBOL_DOWNLOAD, "Update TLEs", MODE_SAT_TLE_UPDATE),
+    MENU_ITEM_LV(LV_SYMBOL_SETTINGS, "Settings", MODE_SAT_SETTINGS),
+};
+#define SAT_MENU_COUNT 8
+
+lv_obj_t* createSatMenuScreen() {
+    return createMenuScreen("SATELLITES", satMenuItems, SAT_MENU_COUNT);
 }
 
 // ============================================
@@ -1439,6 +1446,8 @@ static void sat_win_table_key_handler(lv_event_t* e) {
             satSelectedPassValid = true;
             if (sat_win_timer) { lv_timer_del(sat_win_timer); sat_win_timer = NULL; }
             sat_win_inflight = false;
+            // Detail -> ESC -> that bird's passes -> ESC -> back to this window
+            satPassesReturnMode = sat_win_focus_table ? MODE_SAT_WINDOW_NOW : MODE_SAT_WINDOW;
             onLVGLMenuSelect(MODE_SAT_PASS_DETAIL);
         }
         lv_event_stop_processing(e);
@@ -1446,16 +1455,15 @@ static void sat_win_table_key_handler(lv_event_t* e) {
     }
 }
 
-lv_obj_t* createSatWindowScreen() {
+static lv_obj_t* createSatWindowScreenVariant(bool focusTable) {
     clearNavigationGroup();
     lv_obj_t* screen = createScreen();
     applyScreenStyle(screen);
 
-    if (sat_win_start < time(nullptr)) {
-        sat_win_start = satWinRoundUp(time(nullptr));
-    }
+    sat_win_focus_table = focusTable;
+    sat_win_start = satWinRoundUp(time(nullptr));
 
-    satCreateHeader(screen, "SKY WINDOW");
+    satCreateHeader(screen, focusTable ? "NEXT 60 MINUTES" : "SKY WINDOW");
 
     // Date + time chips side by side
     struct { const char* caption; lv_obj_t** value; } chips[2] = {
@@ -1548,7 +1556,24 @@ lv_obj_t* createSatWindowScreen() {
 
     satWinUpdateChipLabels();
     satWinRestartScan();
-    if (!sat_win_timer) sat_win_timer = lv_timer_create(sat_win_timer_cb, 60, NULL);
+
+    // Only scan when predictions are actually possible
+    double lat, lon;
+    if (!gridToLatLon(satEffectiveGrid(), &lat, &lon) || !ntpSynced || !satCatalog.valid) {
+        if (sat_win_status_label) {
+            lv_label_set_text(sat_win_status_label,
+                !satCatalog.valid ? "No TLE data - use Update TLEs in the Satellites menu"
+                                  : "Set your grid square in Settings and sync the clock first");
+            lv_obj_set_style_text_color(sat_win_status_label, LV_COLOR_ERROR, 0);
+        }
+        sat_win_scan = satCatalog.count;  // nothing to do
+    } else if (!sat_win_timer) {
+        sat_win_timer = lv_timer_create(sat_win_timer_cb, 60, NULL);
+    }
+
+    if (focusTable && sat_win_table) {
+        lv_group_focus_obj(sat_win_table);
+    }
     return screen;
 }
 
@@ -1732,12 +1757,17 @@ lv_obj_t* createSatSettingsScreen() {
 
 lv_obj_t* createSatelliteScreenForMode(int mode) {
     switch (mode) {
-        case MODE_SAT_LIST:        return createSatListScreen();
+        case MODE_SAT_MENU:        return createSatMenuScreen();
+        case MODE_SAT_LIST:        return createSatListScreenVariant(SAT_LIST_ALL);
+        case MODE_SAT_MY:          return createSatListScreenVariant(SAT_LIST_MY);
+        case MODE_SAT_POPULAR:     return createSatListScreenVariant(SAT_LIST_POPULAR);
+        case MODE_SAT_BYPASS:      return createSatListScreenVariant(SAT_LIST_BYPASS);
         case MODE_SAT_PASSES:      return createSatPassesScreen();
         case MODE_SAT_PASS_DETAIL: return createSatPassDetailScreen();
         case MODE_SAT_LIVE:        return createSatLiveScreen();
         case MODE_SAT_SETTINGS:    return createSatSettingsScreen();
-        case MODE_SAT_WINDOW:      return createSatWindowScreen();
+        case MODE_SAT_WINDOW:      return createSatWindowScreenVariant(false);
+        case MODE_SAT_WINDOW_NOW:  return createSatWindowScreenVariant(true);
         default:                   return NULL;
     }
 }

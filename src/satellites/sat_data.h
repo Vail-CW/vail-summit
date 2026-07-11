@@ -384,15 +384,20 @@ static uint32_t satNextPassSortKey(int idx, const time_t* nextPassAos) {
     return 0xFFFFFFFFu;
 }
 
-// Rebuild satDisplayIdx from the catalog + name filter.
+// Optional membership predicate for buildSatDisplayList (e.g. favorites only,
+// curated set only). NULL = include everything.
+typedef bool (*SatIncludeFn)(uint32_t norad);
+
+// Rebuild satDisplayIdx from the catalog + name filter + optional set filter.
 // nextPassAos == NULL: favorites pinned first, each section name-sorted.
 // nextPassAos != NULL: whole list ordered by next pass time (see key above).
-void buildSatDisplayList(const char* filter, const time_t* nextPassAos) {
+void buildSatDisplayList(const char* filter, const time_t* nextPassAos, SatIncludeFn include) {
     satDisplayCount = 0;
     if (!satCatalog.valid) return;
 
     if (nextPassAos) {
         for (int i = 0; i < satCatalog.count; i++) {
+            if (include && !include(satCatalog.sats[i].norad)) continue;
             if (!satNameMatches(satCatalog.sats[i].name, filter)) continue;
             uint32_t key = satNextPassSortKey(i, nextPassAos);
             int pos = satDisplayCount;
