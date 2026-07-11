@@ -159,6 +159,10 @@ static void satStyleTable(lv_obj_t* table) {
 // Returns true on success.
 static bool satRunTLEUpdate() {
     if (WiFi.status() != WL_CONNECTED) {
+        // May be invoked from a held ENTER (settings row) - discard the press
+        // so its release cannot instantly dismiss the alert.
+        lv_indev_t* indev = getLVGLKeypad();
+        if (indev) lv_indev_wait_release(indev);
         playAlertChirp();
         createAlertDialog("WiFi Required", "Connect to WiFi first to\ndownload satellite TLEs.");
         return false;
@@ -355,10 +359,16 @@ static void sat_list_key_handler(lv_event_t* e) {
         if (satDisplayCount > 0 && sat_list_selected_row < satDisplayCount) {
             double lat, lon;
             if (!gridToLatLon(satEffectiveGrid(), &lat, &lon)) {
+                // Discard the in-flight ENTER press: its release would land on
+                // the alert's OK button and dismiss the dialog instantly.
+                lv_indev_t* indev = getLVGLKeypad();
+                if (indev) lv_indev_wait_release(indev);
                 playAlertChirp();
                 createAlertDialog("Grid Square Needed",
                     "Set your Maidenhead grid in\nSetup (press S) so passes can\nbe computed for your location.");
             } else if (!ntpSynced) {
+                lv_indev_t* indev = getLVGLKeypad();
+                if (indev) lv_indev_wait_release(indev);
                 playAlertChirp();
                 createAlertDialog("Clock Not Set",
                     "Time is not synced yet.\nConnect to WiFi so NTP can\nset the clock, then retry.");
