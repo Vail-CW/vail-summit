@@ -25,6 +25,7 @@
 #include "lv_band_conditions.h"
 #include "lv_band_plans.h"
 #include "lv_pota_screens.h"
+#include "lv_satellite_screens.h"
 #include "lv_story_time_screens.h"
 #include "lv_web_download_screen.h"
 #include "lv_mailbox_screens.h"
@@ -256,6 +257,10 @@ lv_obj_t* createScreenForModeInt(int mode) {
     // POTA screens
     lv_obj_t* potaScreen = createPOTAScreenForMode(mode);
     if (potaScreen != NULL) return potaScreen;
+
+    // Satellite tracker screens
+    lv_obj_t* satScreen = createSatelliteScreenForMode(mode);
+    if (satScreen != NULL) return satScreen;
 
     // Story Time screens
     lv_obj_t* storyTimeScreen = createStoryTimeScreenForMode(mode);
@@ -868,6 +873,13 @@ static const ModeCallbackEntry cleanupTable[] = {
     { MODE_POTA_ACTIVE_SPOTS,            cleanupPOTAScreen },
     { MODE_POTA_SPOT_DETAIL,             cleanupPOTAScreen },
     { MODE_POTA_FILTERS,                 cleanupPOTAScreen },
+    // Satellite tracker: every screen may own an LVGL timer (pass search,
+    // countdown, live tracking) - one cleanup deletes whatever exists.
+    { MODE_SAT_LIST,                     cleanupSatelliteScreens },
+    { MODE_SAT_PASSES,                   cleanupSatelliteScreens },
+    { MODE_SAT_PASS_DETAIL,              cleanupSatelliteScreens },
+    { MODE_SAT_LIVE,                     cleanupSatelliteScreens },
+    { MODE_SAT_SETTINGS,                 cleanupSatelliteScreens },
     { MODE_VAIL_REPEATER,                cleanupVailRepeaterMode },
     // CWA cleanup functions delete timers/widgets and call the core state
     // resets (resetCWA*PracticeState) internally.
