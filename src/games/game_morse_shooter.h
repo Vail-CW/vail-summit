@@ -18,12 +18,13 @@
 // Game Constants
 // ============================================
 
-#define MAX_FALLING_LETTERS 5
-#define GAME_UPDATE_INTERVAL 1000  // ms between game updates (1 second)
+#define MAX_FALLING_LETTERS 8      // Object pool size (matches LVGL label pool)
+#define GAME_TICK_MS 50            // Physics tick interval - smooth 20fps motion
 // Game ground level for LVGL layout (canvas is 240px tall, starts at y=40)
 // Letters hit ground when y >= 200 in game coords (y=240 on screen, above bottom HUD)
 #define GAME_GROUND_Y 200
-#define MAX_LIVES 3               // Lives (letters that can hit ground)
+#define MAX_LIVES 3               // Default lives (letters that can hit ground)
+#define WORD_CHAR_PX 20           // Approx glyph width of font_large, for word layout
 
 // ============================================
 // Game Modes
@@ -39,16 +40,10 @@ enum ShooterGameMode {
 static const char* GAME_MODE_NAMES[] = {"Classic", "Progressive", "Word", "Callsign"};
 
 // ============================================
-// Difficulty System (Expanded)
+// Difficulty System
 // ============================================
 
-enum ShooterDifficulty {
-    SHOOTER_EASY = 0,
-    SHOOTER_MEDIUM = 1,
-    SHOOTER_HARD = 2
-};
-
-// Preset difficulty levels (expanded)
+// Preset difficulty levels
 enum ShooterPreset {
     PRESET_CUSTOM = 0,
     PRESET_BEGINNER = 1,
@@ -65,19 +60,12 @@ static const char* PRESET_NAMES[] = {"Custom", "Beginner", "Easy", "Medium", "Ha
 #define CHARSET_FLAG_LETTERS     0x01
 #define CHARSET_FLAG_NUMBERS     0x02
 #define CHARSET_FLAG_PUNCTUATION 0x04
-#define CHARSET_FLAG_PROSIGNS    0x08
 
 // Character sets
 static const char CHARSET_BEGINNER[] = "ETIANMS";
-static const char CHARSET_LETTERS[] = "ETIANMSURWDKGOHVFLPJBXCYZQ";
-static const char CHARSET_NUMBERS[] = "0123456789";
-static const char CHARSET_PUNCTUATION[] = ".,?/=-";
-static const char CHARSET_PROSIGNS[] = "";  // Prosigns handled specially
-
-// Legacy charsets for compatibility
-static const char CHARSET_EASY[] = "ETIANMS";
-static const char CHARSET_MEDIUM[] = "ETIANMSURWDKGOHVFLPJBXCYZQ";
-static const char CHARSET_HARD[] = "ETIANMSURWDKGOHVFLPJBXCYZQ0123456789";
+static const char CHARSET_LETTERS_ALL[] = "ETIANMSURWDKGOHVFLPJBXCYZQ";
+static const char CHARSET_LETTERS_NUMBERS[] = "ETIANMSURWDKGOHVFLPJBXCYZQ0123456789";
+static const char CHARSET_FULL[] = "ETIANMSURWDKGOHVFLPJBXCYZQ0123456789.,?/";
 
 // Full settings structure for granular control
 struct ShooterSettings {
@@ -113,53 +101,32 @@ struct PresetConfig {
 };
 
 static const PresetConfig PRESET_CONFIGS[] = {
-    {5, 5, 3, 5, CHARSET_FLAG_LETTERS, CHARSET_MEDIUM, 26},                              // Custom (defaults)
-    {1, 1, 5, 3, CHARSET_FLAG_LETTERS, CHARSET_BEGINNER, 7},                             // Beginner
-    {3, 3, 3, 4, CHARSET_FLAG_LETTERS, CHARSET_BEGINNER, 7},                             // Easy
-    {5, 5, 3, 5, CHARSET_FLAG_LETTERS, CHARSET_MEDIUM, 26},                              // Medium
-    {7, 7, 3, 5, CHARSET_FLAG_LETTERS | CHARSET_FLAG_NUMBERS, CHARSET_HARD, 36},         // Hard
-    {8, 8, 2, 6, CHARSET_FLAG_LETTERS | CHARSET_FLAG_NUMBERS | CHARSET_FLAG_PUNCTUATION, CHARSET_HARD, 36}, // Expert
-    {10, 10, 1, 8, CHARSET_FLAG_LETTERS | CHARSET_FLAG_NUMBERS | CHARSET_FLAG_PUNCTUATION, CHARSET_HARD, 36} // Insane
-};
-
-// Legacy DifficultyParams for backward compatibility
-struct DifficultyParams {
-    int spawnInterval;      // ms between spawns
-    float fallSpeed;        // pixels per update
-    const char* charset;    // available characters
-    int charsetSize;
-    int startLives;
-    int scoreMultiplier;
-    const char* name;       // display name
-};
-
-// Difficulty parameters table (legacy - still used for now)
-static const DifficultyParams DIFF_PARAMS[] = {
-    { 4000, 0.5f, CHARSET_EASY,   7,  3, 1, "Easy" },
-    { 3000, 1.0f, CHARSET_MEDIUM, 26, 3, 2, "Medium" },
-    { 2000, 1.5f, CHARSET_HARD,   36, 3, 3, "Hard" }
+    {5, 5, 3, 5, CHARSET_FLAG_LETTERS, CHARSET_LETTERS_ALL, 26},                          // Custom (defaults)
+    {1, 1, 5, 3, CHARSET_FLAG_LETTERS, CHARSET_BEGINNER, 7},                              // Beginner
+    {3, 3, 3, 4, CHARSET_FLAG_LETTERS, CHARSET_BEGINNER, 7},                              // Easy
+    {5, 5, 3, 5, CHARSET_FLAG_LETTERS, CHARSET_LETTERS_ALL, 26},                          // Medium
+    {7, 7, 3, 5, CHARSET_FLAG_LETTERS | CHARSET_FLAG_NUMBERS, CHARSET_LETTERS_NUMBERS, 36}, // Hard
+    {8, 8, 2, 6, CHARSET_FLAG_LETTERS | CHARSET_FLAG_NUMBERS | CHARSET_FLAG_PUNCTUATION, CHARSET_FULL, 40}, // Expert
+    {10, 10, 1, 8, CHARSET_FLAG_LETTERS | CHARSET_FLAG_NUMBERS | CHARSET_FLAG_PUNCTUATION, CHARSET_FULL, 40} // Insane
 };
 
 // Mapping functions: convert 1-10 scale to actual values
 inline float speedToPixels(uint8_t level) {
-    // 1 → 0.3, 10 → 2.5 (linear interpolation)
-    return 0.3f + (level - 1) * 0.244f;
+    // Pixels per SECOND. 1 -> 6 px/s (~32s to cross), 10 -> 50 px/s (~4s to cross)
+    return 6.0f + (level - 1) * 4.9f;
 }
 
 inline uint32_t spawnToInterval(uint8_t level) {
-    // 1 → 5000ms, 10 → 1000ms
+    // 1 -> 5000ms, 10 -> ~1000ms
     return 5000 - (level - 1) * 444;
 }
-
-// Current difficulty setting (legacy)
-static ShooterDifficulty shooterDifficulty = SHOOTER_MEDIUM;
-static int shooterHighScores[3] = {0, 0, 0};  // Per difficulty (legacy)
 
 // Per-mode high scores
 static int shooterHighScoreClassic = 0;
 static int shooterHighScoreProgressive = 0;
 static int shooterHighScoreWord = 0;
 static int shooterHighScoreCallsign = 0;
+static bool shooterHighScoreDirty = false;  // Deferred NVS persist (flash writes crunch audio)
 
 // ============================================
 // Combo Scoring System
@@ -181,15 +148,14 @@ inline int getComboMultiplier() {
 // Get speed bonus for quick hits (call immediately after hit)
 inline int getSpeedBonus(float letterY) {
     int bonus = 0;
-    unsigned long now = millis();
 
-    // Quick hit bonus (hit within 1 second of spawn)
-    if (letterY < 50) {  // Still near top of screen
+    // Quick hit bonus (still near top of screen)
+    if (letterY < 50) {
         bonus += 5;
     }
 
     // Top-third bonus
-    if (letterY < 70) {  // Upper portion of play area
+    if (letterY < 70) {
         bonus += 3;
     }
 
@@ -199,7 +165,6 @@ inline int getSpeedBonus(float letterY) {
 // Reset combo on miss
 inline void resetCombo() {
     if (comboCount >= 3) {
-        // Show "STREAK LOST" feedback (handled by UI)
         Serial.printf("[Shooter] Combo lost! Was at %d\n", comboCount);
     }
     comboCount = 0;
@@ -209,7 +174,7 @@ inline void resetCombo() {
 inline int recordHit(float letterY) {
     comboCount++;
     lastHitTime = millis();
-    comboDisplayUntil = lastHitTime + 1500;  // Show combo for 1.5 seconds
+    comboDisplayUntil = lastHitTime + 2000;  // Show combo for 2 seconds
 
     int multiplier = getComboMultiplier();
     int basePoints = 10;
@@ -247,14 +212,17 @@ static const int PROGRESSIVE_CHARSET_SIZES[] = {2, 6, 14, 26, 36, 40};
 // ============================================
 
 // Word lists by difficulty
-static const char* WORDS_EASY[] = {"CQ", "DE", "HI", "OK", "IT", "IS", "TO", "OF", "73", "88"};
-static const int WORDS_EASY_COUNT = 10;
+static const char* WORDS_EASY[] = {"CQ", "DE", "HI", "OK", "IT", "IS", "TO", "OF", "73", "88",
+                                   "GM", "GN", "TU", "UR", "ES", "HW", "RIG", "ANT"};
+static const int WORDS_EASY_COUNT = 18;
 
-static const char* WORDS_MEDIUM[] = {"CALL", "COPY", "NAME", "QTH", "RST", "BAND", "FREQ", "WIRE", "TEST", "GOOD"};
-static const int WORDS_MEDIUM_COUNT = 10;
+static const char* WORDS_MEDIUM[] = {"CALL", "COPY", "NAME", "QTH", "RST", "BAND", "FREQ", "WIRE",
+                                     "TEST", "GOOD", "RADIO", "MORSE", "POWER", "WATTS"};
+static const int WORDS_MEDIUM_COUNT = 14;
 
-static const char* WORDS_HARD[] = {"ANTENNA", "WEATHER", "STATION", "AMATEUR", "CONTEST", "REPEATER", "SIGNAL"};
-static const int WORDS_HARD_COUNT = 7;
+static const char* WORDS_HARD[] = {"ANTENNA", "WEATHER", "STATION", "AMATEUR", "CONTEST",
+                                   "REPEATER", "SIGNAL", "OPERATOR", "FREQUENCY"};
+static const int WORDS_HARD_COUNT = 9;
 
 // Structure for falling words
 struct FallingWord {
@@ -281,7 +249,7 @@ static const char* INTL_PREFIXES[] = {"VE", "G", "DL", "F", "I", "JA", "VK", "ZL
 static const int INTL_PREFIX_COUNT = 12;
 
 // Generate a random callsign
-inline void generateCallsign(char* buffer, bool includeInternational = false) {
+inline void generateCallsign(char* buffer, size_t bufSize, bool includeInternational = false) {
     const char** prefixes;
     int prefixCount;
 
@@ -303,7 +271,7 @@ inline void generateCallsign(char* buffer, bool includeInternational = false) {
         suffix[i] = 'A' + random(26);
     }
 
-    sprintf(buffer, "%s%d%s", prefix, digit, suffix);
+    snprintf(buffer, bufSize, "%s%d%s", prefix, digit, suffix);
 }
 
 // ============================================
@@ -330,16 +298,16 @@ FallingLetter fallingLetters[MAX_FALLING_LETTERS];
 MorseInputBuffer morseInput;
 int gameScore = 0;
 int gameLives = MAX_LIVES;
+int gameMaxLives = MAX_LIVES;
 unsigned long lastSpawnTime = 0;
 unsigned long lastGameUpdate = 0;
 unsigned long gameStartTime = 0;
 bool gameOver = false;
 bool gamePaused = false;
-// Note: highScore moved to shooterHighScores[] array per difficulty
 
 // Decoder state
 MorseDecoder* shooterDecoder = nullptr;
-String shooterDecodedText = "";
+static char shooterDecodedText[13] = "";  // Rolling display of recently decoded chars
 unsigned long shooterLastStateChangeTime = 0;
 bool shooterLastToneState = false;
 unsigned long shooterLastElementTime = 0;  // Track last element for timeout flush
@@ -348,17 +316,6 @@ unsigned long shooterLastElementTime = 0;  // Track last element for timeout flu
 static StraightKeyer* shooterKeyer = nullptr;
 static bool shooterDitPressed = false;
 static bool shooterDahPressed = false;
-
-// Settings mode state (legacy - will be removed)
-bool inShooterSettings = false;
-int shooterSettingsSelection = 0;  // 0=Speed, 1=Tone, 2=Key Type, 3=Save & Return
-
-// LVGL mode flag - when true, skip legacy draw functions (LVGL handles display)
-bool shooterUseLVGL = true;  // Default to LVGL mode
-
-// Forward declarations for settings
-void drawShooterSettings(LGFX& tft);
-int handleShooterSettingsInput(char key, LGFX& tft);
 
 // Keyer callback - called when tone state changes
 void shooterKeyerCallback(bool txOn, int element) {
@@ -401,15 +358,6 @@ void loadShooterPrefs() {
     Preferences prefs;
     prefs.begin("shooter", true);  // read-only
 
-    // Load legacy difficulty
-    shooterDifficulty = (ShooterDifficulty)prefs.getInt("difficulty", SHOOTER_MEDIUM);
-    if (shooterDifficulty > SHOOTER_HARD) shooterDifficulty = SHOOTER_MEDIUM;
-
-    // Load legacy high scores
-    shooterHighScores[0] = prefs.getInt("hs_easy", 0);
-    shooterHighScores[1] = prefs.getInt("hs_medium", 0);
-    shooterHighScores[2] = prefs.getInt("hs_hard", 0);
-
     // Load expanded settings
     shooterSettings.gameMode = prefs.getUChar("mode", SHOOTER_MODE_CLASSIC);
     shooterSettings.preset = prefs.getUChar("preset", PRESET_MEDIUM);
@@ -426,6 +374,7 @@ void loadShooterPrefs() {
     if (shooterSettings.spawnRate < 1 || shooterSettings.spawnRate > 10) shooterSettings.spawnRate = 5;
     if (shooterSettings.maxLetters < 3 || shooterSettings.maxLetters > 8) shooterSettings.maxLetters = 5;
     if (shooterSettings.startLives < 1 || shooterSettings.startLives > 5) shooterSettings.startLives = 3;
+    shooterSettings.charsetFlags |= CHARSET_FLAG_LETTERS;  // Letters always included
 
     // Load per-mode high scores
     shooterHighScoreClassic = prefs.getInt("hs_classic", 0);
@@ -438,19 +387,12 @@ void loadShooterPrefs() {
     Serial.printf("[Shooter] Loaded prefs: mode=%d, preset=%d, speed=%d, spawn=%d, lives=%d\n",
                   shooterSettings.gameMode, shooterSettings.preset,
                   shooterSettings.fallSpeed, shooterSettings.spawnRate, shooterSettings.startLives);
-    Serial.printf("[Shooter] High scores: classic=%d, prog=%d, word=%d, call=%d\n",
-                  shooterHighScoreClassic, shooterHighScoreProgressive,
-                  shooterHighScoreWord, shooterHighScoreCallsign);
 }
 
 void saveShooterPrefs() {
     Preferences prefs;
     prefs.begin("shooter", false);  // read-write
 
-    // Save legacy difficulty
-    prefs.putInt("difficulty", (int)shooterDifficulty);
-
-    // Save expanded settings
     prefs.putUChar("mode", shooterSettings.gameMode);
     prefs.putUChar("preset", shooterSettings.preset);
     prefs.putUChar("speed", shooterSettings.fallSpeed);
@@ -468,11 +410,6 @@ void saveShooterHighScore() {
     Preferences prefs;
     prefs.begin("shooter", false);  // read-write
 
-    // Save legacy high scores
-    const char* keys[] = {"hs_easy", "hs_medium", "hs_hard"};
-    prefs.putInt(keys[shooterDifficulty], shooterHighScores[shooterDifficulty]);
-
-    // Save per-mode high scores
     prefs.putInt("hs_classic", shooterHighScoreClassic);
     prefs.putInt("hs_prog", shooterHighScoreProgressive);
     prefs.putInt("hs_word", shooterHighScoreWord);
@@ -480,6 +417,15 @@ void saveShooterHighScore() {
 
     prefs.end();
     Serial.printf("[Shooter] Saved high scores\n");
+}
+
+// Persist high scores only if changed since last save. NVS commits stall the
+// flash cache and crunch active audio, so this must only run at game over /
+// exit - never per hit.
+void persistShooterHighScore() {
+    if (!shooterHighScoreDirty) return;
+    shooterHighScoreDirty = false;
+    saveShooterHighScore();
 }
 
 // Apply preset to settings
@@ -498,31 +444,6 @@ void applyShooterPreset(ShooterPreset preset) {
                   PRESET_NAMES[preset], config.fallSpeed, config.spawnRate, config.startLives);
 }
 
-// Get current effective parameters (from settings or preset)
-void getEffectiveParams(float& fallSpeed, uint32_t& spawnInterval, int& maxLetters, int& lives, const char*& charset, int& charsetSize) {
-    if (shooterSettings.preset != PRESET_CUSTOM) {
-        const PresetConfig& config = PRESET_CONFIGS[shooterSettings.preset];
-        fallSpeed = speedToPixels(config.fallSpeed);
-        spawnInterval = spawnToInterval(config.spawnRate);
-        maxLetters = config.maxLetters;
-        lives = config.startLives;
-        charset = config.charset;
-        charsetSize = config.charsetSize;
-    } else {
-        fallSpeed = speedToPixels(shooterSettings.fallSpeed);
-        spawnInterval = spawnToInterval(shooterSettings.spawnRate);
-        maxLetters = shooterSettings.maxLetters;
-        lives = shooterSettings.startLives;
-        // Build charset from flags
-        charset = CHARSET_MEDIUM;  // Default
-        charsetSize = 26;
-        if (shooterSettings.charsetFlags & CHARSET_FLAG_NUMBERS) {
-            charset = CHARSET_HARD;
-            charsetSize = 36;
-        }
-    }
-}
-
 // Get high score for current mode
 int getCurrentModeHighScore() {
     switch (shooterSettings.gameMode) {
@@ -539,37 +460,33 @@ int getCurrentModeHighScore() {
     }
 }
 
-// Update high score for current mode
+// Update high score for current mode (in-memory only; persisted at game over)
 void updateCurrentModeHighScore(int score) {
-    bool updated = false;
     switch (shooterSettings.gameMode) {
         case SHOOTER_MODE_CLASSIC:
             if (score > shooterHighScoreClassic) {
                 shooterHighScoreClassic = score;
-                updated = true;
+                shooterHighScoreDirty = true;
             }
             break;
         case SHOOTER_MODE_PROGRESSIVE:
             if (score > shooterHighScoreProgressive) {
                 shooterHighScoreProgressive = score;
-                updated = true;
+                shooterHighScoreDirty = true;
             }
             break;
         case SHOOTER_MODE_WORD:
             if (score > shooterHighScoreWord) {
                 shooterHighScoreWord = score;
-                updated = true;
+                shooterHighScoreDirty = true;
             }
             break;
         case SHOOTER_MODE_CALLSIGN:
             if (score > shooterHighScoreCallsign) {
                 shooterHighScoreCallsign = score;
-                updated = true;
+                shooterHighScoreDirty = true;
             }
             break;
-    }
-    if (updated) {
-        saveShooterHighScore();
     }
 }
 
@@ -578,7 +495,7 @@ void updateCurrentModeHighScore(int score) {
 // ============================================
 
 extern void updateShooterScore(int score);
-extern void updateShooterLives(int lives);
+extern void updateShooterLives(int lives, int maxLives);
 extern void updateShooterDecoded(const char* text);
 extern void updateShooterLetter(int index, char letter, int x, int y, bool visible);
 extern void updateShooterWord(int index, const char* word, int lettersTyped, int x, int y, bool visible);
@@ -586,7 +503,16 @@ extern void updateShooterCombo(int combo, int multiplier);
 extern void showShooterHitEffect(int x, int y);
 extern void showShooterGameOver();
 
-// (initFallingLetter removed - spawnFallingLetter handles all spawning)
+// Append a decoded character to the rolling display buffer
+static void shooterAppendDecoded(char c) {
+  size_t len = strlen(shooterDecodedText);
+  if (len >= sizeof(shooterDecodedText) - 1) {
+    memmove(shooterDecodedText, shooterDecodedText + 1, len);  // Drop oldest char
+    len--;
+  }
+  shooterDecodedText[len] = c;
+  shooterDecodedText[len + 1] = '\0';
+}
 
 /*
  * Reset game state
@@ -599,7 +525,6 @@ void resetGame() {
 
   // Clear falling words (for Word/Callsign modes)
   for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
-    fallingWords[i].active = false;
     memset(&fallingWords[i], 0, sizeof(FallingWord));
   }
 
@@ -623,7 +548,7 @@ void resetGame() {
   shooterDecoder->reset();
   shooterDecoder->flush();
   shooterDecoder->setWPM(cwSpeed);
-  shooterDecodedText = "";
+  shooterDecodedText[0] = '\0';
   shooterLastStateChangeTime = 0;
   shooterLastToneState = false;
   shooterLastElementTime = 0;
@@ -652,6 +577,7 @@ void resetGame() {
   // Reset game variables
   gameScore = 0;
   gameLives = startLives;
+  gameMaxLives = startLives;
   lastSpawnTime = millis();
   lastGameUpdate = millis();
   gameStartTime = millis();
@@ -660,7 +586,7 @@ void resetGame() {
 
   // Update LVGL display
   updateShooterScore(0);
-  updateShooterLives(gameLives);
+  updateShooterLives(gameLives, gameMaxLives);
   updateShooterDecoded("");
   updateShooterCombo(0, 1);  // Reset combo display
   for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
@@ -672,172 +598,13 @@ void resetGame() {
                 PRESET_NAMES[shooterSettings.preset], gameLives);
 }
 
-/*
- * Draw old-school ground scenery
- */
-void drawGroundScenery(LGFX& tft) {
-  // Skip legacy drawing when using LVGL
-  if (shooterUseLVGL) return;
-
-  // Ground line
-  tft.drawFastHLine(0, GROUND_Y, SCREEN_WIDTH, ST77XX_GREEN);
-  tft.drawFastHLine(0, GROUND_Y + 1, SCREEN_WIDTH, 0x05E0);
-
-  // Houses (simple rectangles with roofs)
-  // House 1 (left edge)
-  tft.fillRect(5, GROUND_Y - 25, 30, 25, 0x4208);  // Dark gray house
-  tft.fillTriangle(5, GROUND_Y - 25, 35, GROUND_Y - 25, 20, GROUND_Y - 35, ST77XX_RED);  // Red roof
-  tft.fillRect(13, GROUND_Y - 12, 8, 12, 0x0861);  // Dark window
-
-  // House 2
-  tft.fillRect(90, GROUND_Y - 30, 35, 30, 0x52AA);  // Blue-gray house
-  tft.fillTriangle(90, GROUND_Y - 30, 125, GROUND_Y - 30, 107, GROUND_Y - 42, 0xC618);  // Orange roof
-  tft.fillRect(100, GROUND_Y - 15, 10, 15, 0x2104);  // Dark window
-
-  // House 3
-  tft.fillRect(195, GROUND_Y - 28, 32, 28, 0x6B4D);  // Tan house
-  tft.fillTriangle(195, GROUND_Y - 28, 227, GROUND_Y - 28, 211, GROUND_Y - 38, 0x7800);  // Brown roof
-  tft.fillRect(203, GROUND_Y - 14, 8, 14, 0x18C3);  // Door
-
-  // House 4 (right side)
-  tft.fillRect(270, GROUND_Y - 27, 30, 27, 0x39C7);  // Purple-gray house
-  tft.fillTriangle(270, GROUND_Y - 27, 300, GROUND_Y - 27, 285, GROUND_Y - 37, 0xF800);  // Red roof
-  tft.fillRect(278, GROUND_Y - 13, 8, 13, 0x18C3);  // Window
-
-  // Trees (simple triangles)
-  // Tree 1
-  tft.fillRect(55, GROUND_Y - 15, 6, 15, 0x4A00);  // Brown trunk
-  tft.fillTriangle(52, GROUND_Y - 15, 64, GROUND_Y - 15, 58, GROUND_Y - 28, 0x0400);  // Dark green
-  tft.fillTriangle(53, GROUND_Y - 20, 63, GROUND_Y - 20, 58, GROUND_Y - 32, 0x05E0);  // Green
-
-  // Tree 2
-  tft.fillRect(165, GROUND_Y - 18, 6, 18, 0x4A00);  // Brown trunk
-  tft.fillTriangle(162, GROUND_Y - 18, 174, GROUND_Y - 18, 168, GROUND_Y - 32, 0x0400);  // Dark green
-  tft.fillTriangle(163, GROUND_Y - 24, 173, GROUND_Y - 24, 168, GROUND_Y - 36, 0x05E0);  // Green
-
-  // Tree 3 (right side)
-  tft.fillRect(245, GROUND_Y - 16, 6, 16, 0x4A00);  // Brown trunk
-  tft.fillTriangle(242, GROUND_Y - 16, 254, GROUND_Y - 16, 248, GROUND_Y - 30, 0x0400);  // Dark green
-  tft.fillTriangle(243, GROUND_Y - 22, 253, GROUND_Y - 22, 248, GROUND_Y - 34, 0x05E0);  // Green
-
-  // Tree 4 (far right)
-  tft.fillRect(310, GROUND_Y - 14, 5, 14, 0x4A00);  // Brown trunk
-  tft.fillTriangle(308, GROUND_Y - 14, 318, GROUND_Y - 14, 313, GROUND_Y - 26, 0x0400);  // Dark green
-  tft.fillTriangle(309, GROUND_Y - 19, 317, GROUND_Y - 19, 313, GROUND_Y - 30, 0x05E0);  // Green
-
-  // Turret at bottom center (simple tank-like shape)
-  tft.fillRect(150, GROUND_Y - 20, 20, 12, 0x7BEF);  // Gray base
-  tft.fillRect(157, GROUND_Y - 26, 6, 10, 0x4208);   // Dark gray barrel
-  tft.drawCircle(160, GROUND_Y - 14, 3, ST77XX_CYAN); // Turret circle accent
-}
-
-/*
- * Draw falling letters (with background clearing for current position)
- */
-void drawFallingLetters(LGFX& tft, bool clearOld = false) {
-  // Skip legacy drawing when using LVGL
-  if (shooterUseLVGL) return;
-
-  static int lastY[MAX_FALLING_LETTERS] = {0};
-
-  tft.setTextSize(3);
-  for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
-    if (fallingLetters[i].active) {
-      // Clear old position if requested (but only if it's below the header!)
-      if (clearOld && lastY[i] != (int)fallingLetters[i].y && lastY[i] > 42) {
-        tft.fillRect((int)fallingLetters[i].x - 2, lastY[i] - 2, 24, 28, COLOR_BACKGROUND);
-      }
-
-      // Draw at new position (only if below header)
-      if (fallingLetters[i].y > 42) {
-        tft.setTextColor(ST77XX_YELLOW, COLOR_BACKGROUND);
-        tft.setCursor((int)fallingLetters[i].x, (int)fallingLetters[i].y);
-        tft.print(fallingLetters[i].letter);
-        lastY[i] = (int)fallingLetters[i].y;
-      }
-    } else if (clearOld && lastY[i] > 42) {
-      // Clear if letter was just deactivated (but only if below header)
-      tft.fillRect((int)fallingLetters[i].x - 2, lastY[i] - 2, 24, 28, COLOR_BACKGROUND);
-      lastY[i] = 0;
-    }
-  }
-}
-
-/*
- * Draw turret laser when shooting
- */
-void drawLaserShot(LGFX& tft, int targetX, int targetY) {
-  // Skip legacy drawing when using LVGL
-  if (shooterUseLVGL) return;
-
-  // Draw laser from turret to target
-  tft.drawLine(160, GROUND_Y - 26, targetX + 10, targetY + 10, ST77XX_CYAN);
-  tft.drawLine(159, GROUND_Y - 26, targetX + 10, targetY + 10, ST77XX_WHITE);
-  tft.drawLine(161, GROUND_Y - 26, targetX + 10, targetY + 10, ST77XX_WHITE);
-}
-
-/*
- * Draw explosion effect
- */
-void drawExplosion(LGFX& tft, int x, int y) {
-  // Skip legacy drawing when using LVGL
-  if (shooterUseLVGL) return;
-
-  // Simple star burst explosion
-  tft.drawCircle(x + 10, y + 10, 8, ST77XX_YELLOW);
-  tft.drawCircle(x + 10, y + 10, 6, ST77XX_RED);
-  tft.drawCircle(x + 10, y + 10, 4, ST77XX_WHITE);
-  // Rays
-  for (int i = 0; i < 8; i++) {
-    float angle = i * 3.14159 / 4;
-    int x2 = x + 10 + (int)(12 * cos(angle));
-    int y2 = y + 10 + (int)(12 * sin(angle));
-    tft.drawLine(x + 10, y + 10, x2, y2, ST77XX_YELLOW);
-  }
-}
-
-/*
- * Draw HUD (score, lives, morse input)
- */
-void drawHUD(LGFX& tft) {
-  // Skip legacy drawing when using LVGL
-  if (shooterUseLVGL) return;
-
-  // Score (top left corner)
-  tft.setTextSize(1);
-  tft.setTextColor(ST77XX_WHITE, COLOR_BACKGROUND);
-  tft.setCursor(10, 50);
-  tft.print("Score:");
-  tft.setCursor(50, 50);
-  tft.print(gameScore);
-
-  // Lives (top left, second line)
-  tft.setCursor(10, 62);
-  tft.setTextColor(gameLives <= 2 ? ST77XX_RED : ST77XX_GREEN, COLOR_BACKGROUND);
-  tft.print("Lives:");
-  tft.setCursor(50, 62);
-  tft.print(gameLives);
-
-  // Decoded text display (bottom, above ground)
-  if (shooterDecodedText.length() > 0) {
-    tft.setTextSize(2);
-    tft.setTextColor(ST77XX_CYAN, COLOR_BACKGROUND);
-    tft.setCursor(10, GROUND_Y + 10);
-    tft.print(shooterDecodedText);
-    tft.print("   ");  // Clear extra space
-  } else {
-    // Clear decoded text area when empty
-    tft.fillRect(10, GROUND_Y + 10, 100, 20, COLOR_BACKGROUND);
-  }
-}
-
-// Get current fall speed based on settings/mode
+// Get current fall speed (pixels per second) based on settings/mode
 float getCurrentFallSpeed() {
   if (shooterSettings.gameMode == SHOOTER_MODE_PROGRESSIVE) {
     // Progressive mode: speed increases with level
-    float baseSpeed = 0.3f;
-    float speedIncrease = 0.2f * (progressiveLevel - 1);
-    return min(baseSpeed + speedIncrease, 3.0f);  // Cap at 3.0
+    float baseSpeed = 6.0f;
+    float speedIncrease = 4.0f * (progressiveLevel - 1);
+    return min(baseSpeed + speedIncrease, 45.0f);
   } else if (shooterSettings.preset != PRESET_CUSTOM) {
     return speedToPixels(PRESET_CONFIGS[shooterSettings.preset].fallSpeed);
   } else {
@@ -848,10 +615,11 @@ float getCurrentFallSpeed() {
 // Get current spawn interval based on settings/mode
 uint32_t getCurrentSpawnInterval() {
   if (shooterSettings.gameMode == SHOOTER_MODE_PROGRESSIVE) {
-    // Progressive mode: spawn rate increases with level
-    uint32_t baseInterval = 5000;
-    uint32_t decrease = 300 * (progressiveLevel - 1);
-    return max(baseInterval - decrease, (uint32_t)1000);  // Min 1000ms
+    // Progressive mode: spawn rate increases with level (signed math - at high
+    // levels the subtraction goes negative and must clamp, not wrap)
+    int interval = 5000 - 300 * (progressiveLevel - 1);
+    if (interval < 1200) interval = 1200;
+    return (uint32_t)interval;
   } else if (shooterSettings.preset != PRESET_CUSTOM) {
     return spawnToInterval(PRESET_CONFIGS[shooterSettings.preset].spawnRate);
   } else {
@@ -871,11 +639,14 @@ void getCurrentCharset(const char*& charset, int& size) {
     size = PRESET_CONFIGS[shooterSettings.preset].charsetSize;
   } else {
     // Custom: use charset flags to determine
-    if (shooterSettings.charsetFlags & CHARSET_FLAG_NUMBERS) {
-      charset = CHARSET_HARD;
+    if (shooterSettings.charsetFlags & CHARSET_FLAG_PUNCTUATION) {
+      charset = CHARSET_FULL;
+      size = 40;
+    } else if (shooterSettings.charsetFlags & CHARSET_FLAG_NUMBERS) {
+      charset = CHARSET_LETTERS_NUMBERS;
       size = 36;
     } else {
-      charset = CHARSET_MEDIUM;
+      charset = CHARSET_LETTERS_ALL;
       size = 26;
     }
   }
@@ -894,40 +665,48 @@ int getCurrentMaxLetters() {
 }
 
 /*
- * Update falling letters (physics) - supports all modes
+ * Handle a life lost (letter/word reached the ground). Returns true if game over.
  */
-void updateFallingLetters() {
+static bool shooterLoseLife() {
+  gameLives--;
+  resetCombo();
+  updateShooterLives(gameLives, gameMaxLives);
+  updateShooterCombo(0, 1);
+  beep(TONE_ERROR, 200);  // Hit ground sound
+
+  if (gameLives <= 0) {
+    gameOver = true;
+    if (shooterSettings.gameMode == SHOOTER_MODE_PROGRESSIVE) {
+      progressiveTimeSurvived = millis() - gameStartTime;
+      Serial.printf("[Shooter] Progressive game over: Level %d, Time %lu ms\n",
+                    progressiveLevel, progressiveTimeSurvived);
+    }
+    showShooterGameOver();  // Show game over overlay (persists high score)
+    return true;
+  }
+  return false;
+}
+
+/*
+ * Update falling letters (physics) - dt is elapsed seconds since last tick
+ */
+void updateFallingLetters(float dt) {
   float fallSpeed = getCurrentFallSpeed();
 
   for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
     if (fallingLetters[i].active) {
-      fallingLetters[i].y += fallSpeed;
+      fallingLetters[i].y += fallSpeed * dt;
 
       // Update LVGL display (y+40 for header offset)
       updateShooterLetter(i, fallingLetters[i].letter,
                          (int)fallingLetters[i].x,
                          (int)fallingLetters[i].y + 40, true);
 
-      // Check if letter hit the ground (GAME_GROUND_Y = 200 for LVGL layout)
+      // Check if letter hit the ground
       if (fallingLetters[i].y >= GAME_GROUND_Y) {
         fallingLetters[i].active = false;
         updateShooterLetter(i, ' ', 0, 0, false);  // Hide letter
-        gameLives--;
-        resetCombo();  // Reset combo on ground hit
-        updateShooterLives(gameLives);  // Update LVGL
-        updateShooterCombo(0, 1);
-        beep(TONE_ERROR, 200);  // Hit ground sound
-
-        if (gameLives <= 0) {
-          gameOver = true;
-          // Track survival time for progressive mode
-          if (shooterSettings.gameMode == SHOOTER_MODE_PROGRESSIVE) {
-            progressiveTimeSurvived = millis() - gameStartTime;
-            Serial.printf("[Shooter] Progressive game over: Level %d, Time %lu ms\n",
-                          progressiveLevel, progressiveTimeSurvived);
-          }
-          showShooterGameOver();  // Show game over overlay
-        }
+        if (shooterLoseLife()) return;
       }
     }
   }
@@ -945,7 +724,7 @@ void updateFallingLetters() {
 }
 
 /*
- * Spawn new falling letter - supports all modes
+ * Spawn new falling letter - supports Classic/Progressive modes
  */
 void spawnFallingLetter() {
   uint32_t spawnInterval = getCurrentSpawnInterval();
@@ -985,12 +764,12 @@ void spawnFallingLetter() {
   const int SPAWN_Y = 5;
 
   while (!positionOk && attempts < 20) {
-    newX = random(20, SCREEN_WIDTH - 40);
+    newX = random(20, SCREEN_WIDTH - 50);
     positionOk = true;
 
     for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
       if (i != emptySlot && fallingLetters[i].active) {
-        if (abs(newX - (int)fallingLetters[i].x) < 30 &&
+        if (abs(newX - (int)fallingLetters[i].x) < 34 &&
             abs(SPAWN_Y - (int)fallingLetters[i].y) < 40) {
           positionOk = false;
           break;
@@ -1030,13 +809,14 @@ void getWordList(const char**& words, int& count) {
 }
 
 /*
- * Spawn a falling word (Word mode)
+ * Spawn a falling word/callsign into a free slot with width-aware placement.
+ * Shared by Word and Callsign modes.
  */
-void spawnFallingWord() {
+static void spawnWordCommon(const char* text) {
   uint32_t spawnInterval = getCurrentSpawnInterval();
   int maxLetters = getCurrentMaxLetters();
 
-  // Words fall slower, so allow fewer concurrent
+  // Words take longer to shoot, so allow fewer concurrent
   int maxWords = max(1, maxLetters / 2);
 
   if (millis() - lastSpawnTime < spawnInterval) return;
@@ -1046,6 +826,9 @@ void spawnFallingWord() {
   for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
     if (fallingWords[i].active) {
       activeCount++;
+      // Don't spawn while another word is still near the top - prevents
+      // words stacking on the same line and overlapping
+      if (fallingWords[i].y < 55) return;
     } else if (emptySlot < 0) {
       emptySlot = i;
     }
@@ -1053,32 +836,32 @@ void spawnFallingWord() {
 
   if (activeCount >= maxWords || emptySlot < 0) return;
 
-  // Pick a word from the appropriate difficulty list
-  const char** words;
-  int wordCount;
-  getWordList(words, wordCount);
-  const char* chosen = words[random(wordCount)];
+  FallingWord& fw = fallingWords[emptySlot];
+  strncpy(fw.word, text, sizeof(fw.word) - 1);
+  fw.word[sizeof(fw.word) - 1] = '\0';
+  fw.length = strlen(fw.word);
+  fw.lettersTyped = 0;
+  fw.y = 5;
+  fw.spawnTime = millis();
 
-  // Populate FallingWord
-  strncpy(fallingWords[emptySlot].word, chosen, sizeof(fallingWords[emptySlot].word) - 1);
-  fallingWords[emptySlot].word[sizeof(fallingWords[emptySlot].word) - 1] = '\0';
-  fallingWords[emptySlot].length = strlen(fallingWords[emptySlot].word);
-  fallingWords[emptySlot].lettersTyped = 0;
-  fallingWords[emptySlot].y = 5;
-  fallingWords[emptySlot].active = true;
-  fallingWords[emptySlot].spawnTime = millis();
+  // Width-aware spawn position: keep the whole word on screen and avoid
+  // horizontal overlap with other words still in the upper half
+  int wordPx = fw.length * WORD_CHAR_PX;
+  int maxX = SCREEN_WIDTH - wordPx - 10;
+  if (maxX <= 12) maxX = 13;  // Very long word: pin near left edge
 
-  // Spawn position with collision avoidance (words are wider)
+  int newX = 10;
   int attempts = 0;
   bool positionOk = false;
-  int newX;
   while (!positionOk && attempts < 20) {
-    newX = random(10, SCREEN_WIDTH - 100);
+    newX = random(10, maxX);
     positionOk = true;
     for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
-      if (i != emptySlot && fallingWords[i].active) {
-        if (abs(newX - (int)fallingWords[i].x) < 80 &&
-            abs(5 - (int)fallingWords[i].y) < 40) {
+      if (i != emptySlot && fallingWords[i].active && fallingWords[i].y < 120) {
+        int otherPx = fallingWords[i].length * WORD_CHAR_PX;
+        bool overlapX = (newX < (int)fallingWords[i].x + otherPx + 16) &&
+                        ((int)fallingWords[i].x < newX + wordPx + 16);
+        if (overlapX) {
           positionOk = false;
           break;
         }
@@ -1086,81 +869,42 @@ void spawnFallingWord() {
     }
     attempts++;
   }
-  fallingWords[emptySlot].x = newX;
+  fw.x = newX;
+  fw.active = true;
 
-  updateShooterWord(emptySlot, fallingWords[emptySlot].word, 0,
-                    newX, 5 + 40, true);
+  updateShooterWord(emptySlot, fw.word, 0, newX, 5 + 40, true);
   lastSpawnTime = millis();
+}
+
+/*
+ * Spawn a falling word (Word mode)
+ */
+void spawnFallingWord() {
+  const char** words;
+  int wordCount;
+  getWordList(words, wordCount);
+  spawnWordCommon(words[random(wordCount)]);
 }
 
 /*
  * Spawn a falling callsign (Callsign mode)
  */
 void spawnFallingCallsign() {
-  uint32_t spawnInterval = getCurrentSpawnInterval();
-  int maxLetters = getCurrentMaxLetters();
-  int maxWords = max(1, maxLetters / 2);
-
-  if (millis() - lastSpawnTime < spawnInterval) return;
-
-  int activeCount = 0;
-  int emptySlot = -1;
-  for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
-    if (fallingWords[i].active) {
-      activeCount++;
-    } else if (emptySlot < 0) {
-      emptySlot = i;
-    }
-  }
-
-  if (activeCount >= maxWords || emptySlot < 0) return;
-
-  // Generate random callsign
   char callbuf[12];
   memset(callbuf, 0, sizeof(callbuf));
-  generateCallsign(callbuf, true);
-
-  strncpy(fallingWords[emptySlot].word, callbuf, sizeof(fallingWords[emptySlot].word) - 1);
-  fallingWords[emptySlot].word[sizeof(fallingWords[emptySlot].word) - 1] = '\0';
-  fallingWords[emptySlot].length = strlen(fallingWords[emptySlot].word);
-  fallingWords[emptySlot].lettersTyped = 0;
-  fallingWords[emptySlot].y = 5;
-  fallingWords[emptySlot].active = true;
-  fallingWords[emptySlot].spawnTime = millis();
-
-  int attempts = 0;
-  bool positionOk = false;
-  int newX;
-  while (!positionOk && attempts < 20) {
-    newX = random(10, SCREEN_WIDTH - 100);
-    positionOk = true;
-    for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
-      if (i != emptySlot && fallingWords[i].active) {
-        if (abs(newX - (int)fallingWords[i].x) < 80 &&
-            abs(5 - (int)fallingWords[i].y) < 40) {
-          positionOk = false;
-          break;
-        }
-      }
-    }
-    attempts++;
-  }
-  fallingWords[emptySlot].x = newX;
-
-  updateShooterWord(emptySlot, fallingWords[emptySlot].word, 0,
-                    newX, 5 + 40, true);
-  lastSpawnTime = millis();
+  generateCallsign(callbuf, sizeof(callbuf), true);
+  spawnWordCommon(callbuf);
 }
 
 /*
- * Update falling words physics (Word/Callsign modes)
+ * Update falling words physics (Word/Callsign modes) - dt in seconds
  */
-void updateFallingWords() {
+void updateFallingWords(float dt) {
   float fallSpeed = getCurrentFallSpeed() * 0.6f;  // Words fall slower
 
   for (int i = 0; i < MAX_FALLING_LETTERS; i++) {
     if (fallingWords[i].active) {
-      fallingWords[i].y += fallSpeed;
+      fallingWords[i].y += fallSpeed * dt;
 
       updateShooterWord(i, fallingWords[i].word, fallingWords[i].lettersTyped,
                         (int)fallingWords[i].x, (int)fallingWords[i].y + 40, true);
@@ -1168,16 +912,7 @@ void updateFallingWords() {
       if (fallingWords[i].y >= GAME_GROUND_Y) {
         fallingWords[i].active = false;
         updateShooterWord(i, NULL, 0, 0, 0, false);
-        gameLives--;
-        resetCombo();
-        updateShooterLives(gameLives);
-        updateShooterCombo(0, 1);
-        beep(TONE_ERROR, 200);
-
-        if (gameLives <= 0) {
-          gameOver = true;
-          showShooterGameOver();
-        }
+        if (shooterLoseLife()) return;
       }
     }
   }
@@ -1185,10 +920,9 @@ void updateFallingWords() {
 
 /*
  * Advance a word/callsign by one already-matched character.
- * Handles completion (scoring, effects, high score). Always a hit.
- * Clears the decoded-text buffer before returning.
+ * Handles completion (scoring, effects, high score).
  */
-static bool shooterAdvanceWord(int j) {
+static void shooterAdvanceWord(int j) {
   fallingWords[j].lettersTyped++;
   beep(1200, 30);  // Partial hit beep
 
@@ -1200,6 +934,7 @@ static bool shooterAdvanceWord(int j) {
     int targetX = (int)fallingWords[j].x;
     int targetY = (int)fallingWords[j].y;
     float wordY = fallingWords[j].y;
+    int wordLen = fallingWords[j].length;
 
     fallingWords[j].active = false;
     updateShooterWord(j, NULL, 0, 0, 0, false);
@@ -1208,30 +943,24 @@ static bool shooterAdvanceWord(int j) {
     showShooterHitEffect(targetX, targetY + 40);
 
     // Score: base points * word length * combo multiplier
-    int pointsEarned = recordHit(wordY) * fallingWords[j].length;
+    int pointsEarned = recordHit(wordY) * wordLen;
     gameScore += pointsEarned;
     updateShooterScore(gameScore);
 
     updateShooterCombo(comboCount, getComboMultiplier());
     updateCurrentModeHighScore(gameScore);
   }
-
-  shooterDecodedText = "";
-  return true;
 }
 
 /*
- * Check decoded text and try to shoot matching letter/word
+ * Process one decoded character against the game targets.
+ * Called for EVERY character the decoder emits, as soon as it is decoded -
+ * so multi-letter sequences (word/callsign modes) register every keystroke
+ * and classic mode shoots at character-gap latency instead of word-gap.
  */
-bool checkMorseShoot(LGFX& tft) {
-  if (shooterDecodedText.length() == 0) {
-    return false;
-  }
+void shooterProcessChar(char decodedChar) {
+  if (gameOver || gamePaused) return;
 
-  // Get the last decoded character
-  char decodedChar = shooterDecodedText[shooterDecodedText.length() - 1];
-
-  // Convert to uppercase if needed
   if (decodedChar >= 'a' && decodedChar <= 'z') {
     decodedChar = decodedChar - 'a' + 'A';
   }
@@ -1258,7 +987,8 @@ bool checkMorseShoot(LGFX& tft) {
       if (expected >= 'a' && expected <= 'z') expected = expected - 'a' + 'A';
 
       if (decodedChar == expected) {
-        return shooterAdvanceWord(inProgress);
+        shooterAdvanceWord(inProgress);
+        return;
       }
 
       // Mistyped the committed word - abandon its progress and fall through so
@@ -1285,76 +1015,71 @@ bool checkMorseShoot(LGFX& tft) {
     }
 
     if (bestIdx >= 0) {
-      return shooterAdvanceWord(bestIdx);
+      shooterAdvanceWord(bestIdx);
+      return;
     }
 
     // 3. No match at all - miss.
     beep(600, 100);  // Miss sound
     resetCombo();
     updateShooterCombo(0, 1);
-    shooterDecodedText = "";
-    return false;
+    return;
   }
 
-  // Classic/Progressive modes: match single character against falling letters
+  // Classic/Progressive modes: shoot the matching letter closest to the ground
+  int bestIdx = -1;
+  float bestY = -1.0f;
   for (int j = 0; j < MAX_FALLING_LETTERS; j++) {
-    if (fallingLetters[j].active && fallingLetters[j].letter == decodedChar) {
-      // HIT!
-      int targetX = (int)fallingLetters[j].x;
-      int targetY = (int)fallingLetters[j].y;
-      float letterY = fallingLetters[j].y;
-
-      fallingLetters[j].active = false;
-      updateShooterLetter(j, ' ', 0, 0, false);
-
-      beep(1200, 50);  // Laser sound
-
-      showShooterHitEffect(targetX, targetY + 40);
-
-      // Legacy drawing (will no-op when using LVGL)
-      drawLaserShot(tft, targetX, targetY);
-      drawExplosion(tft, targetX, targetY);
-      drawGroundScenery(tft);
-      drawFallingLetters(tft);
-
-      // Calculate score
-      int pointsEarned = recordHit(letterY);
-      gameScore += pointsEarned;
-      updateShooterScore(gameScore);
-
-      int currentMultiplier = getComboMultiplier();
-      updateShooterCombo(comboCount, currentMultiplier);
-
-      updateCurrentModeHighScore(gameScore);
-
-      // Progressive mode: track hits for level advancement
-      if (shooterSettings.gameMode == SHOOTER_MODE_PROGRESSIVE) {
-        progressiveHits++;
-        if (progressiveHits >= 10) {
-          progressiveHits = 0;
-          progressiveLevel++;
-          Serial.printf("[Shooter] Progressive level up! Now level %d\n", progressiveLevel);
-          beep(1000, 100);  // Level up beep
-        }
-      }
-
-      return true;
+    if (fallingLetters[j].active && fallingLetters[j].letter == decodedChar &&
+        fallingLetters[j].y > bestY) {
+      bestY = fallingLetters[j].y;
+      bestIdx = j;
     }
+  }
+
+  if (bestIdx >= 0) {
+    // HIT!
+    int targetX = (int)fallingLetters[bestIdx].x;
+    int targetY = (int)fallingLetters[bestIdx].y;
+    float letterY = fallingLetters[bestIdx].y;
+
+    fallingLetters[bestIdx].active = false;
+    updateShooterLetter(bestIdx, ' ', 0, 0, false);
+
+    beep(1200, 50);  // Laser sound
+    showShooterHitEffect(targetX, targetY + 40);
+
+    // Calculate score
+    int pointsEarned = recordHit(letterY);
+    gameScore += pointsEarned;
+    updateShooterScore(gameScore);
+    updateShooterCombo(comboCount, getComboMultiplier());
+    updateCurrentModeHighScore(gameScore);
+
+    // Progressive mode: track hits for level advancement
+    if (shooterSettings.gameMode == SHOOTER_MODE_PROGRESSIVE) {
+      progressiveHits++;
+      if (progressiveHits >= 10) {
+        progressiveHits = 0;
+        progressiveLevel++;
+        Serial.printf("[Shooter] Progressive level up! Now level %d\n", progressiveLevel);
+        beep(1000, 100);  // Level up beep
+      }
+    }
+    return;
   }
 
   // Decoded character but no matching letter falling - MISS
   beep(600, 100);  // Miss sound
   resetCombo();
   updateShooterCombo(0, 1);
-  shooterDecodedText = "";
-  return false;
 }
 
 /*
  * Read paddle input and decode morse using adaptive decoder
  * Uses unified keyer module for all key types
  */
-void updateMorseInputFast(LGFX& tft) {
+void updateMorseInputFast() {
   if (!shooterKeyer) return;
 
   unsigned long now = millis();
@@ -1370,14 +1095,17 @@ void updateMorseInputFast(LGFX& tft) {
   morseInput.ditPressed = newDitPressed;
   morseInput.dahPressed = newDahPressed;
 
-  // Clear previous hit text when starting new input
+  // Clear previous decoded text display when starting new input after idle
   bool keyerWasIdle = !shooterKeyer->isTxActive();
-  if ((newDitPressed || newDahPressed) && shooterDecodedText.length() > 0 && keyerWasIdle) {
-    shooterDecodedText = "";
+  if ((newDitPressed || newDahPressed) && shooterDecodedText[0] != '\0' && keyerWasIdle &&
+      shooterLastElementTime == 0) {
+    shooterDecodedText[0] = '\0';
     updateShooterDecoded("");
   }
 
-  // Check for decoder timeout (flush if no activity for word gap duration)
+  // Check for decoder timeout (flush trailing character after word gap of silence).
+  // Characters are processed as they decode via the messageCallback, so this
+  // flush is just a safety net for the adaptive decoder's last character.
   if (shooterLastElementTime > 0 && !newDitPressed && !newDahPressed && !shooterKeyer->isTxActive()) {
     unsigned long timeSinceLastElement = now - shooterLastElementTime;
     float wordGapDuration = MorseWPM::wordGap(shooterDecoder->getWPM());
@@ -1385,10 +1113,6 @@ void updateMorseInputFast(LGFX& tft) {
     if (timeSinceLastElement > wordGapDuration) {
       shooterDecoder->flush();
       shooterLastElementTime = 0;
-
-      if (shooterDecodedText.length() > 0) {
-        checkMorseShoot(tft);
-      }
     }
   }
 
@@ -1415,235 +1139,25 @@ void updateMorseInputFast(LGFX& tft) {
 }
 
 /*
- * Draw shooter settings screen
- */
-void drawShooterSettings(LGFX& tft) {
-  if (shooterUseLVGL) return;  // LVGL handles display
-  tft.fillRect(0, 42, SCREEN_WIDTH, SCREEN_HEIGHT - 42, COLOR_BACKGROUND);
-
-  // Title
-  tft.setTextSize(2);
-  tft.setTextColor(ST77XX_CYAN);
-  tft.setCursor(80, 50);
-  tft.print("SETTINGS");
-
-  // Settings menu items
-  int yPos = 75;
-  int spacing = 32;
-
-  // Option 0: Speed
-  tft.setTextSize(2);
-  if (shooterSettingsSelection == 0) {
-    tft.setTextColor(ST77XX_BLACK, ST77XX_CYAN);  // Highlighted
-  } else {
-    tft.setTextColor(ST77XX_WHITE, COLOR_BACKGROUND);
-  }
-  tft.setCursor(20, yPos);
-  tft.print("Speed: ");
-  tft.print(cwSpeed);
-  tft.print(" WPM   ");
-
-  // Option 1: Tone
-  yPos += spacing;
-  if (shooterSettingsSelection == 1) {
-    tft.setTextColor(ST77XX_BLACK, ST77XX_CYAN);
-  } else {
-    tft.setTextColor(ST77XX_WHITE, COLOR_BACKGROUND);
-  }
-  tft.setCursor(20, yPos);
-  tft.print("Tone: ");
-  tft.print(cwTone);
-  tft.print(" Hz   ");
-
-  // Option 2: Key Type
-  yPos += spacing;
-  if (shooterSettingsSelection == 2) {
-    tft.setTextColor(ST77XX_BLACK, ST77XX_CYAN);
-  } else {
-    tft.setTextColor(ST77XX_WHITE, COLOR_BACKGROUND);
-  }
-  tft.setCursor(20, yPos);
-  tft.print("Key: ");
-  if (cwKeyType == KEY_STRAIGHT) {
-    tft.print("Straight  ");
-  } else if (cwKeyType == KEY_IAMBIC_A) {
-    tft.print("Iambic A  ");
-  } else {
-    tft.print("Iambic B  ");
-  }
-
-  // Option 3: Save & Return
-  yPos += spacing + 5;
-  if (shooterSettingsSelection == 3) {
-    tft.setTextColor(ST77XX_BLACK, ST77XX_GREEN);
-  } else {
-    tft.setTextColor(ST77XX_GREEN, COLOR_BACKGROUND);
-  }
-  tft.setCursor(50, yPos);
-  tft.print("SAVE & PLAY");
-
-  // Instructions (moved higher to avoid overlap)
-  tft.setTextSize(1);
-  tft.setTextColor(COLOR_WARNING, COLOR_BACKGROUND);
-  tft.setCursor(20, 195);
-  tft.print("\x18\x19:Select  \x1B\x1A:Change  ENTER:OK");
-}
-
-/*
- * Handle shooter settings input
- */
-int handleShooterSettingsInput(char key, LGFX& tft) {
-  if (key == KEY_UP) {
-    shooterSettingsSelection--;
-    if (shooterSettingsSelection < 0) shooterSettingsSelection = 3;
-    drawShooterSettings(tft);
-    beep(TONE_MENU_NAV, BEEP_SHORT);
-    return 1;
-  }
-  else if (key == KEY_DOWN) {
-    shooterSettingsSelection++;
-    if (shooterSettingsSelection > 3) shooterSettingsSelection = 0;
-    drawShooterSettings(tft);
-    beep(TONE_MENU_NAV, BEEP_SHORT);
-    return 1;
-  }
-  else if (key == KEY_LEFT) {
-    if (shooterSettingsSelection == 0) {
-      // Decrease speed
-      if (cwSpeed > WPM_MIN) {
-        cwSpeed--;
-        drawShooterSettings(tft);
-        beep(TONE_MENU_NAV, BEEP_SHORT);
-      }
-    }
-    else if (shooterSettingsSelection == 1) {
-      // Decrease tone
-      if (cwTone > 400) {
-        cwTone -= 50;
-        drawShooterSettings(tft);
-        beep(TONE_MENU_NAV, BEEP_SHORT);
-      }
-    }
-    else if (shooterSettingsSelection == 2) {
-      // Cycle key type backward
-      if (cwKeyType == KEY_IAMBIC_B) {
-        cwKeyType = KEY_IAMBIC_A;
-      } else if (cwKeyType == KEY_IAMBIC_A) {
-        cwKeyType = KEY_STRAIGHT;
-      } else {
-        cwKeyType = KEY_IAMBIC_B;
-      }
-      drawShooterSettings(tft);
-      beep(TONE_MENU_NAV, BEEP_SHORT);
-    }
-    return 1;
-  }
-  else if (key == KEY_RIGHT) {
-    if (shooterSettingsSelection == 0) {
-      // Increase speed
-      if (cwSpeed < WPM_MAX) {
-        cwSpeed++;
-        drawShooterSettings(tft);
-        beep(TONE_MENU_NAV, BEEP_SHORT);
-      }
-    }
-    else if (shooterSettingsSelection == 1) {
-      // Increase tone
-      if (cwTone < 1200) {
-        cwTone += 50;
-        drawShooterSettings(tft);
-        beep(TONE_MENU_NAV, BEEP_SHORT);
-      }
-    }
-    else if (shooterSettingsSelection == 2) {
-      // Cycle key type forward
-      if (cwKeyType == KEY_STRAIGHT) {
-        cwKeyType = KEY_IAMBIC_A;
-      } else if (cwKeyType == KEY_IAMBIC_A) {
-        cwKeyType = KEY_IAMBIC_B;
-      } else {
-        cwKeyType = KEY_STRAIGHT;
-      }
-      drawShooterSettings(tft);
-      beep(TONE_MENU_NAV, BEEP_SHORT);
-    }
-    return 1;
-  }
-  else if (key == KEY_ENTER || key == KEY_ENTER_ALT) {
-    if (shooterSettingsSelection == 3) {
-      // Save & Return
-      saveCWSettings();  // Save to preferences
-      inShooterSettings = false;
-      gamePaused = false;  // Unpause the game
-      resetGame();  // Start new game
-      drawMorseShooterUI(tft);
-      beep(TONE_SELECT, BEEP_MEDIUM);
-      return 2;  // Full redraw
-    }
-  }
-  else if (key == KEY_ESC) {
-    // Cancel without saving
-    loadCWSettings();  // Reload original settings
-    inShooterSettings = false;
-    gamePaused = false;  // Unpause the game
-    drawMorseShooterUI(tft);
-    beep(TONE_MENU_NAV, BEEP_SHORT);
-    return 2;
-  }
-
-  return 0;
-}
-
-/*
- * Draw game over screen
- */
-void drawGameOver(LGFX& tft) {
-  if (shooterUseLVGL) return;  // LVGL handles display
-  tft.fillRect(0, 42, SCREEN_WIDTH, SCREEN_HEIGHT - 42, COLOR_BACKGROUND);
-
-  // Game Over text
-  tft.setTextSize(3);
-  tft.setTextColor(ST77XX_RED);
-  tft.setCursor(50, 80);
-  tft.print("GAME OVER");
-
-  // Final score
-  tft.setTextSize(2);
-  tft.setTextColor(ST77XX_CYAN);
-  tft.setCursor(80, 120);
-  tft.print("Score: ");
-  tft.print(gameScore);
-
-  // High score
-  tft.setCursor(70, 145);
-  tft.setTextColor(ST77XX_YELLOW);
-  tft.print("Best: ");
-  tft.print(shooterHighScores[shooterDifficulty]);
-
-  // Instructions
-  tft.setTextSize(1);
-  tft.setTextColor(ST77XX_WHITE);
-  tft.setCursor(50, 180);
-  tft.print("ENTER Play Again");
-  tft.setCursor(80, 195);
-  tft.print("ESC Exit");
-}
-
-/*
  * Initialize game (called when entering from Games menu)
  */
 void startMorseShooter(LGFX& tft) {
   resetGame();
 
-  // Setup decoder callback to capture decoded text
+  // Setup decoder callback: display + shoot each character as it decodes
   shooterDecoder->messageCallback = [](String morse, String text) {
-    // Append decoded characters
-    for (int i = 0; i < text.length(); i++) {
-      shooterDecodedText += text[i];
+    for (unsigned int i = 0; i < text.length(); i++) {
+      char c = text[i];
+      if (c == ' ' || c == '\n' || c == '\r') continue;
+      if (c == '<') {
+        // Prosign like <AR>: skip the whole token, it is never a game target
+        while (i < text.length() && text[i] != '>') i++;
+        continue;
+      }
+      shooterAppendDecoded(c);
+      updateShooterDecoded(shooterDecodedText);
+      shooterProcessChar(c);
     }
-
-    // Update LVGL display
-    updateShooterDecoded(shooterDecodedText.c_str());
 
     Serial.print("Morse Shooter decoded: ");
     Serial.print(text);
@@ -1652,37 +1166,7 @@ void startMorseShooter(LGFX& tft) {
     Serial.println(")");
   };
 
-  // UI is now handled by LVGL - see lv_game_screens.h
-}
-
-/*
- * Draw main game UI
- */
-void drawMorseShooterUI(LGFX& tft) {
-  // Skip legacy drawing when using LVGL
-  if (shooterUseLVGL) return;
-
-  // Clear screen
-  tft.fillScreen(COLOR_BACKGROUND);
-
-  // Draw header
-  drawHeader();
-
-  // If in settings mode, show settings
-  if (inShooterSettings) {
-    drawShooterSettings(tft);
-    return;
-  }
-
-  if (gameOver) {
-    drawGameOver(tft);
-    return;
-  }
-
-  // Draw game elements
-  drawGroundScenery(tft);
-  drawFallingLetters(tft);
-  drawHUD(tft);
+  // UI is handled by LVGL - see lv_game_screens.h
 }
 
 /*
@@ -1693,114 +1177,74 @@ void updateMorseShooterInput(LGFX& tft) {
   if (gameOver || gamePaused) {
     return;
   }
-  updateMorseInputFast(tft);
+  updateMorseInputFast();
 }
 
 /*
- * Update game visuals (called once per second to avoid screen tearing)
- * This is separate from input polling
- * Screen is FROZEN while any paddle is held or pattern is being entered
+ * Update game physics/visuals. Runs a smooth dt-based tick, but freezes
+ * while the player is actively keying: moving LVGL objects forces display
+ * flushes that can crunch live audio, and it gives the player a fair chance
+ * to finish the character they started.
  */
 void updateMorseShooterVisuals(LGFX& tft) {
   if (gameOver || gamePaused) {
     return;
   }
 
-  // FREEZE screen only during active keying (not when decoded text exists)
-  // This allows physics/ground collision to continue while hit text is displayed
+  unsigned long now = millis();
+
   bool isKeying = (shooterKeyer && shooterKeyer->isTxActive()) ||
                   morseInput.ditPressed || morseInput.dahPressed;
 
   if (isKeying) {
+    // Keep the clock current so time spent keying doesn't turn into a
+    // teleport-sized dt step when the screen unfreezes
+    lastGameUpdate = now;
     return;
   }
 
-  unsigned long now = millis();
+  unsigned long dtMs = now - lastGameUpdate;
+  if (dtMs < GAME_TICK_MS) return;
+  if (dtMs > 250) dtMs = 250;  // Clamp hiccups (screen loads, SD access, etc.)
+  lastGameUpdate = now;
+  float dt = dtMs / 1000.0f;
 
-  // Only update game physics and visuals once per second
-  if (now - lastGameUpdate >= GAME_UPDATE_INTERVAL) {
-    lastGameUpdate = now;
-
-    // Update and spawn based on game mode
-    if (shooterSettings.gameMode == SHOOTER_MODE_WORD) {
-      updateFallingWords();
-      spawnFallingWord();
-    } else if (shooterSettings.gameMode == SHOOTER_MODE_CALLSIGN) {
-      updateFallingWords();
-      spawnFallingCallsign();
-    } else {
-      // Classic and Progressive modes
-      updateFallingLetters();
-      spawnFallingLetter();
-    }
-
-    // Redraw only changed elements (no full screen clear)
-    drawFallingLetters(tft, true);  // Clear old positions, draw new
-    drawHUD(tft);
-  }
-}
-
-/*
- * Handle keyboard input for game
- * Returns: -1 to exit game, 0 for normal input, 2 for full redraw
- */
-int handleMorseShooterInput(char key, LGFX& tft) {
-  // If in settings mode, route to settings handler
-  if (inShooterSettings) {
-    return handleShooterSettingsInput(key, tft);
+  // Hide the combo badge once its display window expires
+  if (comboDisplayUntil > 0 && now > comboDisplayUntil) {
+    comboDisplayUntil = 0;
+    updateShooterCombo(0, 1);
   }
 
-  if (key == KEY_ESC) {
-    return -1;  // Exit to games menu
+  // Update and spawn based on game mode
+  if (shooterSettings.gameMode == SHOOTER_MODE_WORD) {
+    updateFallingWords(dt);
+    if (!gameOver) spawnFallingWord();
+  } else if (shooterSettings.gameMode == SHOOTER_MODE_CALLSIGN) {
+    updateFallingWords(dt);
+    if (!gameOver) spawnFallingCallsign();
+  } else {
+    // Classic and Progressive modes
+    updateFallingLetters(dt);
+    if (!gameOver) spawnFallingLetter();
   }
-
-  if (gameOver) {
-    if (key == KEY_ENTER || key == KEY_ENTER_ALT) {
-      // Restart game
-      resetGame();
-      return 2;  // Full redraw
-    }
-    return 0;
-  }
-
-  // Settings with 'S' key
-  if (key == 's' || key == 'S') {
-    inShooterSettings = true;
-    gamePaused = true;  // Pause the game
-    shooterSettingsSelection = 0;
-    drawShooterSettings(tft);
-    beep(TONE_SELECT, BEEP_MEDIUM);
-    return 2;  // Full redraw
-  }
-
-  // Pause/unpause with SPACE
-  if (key == ' ') {
-    gamePaused = !gamePaused;
-    if (gamePaused) {
-      tft.setTextSize(2);
-      tft.setTextColor(ST77XX_YELLOW, COLOR_BACKGROUND);
-      tft.setCursor(110, 100);
-      tft.print("PAUSED");
-    }
-    return 2;  // Redraw
-  }
-
-  return 0;
 }
 
 /*
  * Cleanup on exit - save settings, stop audio, reset state
  */
 void cleanupMorseShooter() {
-  // Save current settings so they persist
+  // Save current settings and any unpersisted high score
   saveShooterPrefs();
   saveCWSettings();
+  persistShooterHighScore();
 
   stopTone();
   if (shooterKeyer) {
     shooterKeyer->reset();
   }
-  shooterDecoder->reset();
+  if (shooterDecoder) {
+    shooterDecoder->reset();
+  }
   gameOver = true;
   gamePaused = true;
 }

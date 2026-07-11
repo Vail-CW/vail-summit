@@ -135,173 +135,53 @@ enum CWAMessageType {
 
 ### Overview
 
-The Morse Shooter is an arcade-style game where falling letters descend from the top of the screen. The player uses morse code (straight key, iambic paddle, or capacitive touch) to shoot matching letters. The game uses the **adaptive morse decoder** from Practice Mode for accurate real-time decoding.
+The Morse Shooter is an arcade-style game where targets fall from the top of the screen and the player shoots them by keying morse code (straight key, iambic paddle, or ultimatic). The game uses the user-selected morse decoder (Adaptive or Direct, set in CW Settings) for real-time decoding. UI is fully LVGL (`lv_game_screens.h`); game logic lives in `game_morse_shooter.h`.
 
-### Game Architecture: `game_morse_shooter.h`
+### Game Modes
 
-**Game Constants:**
-```cpp
-#define MAX_FALLING_LETTERS 5           // Maximum simultaneous letters
-#define LETTER_FALL_SPEED 1             // Pixels per update
-#define LETTER_SPAWN_INTERVAL 3000      // ms between new letter spawns
-#define GROUND_Y 225                    // Y position of ground
-#define MAX_LIVES 5                     // Lives before game over
-#define GAME_UPDATE_INTERVAL 1000       // ms between game physics updates
-```
+| Mode | Targets | Notes |
+|------|---------|-------|
+| **Classic** | Single characters | Charset from preset, or custom flags (letters / +numbers / +punctuation) |
+| **Progressive** | Single characters | Starts with E/T; unlocks more characters, faster falls, and more concurrent targets as levels advance (every 30s or 10 hits) |
+| **Word** | Short CW words (CQ, QTH, RST...) | Word list difficulty follows the preset; words fall at 0.6x speed |
+| **Callsign** | Randomly generated callsigns | US + 30% international prefixes |
 
-**Character Set:**
-- 36 characters: E, T, I, A, N, M, S, U, R, W, D, K, G, O, H, V, F, L, P, J, B, X, C, Y, Z, Q, 0-9
-- Ordered by common morse patterns (easier letters first)
+Each mode keeps its own persistent high score.
 
-### Decoder Integration
+### Difficulty Presets
 
-The game uses the user-selected morse decoder (Adaptive or Direct, set in CW Settings) for real-time decoding. Decoder is allocated dynamically based on `decoderType`:
-
-**Decoder State:**
-```cpp
-MorseDecoder* shooterDecoder = nullptr;            // Allocated in setup based on decoderType
-String shooterDecodedText = "";                    // Captured decoded characters
-unsigned long shooterLastStateChangeTime = 0;      // Timing state
-bool shooterLastToneState = false;                 // Tone on/off tracking
-unsigned long shooterLastElementTime = 0;          // Timeout tracking
-```
-
-**Setup:**
-```cpp
-shooterDecoder = (decoderType == DECODER_DIRECT)
-    ? (MorseDecoder*) new MorseDecoderDirect(cwSpeed, cwSpeed, 30)
-    : (MorseDecoder*) new MorseDecoderAdaptive(cwSpeed, cwSpeed, 30);
-```
-
-**Key Features:**
-- **Adaptive speed tracking** - Automatically adjusts to your sending speed
-- **Straight key support** - Tracks actual key-down/key-up timings
-- **Iambic keyer support** - Perfect dit/dah timing (Mode A/B)
-- **Word gap timeout** - Uses 7-dit word gap (more forgiving than 3-dit character gap)
-- **Real-time decoding** - Characters appear immediately when decoded
-
-### Keyer Integration
-
-**Straight Key Mode** (`KEY_STRAIGHT`):
-- Uses DIT_PIN as straight key input
-- Captures tone-on and silence durations
-- Sends timing data to decoder via `addTiming()`
-- More forgiving timeout (word gap vs character gap)
-
-**Iambic Keyer Mode** (`KEY_IAMBIC_A` / `KEY_IAMBIC_B`):
-- Full state machine: IDLE → SENDING → SPACING → IDLE
-- Memory paddles for squeeze keying
-- Precise WPM timing from device settings
-- Decoder receives perfect dit/dah timing
-
-**Screen Freeze During Keying:**
-- Screen updates blocked while keying to prevent audio glitches
-- Checks: `keyerActive`, `inSpacing`, `ditPressed`, `dahPressed`, `shooterDecodedText.length() > 0`
+Seven presets (Custom, Beginner, Easy, Medium, Hard, Expert, Insane) control fall speed, spawn rate, lives, max concurrent targets, and charset. Expert/Insane include numbers and punctuation. The Custom preset unlocks the Speed(fall), Lives, and Charset rows. Keying WPM and sidetone are always editable — they are player settings, not difficulty settings.
 
 ### Game Loop Architecture
 
-**Dual Update System:**
+**Dual update system** (both dispatched from `pollTable` every main-loop iteration; the mode is `MODE_FLAG_AUDIO_CRITICAL`, so the loop runs at 1ms):
 
-1. **`updateMorseShooterInput(tft)`** - Called every main loop iteration
-   - Straight key: Captures key-up/key-down timings
-   - Iambic keyer: Runs state machine with memory paddles
-   - Decoder: Feeds timing data, checks timeout (word gap)
-   - On timeout: Flushes decoder and checks for shot
+1. **`updateMorseShooterInput()`** — every iteration: polls paddles, ticks the unified keyer and decoder, flushes the decoder after a word gap of silence.
+2. **`updateMorseShooterVisuals()`** — dt-based physics tick every 50ms (speeds are in px/sec). **Frozen while keying**: moving LVGL objects forces display flushes that can crunch live audio, and it gives the player a fair chance to finish the character they started. The tick clock is kept current during the freeze so no teleport-jump happens on unfreeze.
 
-2. **`updateMorseShooterVisuals(tft)`** - Called every main loop iteration
-   - Checks if keying is active
-   - If keying: returns immediately (screen frozen)
-   - If idle: updates game physics once per second
-   - Spawns letters, updates positions, redraws HUD
+### Shooting
 
-**Timeout Logic (Word Gap = 7 dits):**
-```cpp
-float wordGapDuration = MorseWPM::wordGap(shooterDecoder.getWPM());
-if (timeSinceLastElement > wordGapDuration) {
-  shooterDecoder.flush();  // Decode buffered character
-  checkMorseShoot(tft);    // Attempt to shoot
-}
-```
+Characters are processed **as soon as they decode** (per-character, at character-gap latency) via the decoder `messageCallback` — not after a word gap. This is what makes Word/Callsign modes playable: every keystroke in a sequence registers.
 
-### Character Decoding and Shooting
+- **Classic/Progressive**: the matching letter *closest to the ground* is shot.
+- **Word/Callsign**: the first matched character "commits" you to a word (prevents callsigns sharing a prefix from stealing keystrokes); a mistype abandons progress and can start another word. Typed prefix renders green via LVGL recolor.
+- Prosigns (`<AR>` etc.) are ignored, never treated as targets.
+- Miss (decoded char matches nothing): 600 Hz beep, combo resets.
 
-**Decoding Flow:**
-1. User keys morse code (straight key or iambic paddle)
-2. Decoder captures timing data in real-time
-3. After word gap timeout (7 dits), decoder flushes → character decoded
-4. Decoder callback appends character to `shooterDecodedText`
-5. `checkMorseShoot()` finds matching falling letter
-6. If found: shoots letter, plays effects, clears decoded text
-7. If no match: miss sound, clears decoded text
+### Scoring
 
-**Decoder Callback:**
-```cpp
-shooterDecoder.messageCallback = [](String morse, String text) {
-  for (int i = 0; i < text.length(); i++) {
-    shooterDecodedText += text[i];
-  }
-};
-```
+- Base 10 points x combo multiplier (x2 at 3 streak, x3 at 5, x5 at 10, x10 at 20) + speed bonus for hits near the top. Words score x word length.
+- High scores update in-memory during play and are committed to NVS **only at game over/exit** — flash commits stall both cores' cache and would crunch live audio if done per hit.
 
-**Shooting Logic:**
-- Get last decoded character from `shooterDecodedText`
-- Convert to uppercase (if needed)
-- Search active falling letters for match
-- On match: laser/explosion animation, score +10, clear decoded text
-- On miss: error beep (600 Hz), clear decoded text
+### Spawning
 
-**Collision Avoidance:**
-- When spawning new letters, system checks existing letters
-- Avoids placing new letters within 30px horizontally and 40px vertically
-- Up to 20 placement attempts before giving up
-
-### Visual Effects
-
-**Ground Scenery (GROUND_Y = 225):**
-- Houses with roofs (rectangles and triangles)
-- Trees (triangles for foliage, rectangles for trunks)
-- Turret at center bottom (tank-like shape with barrel)
-- Retro arcade color palette
-
-**Shooting Animations:**
-1. Laser shot: Lines from turret to target (cyan/white)
-2. Beep 1200 Hz for 50ms
-3. Explosion: Concentric circles with radiating rays (yellow/red/white)
-4. Beep 1000 Hz for 100ms
-5. Clear play area and redraw all elements
-
-**Cleanup Sequence (Critical):**
-```cpp
-fallingLetters[j].active = false;  // Mark inactive FIRST
-drawLaserShot();                    // Visual effects
-drawExplosion();
-tft.fillRect(0, 42, SCREEN_WIDTH, GROUND_Y - 42, COLOR_BACKGROUND);
-drawGroundScenery(tft);            // Redraw ground
-drawFallingLetters(tft);           // Redraw active letters only
-```
-
-**Why order matters:** Letter must be marked inactive BEFORE redraw, or it will briefly reappear as a "ghost" after being shot.
-
-### HUD Display
-
-**Top Left Corner:**
-- Score: Current points (10 points per letter)
-- Lives: Remaining lives (red if ≤2, green otherwise)
-
-**Bottom (Above Ground):**
-- Current morse pattern being entered (cyan text, size 2)
-- Cleared when pattern is empty
+- Letters: random x with 20-attempt collision avoidance (34px horizontal / 40px vertical spacing).
+- Words: width-aware placement — the whole word is kept on screen, horizontal overlap with other high words is avoided, and no new word spawns while another is still near the top (prevents same-line overlap).
 
 ### Game Over and Restart
 
-**Game Over Triggers:**
-- Lives reach 0 (letters hit ground)
-
-**Game Over Screen:**
-- Large "GAME OVER" text (red)
-- Final score
-- High score (persisted across sessions)
-- Instructions: ENTER to play again, ESC to exit
+- Lives reach 0 (targets hitting the ground each cost one life), or ESC ends the game early to see results.
+- Overlay shows final score + NEW HIGH SCORE banner; ENTER restarts (full screen recreation via `startShooterFromSettings()`), ESC exits to the games menu.
 
 ## Memory Chain Game
 
