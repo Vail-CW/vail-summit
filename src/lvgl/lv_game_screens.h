@@ -83,6 +83,8 @@ static lv_obj_t* shooter_key_row = NULL;
 static lv_obj_t* shooter_key_value = NULL;
 static lv_obj_t* shooter_lives_row = NULL;
 static lv_obj_t* shooter_lives_value = NULL;
+static lv_obj_t* shooter_charset_row = NULL;
+static lv_obj_t* shooter_charset_value = NULL;
 static lv_obj_t* shooter_highscore_value = NULL;
 static lv_obj_t* shooter_start_btn = NULL;
 
@@ -127,6 +129,8 @@ static void cleanupShooterSettingsPointers() {
     shooter_key_value = NULL;
     shooter_lives_row = NULL;
     shooter_lives_value = NULL;
+    shooter_charset_row = NULL;
+    shooter_charset_value = NULL;
     shooter_highscore_value = NULL;
     shooter_start_btn = NULL;
 }
@@ -226,6 +230,7 @@ lv_obj_t* createMorseShooterScreen() {
         lv_label_set_text(shooter_letter_labels[i], "");
         lv_obj_set_style_text_font(shooter_letter_labels[i], getThemeFonts()->font_large, 0);
         lv_obj_set_style_text_color(shooter_letter_labels[i], LV_COLOR_WARNING, 0);
+        lv_label_set_recolor(shooter_letter_labels[i], true);  // Word modes: typed prefix shown green
         lv_obj_add_flag(shooter_letter_labels[i], LV_OBJ_FLAG_HIDDEN);
     }
 
@@ -285,20 +290,22 @@ void updateShooterScore(int score) {
 }
 
 // Update lives display (supports 1-5 lives)
-void updateShooterLives(int lives) {
+// Hearts beyond maxLives are hidden so a 3-life game shows 3 slots, not 5
+void updateShooterLives(int lives, int maxLives) {
     if (shooter_lives_container != NULL) {
         uint32_t child_count = lv_obj_get_child_cnt(shooter_lives_container);
         for (uint32_t i = 0; i < child_count && i < 5; i++) {
             lv_obj_t* heart = lv_obj_get_child(shooter_lives_container, i);
-            if ((int)i < lives) {
+            if ((int)i >= maxLives) {
+                lv_obj_add_flag(heart, LV_OBJ_FLAG_HIDDEN);
+            } else if ((int)i < lives) {
                 // Active heart - red
                 lv_obj_set_style_text_color(heart, LV_COLOR_ERROR, 0);
                 lv_obj_clear_flag(heart, LV_OBJ_FLAG_HIDDEN);
             } else {
-                // Lost heart - gray (but still visible for context)
+                // Lost heart - gray (still visible for context)
                 lv_obj_set_style_text_color(heart, LV_COLOR_TEXT_DISABLED, 0);
-                // Hide hearts beyond max lives for this game
-                // Show gray hearts for lost lives
+                lv_obj_clear_flag(heart, LV_OBJ_FLAG_HIDDEN);
             }
         }
     }
@@ -344,7 +351,11 @@ void updateShooterLetter(int index, char letter, int x, int y, bool visible) {
     if (index >= 0 && index < 8 && shooter_letter_labels[index] != NULL) {
         if (visible) {
             char buf[2] = {letter, '\0'};
-            lv_label_set_text(shooter_letter_labels[index], buf);
+            // Skip redundant set_text: physics ticks at 20Hz and set_text
+            // always invalidates the label even when nothing changed
+            if (strcmp(lv_label_get_text(shooter_letter_labels[index]), buf) != 0) {
+                lv_label_set_text(shooter_letter_labels[index], buf);
+            }
             lv_obj_set_pos(shooter_letter_labels[index], x, y);
             lv_obj_clear_flag(shooter_letter_labels[index], LV_OBJ_FLAG_HIDDEN);
         } else {
@@ -354,29 +365,25 @@ void updateShooterLetter(int index, char letter, int x, int y, bool visible) {
 }
 
 // Show/hide/position a falling word (for Word and Callsign modes)
+// Typed prefix is rendered green via LVGL recolor; the rest stays yellow.
 void updateShooterWord(int index, const char* word, int lettersTyped, int x, int y, bool visible) {
     if (index >= 0 && index < 8 && shooter_letter_labels[index] != NULL) {
         if (visible && word != NULL) {
-            // Build display string with typed letters highlighted
-            // Format: completed letters shown normally, remaining with dots
-            String display = "";
             int len = strlen(word);
-            for (int i = 0; i < len; i++) {
-                display += word[i];
-                if (i < len - 1) {
-                    display += (i < lettersTyped) ? " " : ".";
-                }
+            if (lettersTyped > len) lettersTyped = len;
+
+            char buf[32];
+            if (lettersTyped > 0) {
+                snprintf(buf, sizeof(buf), "#00C853 %.*s#%s", lettersTyped, word, word + lettersTyped);
+            } else {
+                snprintf(buf, sizeof(buf), "%s", word);
             }
-            lv_label_set_text(shooter_letter_labels[index], display.c_str());
+
+            if (strcmp(lv_label_get_text(shooter_letter_labels[index]), buf) != 0) {
+                lv_label_set_text(shooter_letter_labels[index], buf);
+            }
             lv_obj_set_pos(shooter_letter_labels[index], x, y);
             lv_obj_clear_flag(shooter_letter_labels[index], LV_OBJ_FLAG_HIDDEN);
-
-            // Color: partially completed words show progress
-            if (lettersTyped > 0 && lettersTyped < len) {
-                lv_obj_set_style_text_color(shooter_letter_labels[index], LV_COLOR_SUCCESS, 0);
-            } else {
-                lv_obj_set_style_text_color(shooter_letter_labels[index], LV_COLOR_WARNING, 0);
-            }
         } else {
             lv_obj_add_flag(shooter_letter_labels[index], LV_OBJ_FLAG_HIDDEN);
         }
@@ -817,7 +824,12 @@ void showShooterGameOver() {
     if (shooter_screen == NULL) return;
 
     extern int getCurrentModeHighScore();
+    extern void persistShooterHighScore();
     bool isHighScore = (gameScore >= getCurrentModeHighScore() && gameScore > 0);
+
+    // High scores update in-memory during play; commit to NVS here, once,
+    // now that no audio is active (flash commits crunch live audio)
+    persistShooterHighScore();
 
     // Create overlay using the existing helper
     shooter_game_over_overlay = createGameOverOverlay(shooter_screen, gameScore, isHighScore);
@@ -842,8 +854,6 @@ void showShooterGameOver() {
 
 // External state from game_morse_shooter.h
 // Note: cwSpeed, cwTone, cwKeyType are from settings_cw.h (now included above)
-extern ShooterDifficulty shooterDifficulty;
-extern int shooterHighScores[3];
 extern void loadShooterPrefs();
 extern void saveShooterPrefs();
 extern void startMorseShooter(LGFX& tft);
@@ -872,14 +882,15 @@ static void shooter_settings_update_all();
 void startShooterFromSettings();
 
 // Row indices for settings screen
-// 0=Mode, 1=Preset, 2=Speed, 3=Tone, 4=Key Type, 5=Lives, 6=START
+// 0=Mode, 1=Preset, 2=Speed, 3=Tone, 4=Key Type, 5=Lives, 6=Charset, 7=START
 #define SHOOTER_ROW_MODE    0
 #define SHOOTER_ROW_PRESET  1
 #define SHOOTER_ROW_SPEED   2
 #define SHOOTER_ROW_TONE    3
 #define SHOOTER_ROW_KEY     4
 #define SHOOTER_ROW_LIVES   5
-#define SHOOTER_ROW_START   6
+#define SHOOTER_ROW_CHARSET 6
+#define SHOOTER_ROW_START   7
 
 // Get high score for current mode
 static int getShooterHighScoreForMode() {
@@ -913,8 +924,7 @@ static void shooterAdjustValue(int row, int direction) {
             break;
         }
         case SHOOTER_ROW_SPEED:
-            // Only editable in Custom preset
-            if (shooterSettings.preset != 0) return;
+            // Keying WPM is a player skill setting, never locked by presets
             if (direction < 0 && cwSpeed > 5) cwSpeed--;
             else if (direction > 0 && cwSpeed < 40) cwSpeed++;
             else return;
@@ -944,6 +954,23 @@ static void shooterAdjustValue(int row, int direction) {
             else if (direction > 0 && shooterSettings.startLives < 5) shooterSettings.startLives++;
             else return;
             break;
+        case SHOOTER_ROW_CHARSET: {
+            // Only used by Classic mode with Custom preset (Progressive unlocks
+            // its own charsets; Word/Callsign spawn words, not characters)
+            if (shooterSettings.preset != 0 || shooterSettings.gameMode != 0) return;
+            static const uint8_t cycle[3] = {
+                CHARSET_FLAG_LETTERS,
+                CHARSET_FLAG_LETTERS | CHARSET_FLAG_NUMBERS,
+                CHARSET_FLAG_LETTERS | CHARSET_FLAG_NUMBERS | CHARSET_FLAG_PUNCTUATION
+            };
+            int idx = 0;
+            if (shooterSettings.charsetFlags & CHARSET_FLAG_PUNCTUATION) idx = 2;
+            else if (shooterSettings.charsetFlags & CHARSET_FLAG_NUMBERS) idx = 1;
+            idx += direction;
+            if (idx < 0 || idx > 2) return;
+            shooterSettings.charsetFlags = cycle[idx];
+            break;
+        }
         default:
             return;
     }
@@ -998,11 +1025,10 @@ static void shooter_settings_update_all() {
         lv_label_set_text(shooter_preset_value, presetNames[shooterSettings.preset]);
     }
 
-    // Speed (WPM) - dimmed when locked by preset
+    // Speed (WPM) - always editable (keying skill, not game difficulty)
     if (shooter_speed_value != NULL) {
         lv_label_set_text_fmt(shooter_speed_value, "%d WPM", cwSpeed);
-        lv_obj_set_style_text_color(shooter_speed_value,
-            isCustom ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_TEXT_DISABLED, 0);
+        lv_obj_set_style_text_color(shooter_speed_value, LV_COLOR_ACCENT_PRIMARY, 0);
     }
 
     // Tone
@@ -1024,6 +1050,26 @@ static void shooter_settings_update_all() {
         lv_label_set_text_fmt(shooter_lives_value, "%d", lives);
         lv_obj_set_style_text_color(shooter_lives_value,
             isCustom ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_TEXT_DISABLED, 0);
+    }
+
+    // Charset - only meaningful for Classic mode; editable only in Custom preset
+    if (shooter_charset_value != NULL) {
+        bool charsetApplies = (shooterSettings.gameMode == 0);
+        if (!charsetApplies) {
+            lv_label_set_text(shooter_charset_value, "Auto");
+        } else {
+            uint8_t flags = isCustom ? shooterSettings.charsetFlags
+                                     : PRESET_CONFIGS[shooterSettings.preset].charsetFlags;
+            if (flags & CHARSET_FLAG_PUNCTUATION) {
+                lv_label_set_text(shooter_charset_value, "A-Z 0-9 .,?/");
+            } else if (flags & CHARSET_FLAG_NUMBERS) {
+                lv_label_set_text(shooter_charset_value, "A-Z 0-9");
+            } else {
+                lv_label_set_text(shooter_charset_value, "A-Z");
+            }
+        }
+        lv_obj_set_style_text_color(shooter_charset_value,
+            (charsetApplies && isCustom) ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_TEXT_DISABLED, 0);
     }
 
     // High score for current mode
@@ -1133,6 +1179,7 @@ lv_obj_t* createMorseShooterSettingsScreen() {
     createSettingsRow("Tone", SHOOTER_ROW_TONE, &shooter_tone_row, &shooter_tone_value);
     createSettingsRow("Key Type", SHOOTER_ROW_KEY, &shooter_key_row, &shooter_key_value);
     createSettingsRow("Lives", SHOOTER_ROW_LIVES, &shooter_lives_row, &shooter_lives_value);
+    createSettingsRow("Charset", SHOOTER_ROW_CHARSET, &shooter_charset_row, &shooter_charset_value);
 
     // Start button
     shooter_start_btn = lv_btn_create(screen);

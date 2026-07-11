@@ -36,7 +36,6 @@ void drawCWAMessageTypeSelectUI(LGFX& tft);
 void drawCWACopyPracticeUI(LGFX& tft);
 void drawCWASendingPracticeUI(LGFX& tft);
 void drawCWAQSOPracticeUI(LGFX& tft);
-void drawMorseShooterUI(LGFX& tft);
 void drawMemoryUI(LGFX& tft);
 void drawWiFiUI(LGFX& tft);
 void drawCWSettingsUI(LGFX& tft);
