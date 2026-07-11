@@ -172,6 +172,7 @@ static const ModeInfo modeInfoTable[] = {
     { MODE_SAT_PASS_DETAIL, MODE_SAT_PASSES, 0, nullptr },
     { MODE_SAT_LIVE, MODE_SAT_PASS_DETAIL, 0, nullptr },
     { MODE_SAT_SETTINGS, MODE_SAT_LIST, 0, nullptr },
+    { MODE_SAT_WINDOW, MODE_SAT_LIST, 0, nullptr },
 
     // POTA hierarchy
     { MODE_POTA_ACTIVE_SPOTS, MODE_POTA_MENU, 0, nullptr },

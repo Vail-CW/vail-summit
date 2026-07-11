@@ -375,10 +375,41 @@ static bool satNameMatches(const char* name, const char* filter) {
     return false;
 }
 
-// Rebuild satDisplayIdx: favorites first, then the rest, each name-sorted
-void buildSatDisplayList(const char* filter) {
+// Sort key for next-pass ordering: soonest AOS first, uncomputed ("...")
+// next, known-no-pass ("none") last.
+static uint32_t satNextPassSortKey(int idx, const time_t* nextPassAos) {
+    time_t a = nextPassAos[idx];
+    if (a > 0) return (uint32_t)a;
+    if (a == 0) return 0xFFFFFFFEu;
+    return 0xFFFFFFFFu;
+}
+
+// Rebuild satDisplayIdx from the catalog + name filter.
+// nextPassAos == NULL: favorites pinned first, each section name-sorted.
+// nextPassAos != NULL: whole list ordered by next pass time (see key above).
+void buildSatDisplayList(const char* filter, const time_t* nextPassAos) {
     satDisplayCount = 0;
     if (!satCatalog.valid) return;
+
+    if (nextPassAos) {
+        for (int i = 0; i < satCatalog.count; i++) {
+            if (!satNameMatches(satCatalog.sats[i].name, filter)) continue;
+            uint32_t key = satNextPassSortKey(i, nextPassAos);
+            int pos = satDisplayCount;
+            while (pos > 0) {
+                int prev = satDisplayIdx[pos - 1];
+                uint32_t prevKey = satNextPassSortKey(prev, nextPassAos);
+                if (prevKey < key) break;
+                if (prevKey == key &&
+                    strcasecmp(satCatalog.sats[prev].name, satCatalog.sats[i].name) <= 0) break;
+                satDisplayIdx[pos] = satDisplayIdx[pos - 1];
+                pos--;
+            }
+            satDisplayIdx[pos] = (uint16_t)i;
+            satDisplayCount++;
+        }
+        return;
+    }
 
     // Two passes: favorites then non-favorites
     for (int fav = 1; fav >= 0; fav--) {

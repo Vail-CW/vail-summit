@@ -39,16 +39,15 @@ static int sat_list_selected_row = 0;
 static bool sat_search_entry = false;             // typing into the search filter
 static char sat_search_filter[13] = "";
 
-// Background next-pass computation for favorites (shown in the NEXT PASS
-// column). aos/los per catalog index: 0 = not computed, -1 = no pass found
-// within the lookahead window.
+// Background next-pass computation (shown in the NEXT PASS column).
+// aos/los per catalog index: 0 = not computed, -1 = no pass found within the
+// lookahead window. Favorites always compute; with sort-by-pass enabled the
+// worker sweeps the whole catalog (favorites first).
 static time_t sat_np_aos[MAX_SATELLITES];
 static time_t sat_np_los[MAX_SATELLITES];
 static lv_timer_t* sat_list_np_timer = NULL;
-static int sat_np_queue[24];
-static int sat_np_qcount = 0;
-static int sat_np_qpos = 0;
-static bool sat_np_inflight = false;
+static int sat_np_current = -1;         // catalog index in-flight, -1 = idle
+static bool sat_sort_by_pass = false;   // P toggles: name sort vs next-pass sort
 
 // Selection carried between screens
 static int sat_selected_catalog_idx = -1;
@@ -75,6 +74,21 @@ static lv_timer_t* sat_live_timer = NULL;
 // Settings
 static lv_obj_t* sat_set_value_labels[5] = { NULL };
 
+// Sky window ("what's up in the hour after <date time>")
+#define SAT_WIN_MAX_RESULTS 40
+#define SAT_WIN_MINUTES 60
+static struct { int catIdx; SatPass pass; } sat_win_results[SAT_WIN_MAX_RESULTS];
+static int sat_win_count = 0;
+static int sat_win_scan = 0;            // next catalog index to evaluate
+static bool sat_win_inflight = false;
+static time_t sat_win_start = 0;        // UTC start of the 60-min window
+static int sat_win_selected_row = 0;
+static lv_obj_t* sat_win_table = NULL;
+static lv_obj_t* sat_win_status_label = NULL;
+static lv_obj_t* sat_win_date_val = NULL;
+static lv_obj_t* sat_win_time_val = NULL;
+static lv_timer_t* sat_win_timer = NULL;
+
 // ============================================
 // Cleanup (registered for all satellite modes)
 // ============================================
@@ -84,7 +98,9 @@ void cleanupSatelliteScreens() {
     if (sat_detail_timer) { lv_timer_del(sat_detail_timer); sat_detail_timer = NULL; }
     if (sat_live_timer)   { lv_timer_del(sat_live_timer);   sat_live_timer = NULL; }
     if (sat_list_np_timer) { lv_timer_del(sat_list_np_timer); sat_list_np_timer = NULL; }
-    sat_np_inflight = false;
+    if (sat_win_timer) { lv_timer_del(sat_win_timer); sat_win_timer = NULL; }
+    sat_np_current = -1;
+    sat_win_inflight = false;
     satSearch.active = false;
 
     sat_list_table = NULL;
@@ -95,6 +111,10 @@ void cleanupSatelliteScreens() {
     sat_passes_table = NULL;
     sat_passes_status_label = NULL;
     sat_detail_countdown_label = NULL;
+    sat_win_table = NULL;
+    sat_win_status_label = NULL;
+    sat_win_date_val = NULL;
+    sat_win_time_val = NULL;
     sat_live_az_label = NULL;
     sat_live_el_label = NULL;
     sat_live_dist_label = NULL;
@@ -240,31 +260,49 @@ static void satFmtNextPassCell(int catIdx, char* buf, size_t n) {
     else snprintf(buf, n, "%s in %ldh%02ldm", lt, mins / 60, mins % 60);
 }
 
-// Queue every favorite whose cached next pass is missing or already over.
-static void satQueueNextPassCompute() {
-    sat_np_qcount = 0;
-    sat_np_qpos = 0;
-    sat_np_inflight = false;
-    if (!satCatalog.valid || !ntpSynced) return;
+// Does this catalog index want a next-pass value?
+static bool satNextPassWanted(int idx) {
+    return sat_sort_by_pass || isSatFavorite(satCatalog.sats[idx].norad);
+}
+
+// Next catalog index needing computation (favorites first), or -1 when
+// everything wanted is current. -1 ("no pass in window") entries stay sticky
+// until a TLE refresh - recomputing them is the most expensive case.
+static int satNextComputeIndex() {
+    if (!satCatalog.valid || !ntpSynced) return -1;
     double lat, lon;
-    if (!gridToLatLon(satEffectiveGrid(), &lat, &lon)) return;
+    if (!gridToLatLon(satEffectiveGrid(), &lat, &lon)) return -1;
 
     time_t now = time(nullptr);
-    for (int i = 0; i < satCatalog.count && sat_np_qcount < (int)(sizeof(sat_np_queue) / sizeof(int)); i++) {
-        if (!isSatFavorite(satCatalog.sats[i].norad)) continue;
-        if (sat_np_aos[i] > 0 && sat_np_los[i] >= now) continue;  // still current
-        sat_np_aos[i] = 0;
-        sat_np_los[i] = 0;
-        sat_np_queue[sat_np_qcount++] = i;
+    for (int fav = 1; fav >= 0; fav--) {
+        for (int i = 0; i < satCatalog.count; i++) {
+            if ((int)isSatFavorite(satCatalog.sats[i].norad) != fav) continue;
+            if (!satNextPassWanted(i)) continue;
+            if (sat_np_aos[i] == (time_t)-1) continue;               // known: none in window
+            if (sat_np_aos[i] > 0 && sat_np_los[i] >= now) continue; // still current
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Compute progress for the header label: done/wanted
+static void satNextPassProgress(int* done, int* wanted) {
+    *done = 0;
+    *wanted = 0;
+    if (!satCatalog.valid) return;
+    for (int i = 0; i < satCatalog.count; i++) {
+        if (!satNextPassWanted(i)) continue;
+        (*wanted)++;
+        if (sat_np_aos[i] != 0) (*done)++;
     }
 }
 
 static void satRefreshListTable();  // forward
 static void sat_list_np_timer_cb(lv_timer_t* t);  // forward
 
-// (Re)build the queue and make sure the worker timer is running at full speed.
+// Make sure the worker timer is running at full speed.
 static void satEnsureNextPassWorker() {
-    satQueueNextPassCompute();
     if (!sat_list_np_timer) {
         sat_list_np_timer = lv_timer_create(sat_list_np_timer_cb, 60, NULL);
     } else {
@@ -272,44 +310,41 @@ static void satEnsureNextPassWorker() {
     }
 }
 
-// Chunked worker: one favorite at a time through the shared pass-search state
-// machine, stopping at the first pass found. When the queue drains, drop to a
-// slow 30s tick that keeps the relative times fresh and requeues stale birds.
+// Chunked worker: one satellite at a time through the shared pass-search
+// state machine, stopping at the first pass found. When nothing needs
+// computing, drop to a slow 30s tick that keeps the relative times fresh
+// and picks up birds whose pass has ended.
 static void sat_list_np_timer_cb(lv_timer_t* t) {
     if (!sat_list_table || !lv_obj_is_valid(sat_list_table)) return;
 
-    if (sat_np_qpos >= sat_np_qcount) {
-        satQueueNextPassCompute();
-        satRefreshListTable();
-        lv_timer_set_period(t, sat_np_qcount > 0 ? 60 : 30000);
-        return;
-    }
-    lv_timer_set_period(t, 60);
-
-    int idx = sat_np_queue[sat_np_qpos];
-    if (!sat_np_inflight) {
-        if (!satStartPassSearch(idx)) {
-            sat_np_aos[idx] = (time_t)-1;
-            sat_np_los[idx] = (time_t)-1;
-            sat_np_qpos++;
+    if (sat_np_current < 0) {
+        sat_np_current = satNextComputeIndex();
+        if (sat_np_current < 0) {
+            satRefreshListTable();  // keep relative times / NOW state fresh
+            lv_timer_set_period(t, 30000);
             return;
         }
-        sat_np_inflight = true;
+        lv_timer_set_period(t, 60);
+        if (!satStartPassSearch(sat_np_current)) {
+            sat_np_aos[sat_np_current] = (time_t)-1;
+            sat_np_los[sat_np_current] = (time_t)-1;
+            sat_np_current = -1;
+            return;
+        }
     }
 
     satPassSearchStep(25);
     if (satSearch.count > 0 || satSearch.done) {
         if (satSearch.count > 0) {
-            sat_np_aos[idx] = satSearch.passes[0].aos;
-            sat_np_los[idx] = satSearch.passes[0].los;
+            sat_np_aos[sat_np_current] = satSearch.passes[0].aos;
+            sat_np_los[sat_np_current] = satSearch.passes[0].los;
         } else {
-            sat_np_aos[idx] = (time_t)-1;
-            sat_np_los[idx] = (time_t)-1;
+            sat_np_aos[sat_np_current] = (time_t)-1;
+            sat_np_los[sat_np_current] = (time_t)-1;
         }
         satSearch.active = false;
         satSearch.done = true;
-        sat_np_inflight = false;
-        sat_np_qpos++;
+        sat_np_current = -1;
         satRefreshListTable();
     }
 }
@@ -325,11 +360,19 @@ static void satUpdateListHeaderLabels() {
         lv_label_set_text(sat_list_count_label, buf);
     }
     if (sat_list_info_label && lv_obj_is_valid(sat_list_info_label)) {
-        char buf[32];
+        char buf[48];
         if (sat_search_entry) {
             snprintf(buf, sizeof(buf), "Search: %s_", sat_search_filter);
         } else if (sat_search_filter[0] != '\0') {
             snprintf(buf, sizeof(buf), "Filter: %s", sat_search_filter);
+        } else if (sat_sort_by_pass) {
+            int done = 0, wanted = 0;
+            satNextPassProgress(&done, &wanted);
+            if (done < wanted) {
+                snprintf(buf, sizeof(buf), "Sort: next pass (%d/%d)", done, wanted);
+            } else {
+                strlcpy(buf, "Sort: next pass", sizeof(buf));
+            }
         } else {
             strlcpy(buf, "", sizeof(buf));
         }
@@ -361,8 +404,24 @@ static void satUpdateListHeaderLabels() {
 static void satRefreshListTable() {
     if (!sat_list_table || !lv_obj_is_valid(sat_list_table)) return;
 
-    buildSatDisplayList(sat_search_filter);
+    // Remember which satellite the cursor is on - resorting (next-pass mode
+    // reorders as results land) must not teleport the selection.
+    uint32_t selNorad = 0;
+    if (satDisplayCount > 0 && sat_list_selected_row < satDisplayCount) {
+        selNorad = satCatalog.sats[satDisplayIdx[sat_list_selected_row]].norad;
+    }
+
+    buildSatDisplayList(sat_search_filter, sat_sort_by_pass ? sat_np_aos : NULL);
     satUpdateListHeaderLabels();
+
+    if (selNorad != 0) {
+        for (int i = 0; i < satDisplayCount; i++) {
+            if (satCatalog.sats[satDisplayIdx[i]].norad == selNorad) {
+                sat_list_selected_row = i;
+                break;
+            }
+        }
+    }
 
     bool empty = (satDisplayCount == 0);
     if (sat_list_empty_label && lv_obj_is_valid(sat_list_empty_label)) {
@@ -388,7 +447,9 @@ static void satRefreshListTable() {
         lv_table_set_cell_value(sat_list_table, i, 0, fav ? "*" : "");
         lv_table_set_cell_value(sat_list_table, i, 1, e.name);
         char next[24] = "";
-        if (fav) satFmtNextPassCell(satDisplayIdx[i], next, sizeof(next));
+        if (fav || sat_sort_by_pass || sat_np_aos[satDisplayIdx[i]] != 0) {
+            satFmtNextPassCell(satDisplayIdx[i], next, sizeof(next));
+        }
         lv_table_set_cell_value(sat_list_table, i, 2, next);
     }
 
@@ -462,6 +523,33 @@ static void sat_list_key_handler(lv_event_t* e) {
         return;
     }
 
+    if (key == 'P' || key == 'p') {
+        sat_sort_by_pass = !sat_sort_by_pass;
+        beep(800, 60);
+        satRefreshListTable();
+        satScrollTableToRow(sat_list_table, sat_list_selected_row, satDisplayCount);
+        satEnsureNextPassWorker();  // sort mode widens the compute sweep to all sats
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    if (key == 'T' || key == 't') {
+        double lat, lon;
+        if (!gridToLatLon(satEffectiveGrid(), &lat, &lon) || !ntpSynced) {
+            lv_indev_t* indev = getLVGLKeypad();
+            if (indev) lv_indev_wait_release(indev);
+            playAlertChirp();
+            createAlertDialog("Not Ready",
+                "Sky Window needs a grid square\n(Setup, press C) and a synced\nclock (WiFi) to compute passes.");
+        } else {
+            if (sat_list_np_timer) { lv_timer_del(sat_list_np_timer); sat_list_np_timer = NULL; }
+            sat_np_current = -1;
+            onLVGLMenuSelect(MODE_SAT_WINDOW);
+        }
+        lv_event_stop_processing(e);
+        return;
+    }
+
     if (key == 'F' || key == 'f') {
         if (satDisplayCount > 0 && sat_list_selected_row < satDisplayCount) {
             toggleSatFavorite(satCatalog.sats[satDisplayIdx[sat_list_selected_row]].norad);
@@ -512,7 +600,7 @@ static void sat_list_key_handler(lv_event_t* e) {
                 // The passes screen owns the shared pass-search state machine;
                 // stop the background next-pass worker before handing over.
                 if (sat_list_np_timer) { lv_timer_del(sat_list_np_timer); sat_list_np_timer = NULL; }
-                sat_np_inflight = false;
+                sat_np_current = -1;
                 onLVGLMenuSelect(MODE_SAT_PASSES);
             }
         }
@@ -629,7 +717,7 @@ lv_obj_t* createSatListScreen() {
     lv_obj_align(sat_list_empty_label, LV_ALIGN_CENTER, 0, 10);
     lv_obj_add_flag(sat_list_empty_label, LV_OBJ_FLAG_HIDDEN);
 
-    satCreateFooter(screen, "ENTER Passes   S Search   F Fav   R Update TLEs   C Setup   ESC Back");
+    satCreateFooter(screen, "ENTER Passes  S Search  P Sort  T Window  F Fav  R TLEs  C Setup");
 
     satRefreshListTable();
 
@@ -1157,6 +1245,314 @@ lv_obj_t* createSatLiveScreen() {
 }
 
 // ============================================
+// Sky Window Screen (passes in the hour after a chosen time)
+// ============================================
+
+static void satWinUpdateChipLabels() {
+    char buf[16];
+    if (sat_win_date_val && lv_obj_is_valid(sat_win_date_val)) {
+        satFmtLocalDate(sat_win_start, buf, sizeof(buf));
+        lv_label_set_text(sat_win_date_val, buf);
+    }
+    if (sat_win_time_val && lv_obj_is_valid(sat_win_time_val)) {
+        char zt[12];
+        satFmtLocalTime(sat_win_start, buf, sizeof(buf));
+        satFmtZuluTime(sat_win_start, zt, sizeof(zt));
+        char both[24];
+        snprintf(both, sizeof(both), "%s (%s)", buf, zt);
+        lv_label_set_text(sat_win_time_val, both);
+    }
+}
+
+static void satWinUpdateStatus() {
+    if (!sat_win_status_label || !lv_obj_is_valid(sat_win_status_label)) return;
+    char buf[64];
+    if (!satCatalog.valid) {
+        strlcpy(buf, "No TLE data - update from the satellite list", sizeof(buf));
+    } else if (sat_win_scan < satCatalog.count) {
+        snprintf(buf, sizeof(buf), "Scanning %d/%d... %d up", sat_win_scan, satCatalog.count, sat_win_count);
+    } else {
+        snprintf(buf, sizeof(buf), "%d satellites in the %d min after start (min el %d)",
+                 sat_win_count, SAT_WIN_MINUTES, satSettings.minElevation);
+    }
+    lv_label_set_text(sat_win_status_label, buf);
+}
+
+static void satWinRefreshTable() {
+    if (!sat_win_table || !lv_obj_is_valid(sat_win_table)) return;
+    satWinUpdateStatus();
+
+    if (sat_win_count == 0) {
+        lv_table_set_row_cnt(sat_win_table, 1);
+        lv_table_set_cell_value(sat_win_table, 0, 0,
+            (sat_win_scan >= satCatalog.count) ? "Nothing above the horizon in this window" : "");
+        for (int c = 1; c < 5; c++) lv_table_set_cell_value(sat_win_table, 0, c, "");
+        return;
+    }
+
+    lv_table_set_row_cnt(sat_win_table, sat_win_count);
+    for (int i = 0; i < sat_win_count; i++) {
+        SatPass& p = sat_win_results[i].pass;
+        char buf[32];
+
+        lv_table_set_cell_value(sat_win_table, i, 0, satCatalog.sats[sat_win_results[i].catIdx].name);
+
+        char lt[12];
+        satFmtLocalTime(p.aos < sat_win_start ? sat_win_start : p.aos, lt, sizeof(lt));
+        // A pass already in progress at window start shows the start time
+        snprintf(buf, sizeof(buf), "%s%s", (p.aos < sat_win_start) ? "<" : "", lt);
+        lv_table_set_cell_value(sat_win_table, i, 1, buf);
+
+        long durMin = (long)(p.los - p.aos + 30) / 60;
+        snprintf(buf, sizeof(buf), "%ldm", durMin);
+        lv_table_set_cell_value(sat_win_table, i, 2, buf);
+
+        snprintf(buf, sizeof(buf), "%.0f", p.maxEl);
+        lv_table_set_cell_value(sat_win_table, i, 3, buf);
+
+        snprintf(buf, sizeof(buf), "%s>%s", azToCompass(p.aosAz), azToCompass(p.losAz));
+        lv_table_set_cell_value(sat_win_table, i, 4, buf);
+    }
+
+    if (sat_win_selected_row >= sat_win_count) sat_win_selected_row = sat_win_count - 1;
+    if (sat_win_selected_row < 0) sat_win_selected_row = 0;
+    lv_obj_invalidate(sat_win_table);
+}
+
+// Restart the catalog scan for the current window start
+static void satWinRestartScan() {
+    sat_win_count = 0;
+    sat_win_scan = 0;
+    sat_win_selected_row = 0;
+    sat_win_inflight = false;
+    satSearch.active = false;
+    if (sat_win_timer) lv_timer_set_period(sat_win_timer, 60);
+    satWinRefreshTable();
+}
+
+static void satWinInsertResult(int catIdx, const SatPass* p) {
+    if (sat_win_count >= SAT_WIN_MAX_RESULTS) return;
+    int pos = sat_win_count;
+    while (pos > 0 && sat_win_results[pos - 1].pass.aos > p->aos) {
+        sat_win_results[pos] = sat_win_results[pos - 1];
+        pos--;
+    }
+    sat_win_results[pos].catIdx = catIdx;
+    sat_win_results[pos].pass = *p;
+    sat_win_count++;
+}
+
+// Chunked scan: one satellite at a time through the shared search machine
+// over [start, start+60min] (with margin so a pass peaking just past the end
+// is still found), keeping passes that overlap the window.
+static void sat_win_timer_cb(lv_timer_t* t) {
+    if (!sat_win_table || !lv_obj_is_valid(sat_win_table)) return;
+    if (!satCatalog.valid || sat_win_scan >= satCatalog.count) {
+        lv_timer_set_period(t, 60000);
+        return;
+    }
+
+    if (!sat_win_inflight) {
+        if (!satStartPassSearchAt(sat_win_scan, sat_win_start, SAT_WIN_MINUTES / 60.0 + 0.25)) {
+            sat_win_scan++;
+            return;
+        }
+        sat_win_inflight = true;
+    }
+
+    satPassSearchStep(25);
+    if (satSearch.count > 0 || satSearch.done) {
+        time_t winEnd = sat_win_start + SAT_WIN_MINUTES * 60;
+        for (int i = 0; i < satSearch.count; i++) {
+            SatPass& p = satSearch.passes[i];
+            if (p.aos <= winEnd && p.los >= sat_win_start) {
+                satWinInsertResult(sat_win_scan, &p);
+                break;  // one entry per satellite
+            }
+        }
+        satSearch.active = false;
+        satSearch.done = true;
+        sat_win_inflight = false;
+        sat_win_scan++;
+        // Refresh every few birds (and at the end) to keep redraw cost down
+        if ((sat_win_scan % 4) == 0 || sat_win_scan >= satCatalog.count) {
+            satWinRefreshTable();
+        } else {
+            satWinUpdateStatus();
+        }
+    }
+}
+
+// Round up to the next quarter hour
+static time_t satWinRoundUp(time_t v) {
+    return ((v + 899) / 900) * 900;
+}
+
+// Date/time chip adjust: row 0 = date (+/- 1 day), row 1 = time (+/- 15 min)
+static void sat_win_chip_key_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
+    if (key != LV_KEY_LEFT && key != LV_KEY_RIGHT) return;
+
+    int row = (int)(intptr_t)lv_event_get_user_data(e);
+    long delta = (row == 0) ? 86400L : 900L;
+    if (key == LV_KEY_LEFT) delta = -delta;
+
+    time_t now = time(nullptr);
+    time_t v = sat_win_start + delta;
+    if (v < now) v = satWinRoundUp(now);                    // no past windows
+    if (v > now + 7L * 86400L) v = sat_win_start;           // TLEs go stale past ~a week
+    if (v != sat_win_start) {
+        sat_win_start = v;
+        satWinUpdateChipLabels();
+        satWinRestartScan();
+    }
+    lv_event_stop_processing(e);
+}
+
+static void sat_win_table_key_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
+
+    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
+        if (sat_win_selected_row > 0) {
+            sat_win_selected_row--;
+            satScrollTableToRow(sat_win_table, sat_win_selected_row, sat_win_count);
+            lv_event_stop_processing(e);
+        }
+        // At the top row: fall through so linear_nav moves focus to the chips
+        return;
+    }
+    if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
+        if (sat_win_selected_row < sat_win_count - 1) {
+            sat_win_selected_row++;
+            satScrollTableToRow(sat_win_table, sat_win_selected_row, sat_win_count);
+        }
+        lv_event_stop_processing(e);
+        return;
+    }
+
+    if (key == LV_KEY_ENTER) {
+        if (sat_win_count > 0 && sat_win_selected_row < sat_win_count) {
+            sat_selected_catalog_idx = sat_win_results[sat_win_selected_row].catIdx;
+            satSelectedPass = sat_win_results[sat_win_selected_row].pass;
+            satSelectedPassValid = true;
+            if (sat_win_timer) { lv_timer_del(sat_win_timer); sat_win_timer = NULL; }
+            sat_win_inflight = false;
+            onLVGLMenuSelect(MODE_SAT_PASS_DETAIL);
+        }
+        lv_event_stop_processing(e);
+        return;
+    }
+}
+
+lv_obj_t* createSatWindowScreen() {
+    clearNavigationGroup();
+    lv_obj_t* screen = createScreen();
+    applyScreenStyle(screen);
+
+    if (sat_win_start < time(nullptr)) {
+        sat_win_start = satWinRoundUp(time(nullptr));
+    }
+
+    satCreateHeader(screen, "SKY WINDOW");
+
+    // Date + time chips side by side
+    struct { const char* caption; lv_obj_t** value; } chips[2] = {
+        { "DATE", &sat_win_date_val },
+        { "START", &sat_win_time_val },
+    };
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t* chip = lv_obj_create(screen);
+        lv_obj_set_size(chip, 222, 34);
+        lv_obj_set_pos(chip, 10 + i * 228, HEADER_HEIGHT + 5);
+        applyCardStyle(chip);
+        lv_obj_set_style_pad_all(chip, 6, 0);
+        lv_obj_set_style_border_color(chip, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
+        lv_obj_set_style_border_width(chip, 2, LV_STATE_FOCUSED);
+        lv_obj_add_flag(chip, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(chip, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t* cap = lv_label_create(chip);
+        lv_label_set_text(cap, chips[i].caption);
+        lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
+        lv_obj_set_style_text_color(cap, LV_COLOR_TEXT_SECONDARY, 0);
+        lv_obj_align(cap, LV_ALIGN_LEFT_MID, 2, 0);
+
+        lv_obj_t* val = lv_label_create(chip);
+        lv_label_set_text(val, "--");
+        lv_obj_set_style_text_font(val, &lv_font_montserrat_16, 0);
+        lv_obj_set_style_text_color(chip, LV_COLOR_ACCENT_PRIMARY, 0);
+        lv_obj_set_style_text_color(chip, getThemeColors()->text_on_accent, LV_STATE_FOCUSED);
+        lv_obj_align(val, LV_ALIGN_RIGHT_MID, -2, 0);
+        *(chips[i].value) = val;
+
+        lv_obj_add_event_cb(chip, sat_win_chip_key_handler, LV_EVENT_KEY, (void*)(intptr_t)i);
+        lv_obj_add_event_cb(chip, linear_nav_handler, LV_EVENT_KEY, NULL);
+        addNavigableWidget(chip);
+    }
+
+    // Status line
+    sat_win_status_label = lv_label_create(screen);
+    lv_label_set_text(sat_win_status_label, "Scanning...");
+    lv_obj_set_style_text_font(sat_win_status_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(sat_win_status_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_pos(sat_win_status_label, 15, HEADER_HEIGHT + 44);
+
+    // Column headers
+    int header_row_y = HEADER_HEIGHT + 62;
+    lv_obj_t* header_bar = lv_obj_create(screen);
+    lv_obj_set_size(header_bar, SCREEN_WIDTH - 20, 24);
+    lv_obj_set_pos(header_bar, 10, header_row_y);
+    lv_obj_set_style_bg_color(header_bar, getThemeColors()->bg_layer2, 0);
+    lv_obj_set_style_bg_opa(header_bar, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(header_bar, 0, 0);
+    lv_obj_set_style_pad_all(header_bar, 0, 0);
+    lv_obj_clear_flag(header_bar, LV_OBJ_FLAG_SCROLLABLE);
+
+    const char* colNames[5] = { "SAT", "AOS", "LEN", "EL", "PATH" };
+    int colX[5] = { 8, 190, 268, 322, 378 };
+    for (int i = 0; i < 5; i++) {
+        lv_obj_t* h = lv_label_create(header_bar);
+        lv_label_set_text(h, colNames[i]);
+        lv_obj_set_style_text_font(h, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_color(h, LV_COLOR_ACCENT_PRIMARY, 0);
+        lv_obj_set_pos(h, colX[i], 3);
+    }
+
+    // Table
+    int table_y = header_row_y + 26;
+    int table_height = SCREEN_HEIGHT - table_y - FOOTER_HEIGHT - 5;
+
+    sat_win_table = lv_table_create(screen);
+    lv_obj_set_size(sat_win_table, SCREEN_WIDTH - 20, table_height);
+    lv_obj_set_pos(sat_win_table, 10, table_y);
+    satStyleTable(sat_win_table);
+    lv_table_set_col_cnt(sat_win_table, 5);
+    lv_table_set_col_width(sat_win_table, 0, 182);
+    lv_table_set_col_width(sat_win_table, 1, 78);
+    lv_table_set_col_width(sat_win_table, 2, 54);
+    lv_table_set_col_width(sat_win_table, 3, 56);
+    lv_table_set_col_width(sat_win_table, 4, 88);
+
+    lv_table_set_row_cnt(sat_win_table, 1);
+    for (int c = 0; c < 5; c++) lv_table_set_cell_value(sat_win_table, 0, c, "");
+
+    lv_obj_add_event_cb(sat_win_table, sat_table_highlight_cb, LV_EVENT_DRAW_PART_BEGIN, &sat_win_selected_row);
+    lv_obj_add_flag(sat_win_table, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(sat_win_table, sat_win_table_key_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(sat_win_table, linear_nav_handler, LV_EVENT_KEY, NULL);
+    addNavigableWidget(sat_win_table);
+
+    satCreateFooter(screen, "UP/DN Navigate   L/R Adjust date+time   ENTER Detail   ESC Back");
+
+    satWinUpdateChipLabels();
+    satWinRestartScan();
+    if (!sat_win_timer) sat_win_timer = lv_timer_create(sat_win_timer_cb, 60, NULL);
+    return screen;
+}
+
+// ============================================
 // Settings Screen
 // ============================================
 // Rows: 0 grid, 1 min elevation, 2 lookahead, 3 UTC offset, 4 update TLEs
@@ -1312,8 +1708,12 @@ lv_obj_t* createSatSettingsScreen() {
 
         lv_obj_t* val = lv_label_create(row);
         lv_label_set_text(val, "");
-        lv_obj_set_style_text_color(val, LV_COLOR_ACCENT_PRIMARY, 0);
         lv_obj_set_style_text_font(val, getThemeFonts()->font_input, 0);
+        // Color comes from the row (inherited) so it can flip when the row is
+        // focused - the focused card background is accent-family and accent
+        // text disappears against it while typing the grid.
+        lv_obj_set_style_text_color(row, LV_COLOR_ACCENT_PRIMARY, 0);
+        lv_obj_set_style_text_color(row, getThemeColors()->text_on_accent, LV_STATE_FOCUSED);
         sat_set_value_labels[i] = val;
 
         lv_obj_add_event_cb(row, sat_settings_key_handler, LV_EVENT_KEY, (void*)(intptr_t)i);
@@ -1337,6 +1737,7 @@ lv_obj_t* createSatelliteScreenForMode(int mode) {
         case MODE_SAT_PASS_DETAIL: return createSatPassDetailScreen();
         case MODE_SAT_LIVE:        return createSatLiveScreen();
         case MODE_SAT_SETTINGS:    return createSatSettingsScreen();
+        case MODE_SAT_WINDOW:      return createSatWindowScreen();
         default:                   return NULL;
     }
 }

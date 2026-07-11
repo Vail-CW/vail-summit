@@ -213,12 +213,13 @@ enum MenuMode {
     MODE_MORSE_NOTES_SETTINGS = 168,
     MODE_MORSE_NOTES_LIST = 169,
 
-    // Satellite tracker modes (170-174)
+    // Satellite tracker modes (170-175)
     MODE_SAT_LIST = 170,
     MODE_SAT_PASSES = 171,
     MODE_SAT_PASS_DETAIL = 172,
     MODE_SAT_LIVE = 173,
-    MODE_SAT_SETTINGS = 174
+    MODE_SAT_SETTINGS = 174,
+    MODE_SAT_WINDOW = 175
 };
 
 extern MenuMode currentMode;

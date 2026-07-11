@@ -146,24 +146,28 @@ static bool satPredictorSetup(int catalogIdx) {
     return true;
 }
 
-// Begin a pass search for the given catalog entry over the configured window.
-bool satStartPassSearch(int catalogIdx) {
+// Begin a pass search for a catalog entry over an arbitrary window.
+bool satStartPassSearchAt(int catalogIdx, time_t startUnix, double windowHours) {
     memset(&satSearch, 0, sizeof(satSearch));
     satSearch.catalogIdx = catalogIdx;
 
     if (!ntpSynced) return false;
     if (!satPredictorSetup(catalogIdx)) return false;
 
-    unsigned long nowUnix = (unsigned long)time(nullptr);
-    satSearch.startJd = vsgp4::getJulianFromUnix((double)nowUnix);
-    satSearch.endJd = satSearch.startJd + satSettings.lookaheadHours / 24.0;
+    satSearch.startJd = vsgp4::getJulianFromUnix((double)startUnix);
+    satSearch.endJd = satSearch.startJd + windowHours / 24.0;
 
-    if (!satPredictor.initpredpoint(nowUnix, 0.0)) {
+    if (!satPredictor.initpredpoint((unsigned long)startUnix, 0.0)) {
         Serial.println("[SAT] initpredpoint failed");
         return false;
     }
     satSearch.active = true;
     return true;
+}
+
+// Begin a pass search over the configured lookahead window starting now.
+bool satStartPassSearch(int catalogIdx) {
+    return satStartPassSearchAt(catalogIdx, time(nullptr), (double)satSettings.lookaheadHours);
 }
 
 // Run search iterations for up to budgetMs. Each nextpass(1 iteration) call
