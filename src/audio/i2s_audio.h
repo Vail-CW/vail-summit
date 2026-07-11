@@ -585,8 +585,13 @@ void beep(int frequency, int duration) {
   if (isAudioTaskRunning() && (isTonePlaying() || isMorsePlaybackActive())) {
     requestBeep(frequency, duration);
   } else {
+    // No trailing delay: playTone() returns once the samples (plus a silence
+    // tail) are queued in I2S DMA, and the peripheral drains them on its own.
+    // Blocking past that point froze the UI thread for duration+10ms on every
+    // nav/select beep, which made the whole menu system feel laggy.
+    // Back-to-back beeps still play sequentially - i2s_write self-paces when
+    // the DMA queue is full.
     playTone(frequency, duration);
-    delay(duration + 10);
   }
 }
 

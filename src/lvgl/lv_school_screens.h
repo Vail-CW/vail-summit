@@ -31,7 +31,10 @@
 // Copy-drill state (shared by Daily + Copy)
 // ============================================
 
-enum SchoolDrillPhase { SDP_LISTEN, SDP_FEEDBACK, SDP_DONE };
+enum SchoolDrillPhase { SDP_READY, SDP_LISTEN, SDP_FEEDBACK, SDP_DONE };
+
+#define SCHOOL_READY_MS      1800   // 3-2-1 countdown before the first character
+#define SCHOOL_READY_STEP_MS 600    // ms per countdown number
 
 static lv_obj_t*   s_school_screen   = NULL;
 static lv_timer_t* s_school_tick     = NULL;   // 50ms state-machine tick
@@ -40,8 +43,9 @@ static char        s_drill_target    = '?';
 static int         s_drill_correct   = 0;
 static int         s_drill_total     = 0;
 static int         s_drill_goal      = 0;       // 0 = endless (Copy), N = Daily
-static SchoolDrillPhase s_drill_phase = SDP_LISTEN;
+static SchoolDrillPhase s_drill_phase = SDP_READY;
 static int         s_drill_fb_ms     = 0;       // feedback countdown (ms)
+static int         s_drill_ready_ms  = 0;       // get-ready countdown (ms)
 
 // widgets
 static lv_obj_t* s_drill_char   = NULL;  // big character / "?"
@@ -117,12 +121,24 @@ static void schoolDrillAnswer(char typed) {
     }
 }
 
-// 50ms state-machine tick: drives feedback auto-advance.
+// 50ms state-machine tick: drives the get-ready countdown and feedback auto-advance.
 static void schoolDrillTickCb(lv_timer_t* t) {
     (void)t;
     if (s_school_tick == NULL) return;
     if (lv_scr_act() != s_school_screen) return;
-    if (s_drill_phase == SDP_FEEDBACK) {
+    if (s_drill_phase == SDP_READY) {
+        s_drill_ready_ms -= 50;
+        if (s_drill_ready_ms <= 0) {
+            schoolDrillNext();  // pick + play the first character
+        } else if (s_drill_char) {
+            // 3 -> 2 -> 1 in the big character slot
+            int num = s_drill_ready_ms / SCHOOL_READY_STEP_MS + 1;
+            char str[2] = { (char)('0' + num), '\0' };
+            if (strcmp(lv_label_get_text(s_drill_char), str) != 0) {
+                lv_label_set_text(s_drill_char, str);
+            }
+        }
+    } else if (s_drill_phase == SDP_FEEDBACK) {
         s_drill_fb_ms -= 50;
         if (s_drill_fb_ms <= 0) schoolDrillNext();
     }
@@ -133,8 +149,9 @@ static void schoolDrillKeyHandler(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
     uint32_t key = lv_event_get_key(e);
     if (key == LV_KEY_ESC) return;        // let global ESC handler take it
-    if (key == ' ') {                     // replay current character
+    if (key == ' ') {                     // replay current character / skip countdown
         if (s_drill_phase == SDP_LISTEN) schoolDrillPlayTarget();
+        else if (s_drill_phase == SDP_READY) schoolDrillNext();  // start now
         lv_event_stop_processing(e);
         return;
     }
@@ -169,7 +186,8 @@ static lv_obj_t* schoolBuildDrillScreen(const char* title, int goal) {
     s_drill_correct = 0;
     s_drill_total = 0;
     s_drill_goal = goal;
-    s_drill_phase = SDP_LISTEN;
+    s_drill_phase = SDP_READY;
+    s_drill_ready_ms = SCHOOL_READY_MS;
 
     lv_obj_t* screen = createScreen();
     s_school_screen = screen;
@@ -189,16 +207,16 @@ static lv_obj_t* schoolBuildDrillScreen(const char* title, int goal) {
     lv_obj_align(s_drill_score, LV_ALIGN_TOP_RIGHT, -14, 12);
     schoolDrillUpdateScore();
 
-    // Big character (center)
+    // Big character (center) - shows the 3-2-1 countdown first
     s_drill_char = lv_label_create(screen);
-    lv_label_set_text(s_drill_char, "?");
+    lv_label_set_text(s_drill_char, "3");
     lv_obj_set_style_text_font(s_drill_char, getThemeFonts()->font_large, 0);
-    lv_obj_set_style_text_color(s_drill_char, LV_COLOR_TEXT_TERTIARY, 0);
+    lv_obj_set_style_text_color(s_drill_char, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(s_drill_char, LV_ALIGN_CENTER, 0, -16);
 
     // Prompt (below center)
     s_drill_prompt = lv_label_create(screen);
-    lv_label_set_text(s_drill_prompt, "Listen & type the character");
+    lv_label_set_text(s_drill_prompt, "Get ready...  SPACE to start now");
     lv_obj_set_style_text_font(s_drill_prompt, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(s_drill_prompt, LV_COLOR_TEXT_SECONDARY, 0);
     lv_obj_align(s_drill_prompt, LV_ALIGN_CENTER, 0, 30);
@@ -221,8 +239,9 @@ static lv_obj_t* schoolBuildDrillScreen(const char* title, int goal) {
     addNavigableWidget(catcher);
     focusWidget(catcher);
 
-    // Start: play the first character and begin the tick.
-    schoolDrillNext();
+    // Begin the tick in the get-ready phase; the first character picks and
+    // plays when the countdown finishes (or immediately on SPACE). Launching
+    // audio the same instant the screen appears gave the user no time to react.
     s_school_tick = lv_timer_create(schoolDrillTickCb, 50, NULL);
 
     return screen;
@@ -322,7 +341,7 @@ lv_obj_t* createSchoolHubScreen() {
 //   poll    (pollTable):         schoolSendPoll() -> updatePracticeOscillator() + compare
 //   cleanup (cleanupTable):      schoolSendCleanup() -> practiceHandleEsc()
 
-enum SchoolSendPhase { SSP_WAIT, SSP_FEEDBACK };
+enum SchoolSendPhase { SSP_READY, SSP_WAIT, SSP_FEEDBACK };
 
 static lv_obj_t* s_send_screen  = NULL;
 static lv_obj_t* s_send_target  = NULL;  // big target character
@@ -333,8 +352,9 @@ static String    s_send_pool    = "";
 static char      s_send_target_ch = '?';
 static int       s_send_correct = 0;
 static int       s_send_total   = 0;
-static SchoolSendPhase s_send_phase = SSP_WAIT;
+static SchoolSendPhase s_send_phase = SSP_READY;
 static unsigned long   s_send_fb_until = 0;
+static unsigned long   s_send_ready_until = 0;  // get-ready countdown deadline
 static bool      s_send_active  = false;
 
 static void schoolSendUpdateScore() {
@@ -368,13 +388,39 @@ void schoolSendInit() {
     s_send_total = 0;
     s_send_active = true;
     schoolSendUpdateScore();
-    schoolSendNewTarget();
+
+    // Get-ready countdown before the first target so entering the mode isn't
+    // abrupt; schoolSendPoll() advances to the first target when it expires.
+    s_send_phase = SSP_READY;
+    s_send_ready_until = millis() + SCHOOL_READY_MS;
+    if (s_send_target) {
+        lv_label_set_text(s_send_target, "3");
+        lv_obj_set_style_text_color(s_send_target, LV_COLOR_ACCENT_PRIMARY, 0);
+    }
+    if (s_send_prompt) {
+        lv_label_set_text(s_send_prompt, "Get ready...  SPACE to start now");
+        lv_obj_set_style_text_color(s_send_prompt, LV_COLOR_TEXT_SECONDARY, 0);
+    }
 }
 
 // Called every main-loop iteration while in MODE_SCHOOL_SEND (pollTable).
 void schoolSendPoll() {
     if (!s_send_active) return;
     updatePracticeOscillator();  // drive keyer + decoder
+
+    if (s_send_phase == SSP_READY) {
+        long remaining = (long)(s_send_ready_until - millis());
+        if (remaining <= 0) {
+            schoolSendNewTarget();  // clears any decode from countdown keying
+        } else if (s_send_target) {
+            int num = remaining / SCHOOL_READY_STEP_MS + 1;
+            char str[2] = { (char)('0' + num), '\0' };
+            if (strcmp(lv_label_get_text(s_send_target), str) != 0) {
+                lv_label_set_text(s_send_target, str);
+            }
+        }
+        return;
+    }
 
     if (s_send_phase == SSP_WAIT) {
         // A decoded character has arrived for this target (buffer was cleared
@@ -421,9 +467,13 @@ static void schoolSendKeyHandler(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
     uint32_t key = lv_event_get_key(e);
     if (key == ' ') {
-        char str[2] = { s_send_target_ch, '\0' };
-        requestPlayMorseStringFarnsworth(str, vailCourseProgress.characterWPM,
-                                         vailCourseProgress.effectiveWPM, TONE_SIDETONE);
+        if (s_send_phase == SSP_READY) {
+            s_send_ready_until = millis();  // skip countdown; poll starts the first target
+        } else {
+            char str[2] = { s_send_target_ch, '\0' };
+            requestPlayMorseStringFarnsworth(str, vailCourseProgress.characterWPM,
+                                             vailCourseProgress.effectiveWPM, TONE_SIDETONE);
+        }
         lv_event_stop_processing(e);
     } else if (key == '\t' || key == LV_KEY_NEXT) {
         lv_event_stop_processing(e);

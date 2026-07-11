@@ -32,7 +32,6 @@ typedef enum {
 
 // Default transition duration in ms (short enough that the ~25-30fps
 // full-screen redraw rate still yields several frames per transition)
-#define DEFAULT_TRANSITION_MS 120
 
 // ============================================
 // Global ESC Handler
@@ -415,31 +414,15 @@ lv_obj_t* createScreen() {
  * screen creation and would be lost. The group is managed by screen creators.
  */
 void loadScreen(lv_obj_t* new_screen, ScreenAnimType anim = SCREEN_ANIM_FADE) {
-    // Determine animation type
-    lv_scr_load_anim_t lv_anim = LV_SCR_LOAD_ANIM_FADE_ON;
-    switch (anim) {
-        case SCREEN_ANIM_NONE:
-            lv_anim = LV_SCR_LOAD_ANIM_NONE;
-            break;
-        case SCREEN_ANIM_FADE:
-            lv_anim = LV_SCR_LOAD_ANIM_FADE_ON;
-            break;
-        case SCREEN_ANIM_SLIDE_LEFT:
-            lv_anim = LV_SCR_LOAD_ANIM_MOVE_LEFT;
-            break;
-        case SCREEN_ANIM_SLIDE_RIGHT:
-            lv_anim = LV_SCR_LOAD_ANIM_MOVE_RIGHT;
-            break;
-        case SCREEN_ANIM_SLIDE_UP:
-            lv_anim = LV_SCR_LOAD_ANIM_MOVE_TOP;
-            break;
-        case SCREEN_ANIM_SLIDE_DOWN:
-            lv_anim = LV_SCR_LOAD_ANIM_MOVE_BOTTOM;
-            break;
-    }
+    // Transitions are intentionally instant regardless of the requested anim.
+    // Animated loads (fade/slide) re-render blended full 480x320 frames through
+    // the PSRAM draw buffer and blocking SPI flush, which yields only 3-4 janky
+    // frames and reads as input lag rather than polish. The anim parameter is
+    // kept so call sites don't churn and a future faster pipeline can honor it.
+    (void)anim;
 
-    // Delete old screen after transition
-    lv_scr_load_anim(new_screen, lv_anim, DEFAULT_TRANSITION_MS, 0, true);
+    // Delete old screen once the new one is active
+    lv_scr_load_anim(new_screen, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
     current_screen = new_screen;
 
     lv_group_t* group = getLVGLInputGroup();
