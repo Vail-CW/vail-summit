@@ -168,15 +168,20 @@ static void satStyleTable(lv_obj_t* table) {
     lv_obj_set_style_pad_left(table, 4, LV_PART_ITEMS);
 }
 
-// Keep the highlighted row visible. Row height is derived from the table's
-// actual content height (hardcoding it causes the scroll position to drift
-// away from the selection a few pixels per row).
+// Keep the highlighted row visible. Uses the exact per-row heights that
+// lv_table maintains internally (lv_table_t.row_h) - any uniform-row-height
+// estimate rounds or wraps wrong and the scroll position drifts away from
+// the highlight a few pixels per row.
 static void satScrollTableToRow(lv_obj_t* table, int row, int rowCount) {
     if (!table || rowCount <= 0) return;
-    lv_coord_t rowH = lv_obj_get_self_height(table) / rowCount;
-    if (rowH <= 0) rowH = 28;
+    lv_table_t* tbl = (lv_table_t*)table;
+    if (row >= (int)tbl->row_cnt) return;
+
+    lv_coord_t rowTop = 0;
+    for (int i = 0; i < row; i++) rowTop += tbl->row_h[i];
+    lv_coord_t rowH = tbl->row_h[row];
+
     lv_coord_t viewH = lv_obj_get_height(table);
-    lv_coord_t rowTop = (lv_coord_t)(row * rowH);
     lv_coord_t scrollY = lv_obj_get_scroll_y(table);
     if (rowTop < scrollY) {
         lv_obj_scroll_to_y(table, rowTop, LV_ANIM_OFF);
