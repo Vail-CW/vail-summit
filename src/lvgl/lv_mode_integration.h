@@ -717,10 +717,11 @@ void onLVGLMenuSelect(int target_mode) {
         return;
     }
 
-    // Satellite TLE update: an action, not a screen - run it and stay put
+    // Satellite data update: an action, not a screen - the non-blocking job
+    // shows its own progress overlay and the menu stays put underneath
     if (target_mode == MODE_SAT_TLE_UPDATE) {
         beep(TONE_SELECT, BEEP_MEDIUM);
-        satRunTLEUpdate();
+        satStartUpdateUI();
         return;
     }
 

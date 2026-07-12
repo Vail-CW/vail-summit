@@ -250,70 +250,7 @@ bool satLoadTLEsFromStorage() {
     return false;
 }
 
-// ============================================
-// Celestrak Fetch
-// ============================================
-
-// Stream one Celestrak URL into the catalog. Returns satellites added/updated
-// (>=0) or -1 on HTTP failure.
-static int satFetchTLEUrl(const char* url) {
-    HTTPClient http;
-    http.setTimeout(SAT_TLE_TIMEOUT);
-    http.setReuse(false);  // server closes the socket at end of body -> clean loop exit
-    http.begin(url);
-    int code = http.GET();
-    if (code != HTTP_CODE_OK) {
-        Serial.printf("[SAT] TLE fetch failed: HTTP %d (%s)\n", code, url);
-        http.end();
-        return -1;
-    }
-
-    int before = satCatalog.count;
-    WiFiClient* stream = http.getStreamPtr();
-    SatTLEParseState st;
-    memset(&st, 0, sizeof(st));
-    char line[96];
-    unsigned long lastData = millis();
-    while ((http.connected() || stream->available()) && (millis() - lastData) < 3000) {
-        esp_task_wdt_reset();  // loopTask WDT is only fed by loop(); this blocks it
-        if (!stream->available()) {
-            delay(1);
-            continue;
-        }
-        int n = stream->readBytesUntil('\n', line, sizeof(line) - 1);
-        line[n] = '\0';
-        satParseTLELine(st, line);
-        lastData = millis();
-    }
-    http.end();
-    return satCatalog.count - before;
-}
-
-// Fetch amateur group + ISS. Blocking (call behind a loading overlay, same as
-// the POTA fetch). Returns true if the catalog holds data afterwards.
-bool satFetchTLEs() {
-    if (WiFi.status() != WL_CONNECTED) return false;
-    if (!initSatCatalog()) return false;
-
-    // Rebuild from scratch so decayed/renamed birds don't linger
-    satCatalog.count = 0;
-    satCatalog.valid = false;
-
-    int amateur = satFetchTLEUrl(SAT_TLE_URL_AMATEUR);
-    int iss = satFetchTLEUrl(SAT_TLE_URL_ISS);
-    Serial.printf("[SAT] Fetch results: amateur=%d iss=%d\n", amateur, iss);
-
-    if (satCatalog.count == 0) {
-        // Fetch failed entirely - try to restore the cached copy
-        satLoadTLEsFromStorage();
-        return false;
-    }
-
-    satCatalog.valid = true;
-    satCatalog.tleFetchUnix = ntpSynced ? time(nullptr) : 0;
-    satSaveTLEs();
-    return true;
-}
+// (TLE downloading lives in sat_update.h as a non-blocking staged job.)
 
 // TLE age in days: -1 unknown, otherwise whole days since fetch
 int satTLEAgeDays() {

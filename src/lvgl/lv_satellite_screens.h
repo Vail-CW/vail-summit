@@ -20,6 +20,7 @@
 #include "../satellites/sat_predict.h"
 #include "../satellites/sat_freqs.h"
 #include "../satellites/sat_xmtrs.h"
+#include "../satellites/sat_update.h"
 #include "../settings/settings_satellites.h"
 
 extern void onLVGLMenuSelect(int target_mode);
@@ -236,64 +237,162 @@ static void satScrollTableToRow(lv_obj_t* table, int row, int rowCount) {
     lv_obj_invalidate(table);
 }
 
-// Blocking TLE download behind a modal overlay (POTA refresh pattern).
-// Returns true on success.
-static bool satRunTLEUpdate() {
+// ============================================
+// Update Progress Overlay (non-blocking download UI)
+// ============================================
+// The download runs as a timer-driven job (sat_update.h), so the main loop
+// keeps pumping LVGL: the spinner actually spins, progress text updates
+// live, and the loop WDT stays fed. Blocking fetches froze all of that.
+
+static lv_obj_t* sat_upd_overlay = NULL;
+static lv_obj_t* sat_upd_stage_label = NULL;
+static lv_obj_t* sat_upd_prog_label = NULL;
+static lv_timer_t* sat_upd_timer = NULL;
+
+static void satEnsureNextPassWorker();
+static void satRefreshListTable();
+static void satWinRestartScan();
+static void sat_win_timer_cb(lv_timer_t* t);
+
+static void satUpdateFinishUI(bool ok) {
+    if (sat_upd_timer) { lv_timer_del(sat_upd_timer); sat_upd_timer = NULL; }
+    if (sat_upd_overlay && lv_obj_is_valid(sat_upd_overlay)) lv_obj_del(sat_upd_overlay);
+    sat_upd_overlay = NULL;
+    sat_upd_stage_label = NULL;
+    sat_upd_prog_label = NULL;
+
+    if (ok) {
+        // Catalog indexes changed - cached next-pass times are invalid
+        memset(sat_np_aos, 0, sizeof(sat_np_aos));
+        memset(sat_np_los, 0, sizeof(sat_np_los));
+        beep(1000, 100);
+        // Say where the cache landed - offline field use depends on it
+        if (satTLEStorage == SAT_STORE_SD) showToast("Satellite data updated - saved to SD card");
+        else if (satTLEStorage == SAT_STORE_FLASH) showToast("Satellite data updated - saved to internal flash");
+        else showToast("Updated - NOT saved, lost at power-off!");
+        // Refresh whichever satellite screen is currently visible
+        if (sat_list_table && lv_obj_is_valid(sat_list_table)) {
+            satRefreshListTable();
+            satEnsureNextPassWorker();
+        }
+        if (sat_win_table && lv_obj_is_valid(sat_win_table)) {
+            satWinRestartScan();
+            if (!sat_win_timer) sat_win_timer = lv_timer_create(sat_win_timer_cb, 60, NULL);
+        }
+    } else {
+        beep(400, 200);
+        createAlertDialog("Update Failed", "Could not download satellite\ndata. Try again later.");
+    }
+}
+
+static void sat_upd_timer_cb(lv_timer_t* t) {
+    satUpdateJobTick(20);
+
+    if (!satUpdateJobActive()) {
+        satUpdateFinishUI(satUpd.finishedOk);
+        return;
+    }
+
+    if (sat_upd_stage_label && lv_obj_is_valid(sat_upd_stage_label)) {
+        const char* s = "";
+        switch (satUpd.stage) {
+            case SATUPD_TLE_AMATEUR: s = "Step 1 of 3: Orbits - amateur birds"; break;
+            case SATUPD_TLE_ISS:     s = "Step 2 of 3: Orbits - ISS"; break;
+            case SATUPD_XMTRS:       s = "Step 3 of 3: Frequencies (SatNOGS)"; break;
+            default: break;
+        }
+        lv_label_set_text(sat_upd_stage_label, s);
+    }
+    if (sat_upd_prog_label && lv_obj_is_valid(sat_upd_prog_label)) {
+        char buf[56];
+        unsigned long kb = (unsigned long)(satUpd.stageBytes / 1024UL);
+        if (satUpd.stage == SATUPD_XMTRS) {
+            snprintf(buf, sizeof(buf), "%lu KB of ~2500 KB   %d freqs kept", kb, satXmtrCount);
+        } else if (satUpd.stageTotal > 0) {
+            snprintf(buf, sizeof(buf), "%lu of %d KB   %d satellites", kb, satUpd.stageTotal / 1024, satCatalog.count);
+        } else {
+            snprintf(buf, sizeof(buf), "%lu KB   %d satellites", kb, satCatalog.count);
+        }
+        lv_label_set_text(sat_upd_prog_label, buf);
+    }
+}
+
+// Kick off the staged update with the progress overlay. Returns false only
+// when it cannot start (no WiFi). Safe to call while already running.
+static bool satStartUpdateUI() {
+    if (satUpdateJobActive()) return true;
     if (WiFi.status() != WL_CONNECTED) {
         satFlushEnterRelease();
         playAlertChirp();
-        createAlertDialog("WiFi Required", "Connect to WiFi first to\ndownload satellite TLEs.");
+        createAlertDialog("WiFi Required", "Connect to WiFi first to\ndownload satellite data.");
         return false;
     }
-    lv_obj_t* overlay = createLoadingOverlay("Downloading TLEs...");
-    bool ok = satFetchTLEs();
-    lv_obj_del(overlay);
-    if (ok) {
-        // Frequencies ride along with every TLE update (SatNOGS DB)
-        lv_obj_t* fov = createLoadingOverlay("Downloading frequencies...");
-        satFetchTransmitters();   // failure tolerated - passes still work
-        lv_obj_del(fov);
-        // Catalog indexes changed - the cached next-pass times are invalid
-        memset(sat_np_aos, 0, sizeof(sat_np_aos));
-        memset(sat_np_los, 0, sizeof(sat_np_los));
-        beep(1000, 100);
-        // Say where they landed - offline field use depends on it
-        if (satTLEStorage == SAT_STORE_SD) showToast("TLEs updated - saved to SD card");
-        else if (satTLEStorage == SAT_STORE_FLASH) showToast("TLEs updated - saved to internal flash");
-        else showToast("TLEs updated - NOT saved, lost at power-off!");
-    } else {
-        satFlushEnterRelease();  // a fast HTTP failure can beat the key release
-        beep(400, 200);
-        createAlertDialog("Download Failed", "Could not fetch TLEs from\nCelestrak. Try again later.");
-    }
-    return ok;
+    if (!satUpdateJobStart()) return false;
+
+    // Full-screen modal on the top layer - survives screen navigation
+    sat_upd_overlay = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(sat_upd_overlay, SCREEN_WIDTH, SCREEN_HEIGHT);
+    lv_obj_set_pos(sat_upd_overlay, 0, 0);
+    lv_obj_set_style_bg_color(sat_upd_overlay, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(sat_upd_overlay, LV_OPA_80, 0);
+    lv_obj_set_style_border_width(sat_upd_overlay, 0, 0);
+    lv_obj_set_style_radius(sat_upd_overlay, 0, 0);
+    lv_obj_add_flag(sat_upd_overlay, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(sat_upd_overlay, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* card = lv_obj_create(sat_upd_overlay);
+    lv_obj_set_size(card, 380, 210);
+    lv_obj_center(card);
+    lv_obj_set_style_bg_color(card, LV_COLOR_BG_CARD, 0);
+    lv_obj_set_style_radius(card, 12, 0);
+    lv_obj_set_style_border_width(card, 1, 0);
+    lv_obj_set_style_border_color(card, LV_COLOR_BORDER_SUBTLE, 0);
+    lv_obj_set_style_pad_all(card, 14, 0);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* spinner = lv_spinner_create(card, 1000, 60);
+    lv_obj_set_size(spinner, 44, 44);
+    lv_obj_align(spinner, LV_ALIGN_TOP_MID, 0, 0);
+
+    lv_obj_t* title = lv_label_create(card);
+    lv_label_set_text(title, "UPDATING SATELLITE DATA");
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(title, LV_COLOR_TEXT_PRIMARY, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 52);
+
+    sat_upd_stage_label = lv_label_create(card);
+    lv_label_set_text(sat_upd_stage_label, "Connecting...");
+    lv_obj_set_style_text_font(sat_upd_stage_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(sat_upd_stage_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_align(sat_upd_stage_label, LV_ALIGN_TOP_MID, 0, 82);
+
+    sat_upd_prog_label = lv_label_create(card);
+    lv_label_set_text(sat_upd_prog_label, "");
+    lv_obj_set_style_text_font(sat_upd_prog_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(sat_upd_prog_label, LV_COLOR_ACCENT_PRIMARY, 0);
+    lv_obj_align(sat_upd_prog_label, LV_ALIGN_TOP_MID, 0, 106);
+
+    lv_obj_t* note = lv_label_create(card);
+    lv_label_set_text(note, "Downloading orbits + frequencies (~2.5 MB).\nThis can take a couple of minutes - hang tight.");
+    lv_obj_set_style_text_font(note, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(note, LV_COLOR_TEXT_TERTIARY, 0);
+    lv_obj_set_style_text_align(note, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(note, LV_ALIGN_BOTTOM_MID, 0, -2);
+
+    sat_upd_timer = lv_timer_create(sat_upd_timer_cb, 30, NULL);
+    return true;
 }
 
-// Auto-download TLEs on screen entry when nothing has ever been grabbed and
-// WiFi is available - a fresh device shouldn't need to find Update TLEs
-// first. Retries at most once a minute so a Celestrak outage doesn't hang
-// every screen entry; on failure the empty-state message explains instead.
+// Auto-download on screen entry when nothing has ever been grabbed and WiFi
+// is available - a fresh device shouldn't need to find Update TLEs first.
+// Retries at most once a minute so an outage doesn't nag on every entry.
 static void satAutoFetchIfEmpty() {
     static uint32_t lastAttempt = 0;
-    if (satCatalog.valid) return;
+    if (satCatalog.valid || satUpdateJobActive()) return;
     if (WiFi.status() != WL_CONNECTED) return;
     if (lastAttempt != 0 && (millis() - lastAttempt) < 60000UL) return;
     lastAttempt = millis();
-
-    lv_obj_t* overlay = createLoadingOverlay("Downloading TLEs...");
-    bool ok = satFetchTLEs();
-    lv_obj_del(overlay);
-    if (ok) {
-        lv_obj_t* fov = createLoadingOverlay("Downloading frequencies...");
-        satFetchTransmitters();
-        lv_obj_del(fov);
-        memset(sat_np_aos, 0, sizeof(sat_np_aos));
-        memset(sat_np_los, 0, sizeof(sat_np_los));
-        beep(1000, 100);
-        if (satTLEStorage == SAT_STORE_SD) showToast("TLEs downloaded - saved to SD card");
-        else if (satTLEStorage == SAT_STORE_FLASH) showToast("TLEs downloaded - saved to internal flash");
-        else showToast("TLEs downloaded - NOT saved, lost at power-off!");
-    }
+    satStartUpdateUI();
 }
 
 // ============================================
@@ -535,6 +634,7 @@ static void satRefreshListTable() {
 
 static void sat_list_key_handler(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    if (sat_upd_overlay) { lv_event_stop_processing(e); return; }  // modal update in progress
     uint32_t key = lv_event_get_key(e);
     bool searchable = (sat_list_variant == SAT_LIST_ALL || sat_list_variant == SAT_LIST_BYPASS);
 
@@ -869,6 +969,7 @@ static void satStartPassesSearchUI() {
 
 static void sat_passes_key_handler(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    if (sat_upd_overlay) { lv_event_stop_processing(e); return; }  // modal update in progress
     uint32_t key = lv_event_get_key(e);
 
     if (key == LV_KEY_UP || key == LV_KEY_PREV) {
@@ -1247,6 +1348,7 @@ lv_obj_t* createSatPassDetailScreen() {
 
 static void sat_freqs_key_handler(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    if (sat_upd_overlay) { lv_event_stop_processing(e); return; }  // modal update in progress
     uint32_t key = lv_event_get_key(e);
     uint32_t norad = (sat_selected_catalog_idx >= 0 && sat_selected_catalog_idx < satCatalog.count)
         ? satCatalog.sats[sat_selected_catalog_idx].norad : 0;
@@ -1671,6 +1773,7 @@ static time_t satWinRoundUp(time_t v) {
 // Date/time chip adjust: row 0 = date (+/- 1 day), row 1 = time (+/- 15 min)
 static void sat_win_chip_key_handler(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    if (sat_upd_overlay) { lv_event_stop_processing(e); return; }  // modal update in progress
     uint32_t key = lv_event_get_key(e);
     if (key != LV_KEY_LEFT && key != LV_KEY_RIGHT) return;
 
@@ -1692,6 +1795,7 @@ static void sat_win_chip_key_handler(lv_event_t* e) {
 
 static void sat_win_table_key_handler(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    if (sat_upd_overlay) { lv_event_stop_processing(e); return; }  // modal update in progress
     uint32_t key = lv_event_get_key(e);
 
     if (key == LV_KEY_UP || key == LV_KEY_PREV) {
@@ -1902,6 +2006,7 @@ static void satUpdateSettingsValueLabels() {
 
 static void sat_settings_key_handler(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    if (sat_upd_overlay) { lv_event_stop_processing(e); return; }  // modal update in progress
     uint32_t key = lv_event_get_key(e);
     int row = (int)(intptr_t)lv_event_get_user_data(e);
 
@@ -1963,8 +2068,7 @@ static void sat_settings_key_handler(lv_event_t* e) {
     }
 
     if (key == LV_KEY_ENTER && row == 4) {
-        satRunTLEUpdate();
-        satUpdateSettingsValueLabels();
+        satStartUpdateUI();
         lv_event_stop_processing(e);
         return;
     }
