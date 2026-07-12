@@ -898,6 +898,7 @@ static const ModeCallbackEntry cleanupTable[] = {
     { MODE_SAT_SETTINGS,                 cleanupSatelliteScreens },
     { MODE_SAT_WINDOW,                   cleanupSatelliteScreens },
     { MODE_SAT_WINDOW_NOW,               cleanupSatelliteScreens },
+    { MODE_SAT_FREQS,                    cleanupSatelliteScreens },
     { MODE_VAIL_REPEATER,                cleanupVailRepeaterMode },
     // CWA cleanup functions delete timers/widgets and call the core state
     // resets (resetCWA*PracticeState) internally.

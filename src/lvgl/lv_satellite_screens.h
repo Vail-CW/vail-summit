@@ -19,6 +19,7 @@
 #include "../satellites/sat_data.h"
 #include "../satellites/sat_predict.h"
 #include "../satellites/sat_freqs.h"
+#include "../satellites/sat_xmtrs.h"
 #include "../settings/settings_satellites.h"
 
 extern void onLVGLMenuSelect(int target_mode);
@@ -72,6 +73,10 @@ static int sat_passes_selected_row = 0;
 static lv_obj_t* sat_detail_countdown_label = NULL;
 static lv_timer_t* sat_detail_timer = NULL;
 
+// Frequencies (transmitter list)
+static lv_obj_t* sat_freqs_table = NULL;
+static int sat_freqs_selected_row = 0;
+
 // Live view
 static lv_obj_t* sat_live_az_label = NULL;
 static lv_obj_t* sat_live_el_label = NULL;
@@ -120,6 +125,7 @@ void cleanupSatelliteScreens() {
     sat_passes_table = NULL;
     sat_passes_status_label = NULL;
     sat_detail_countdown_label = NULL;
+    sat_freqs_table = NULL;
     sat_win_table = NULL;
     sat_win_status_label = NULL;
     sat_win_date_val = NULL;
@@ -243,6 +249,10 @@ static bool satRunTLEUpdate() {
     bool ok = satFetchTLEs();
     lv_obj_del(overlay);
     if (ok) {
+        // Frequencies ride along with every TLE update (SatNOGS DB)
+        lv_obj_t* fov = createLoadingOverlay("Downloading frequencies...");
+        satFetchTransmitters();   // failure tolerated - passes still work
+        lv_obj_del(fov);
         // Catalog indexes changed - the cached next-pass times are invalid
         memset(sat_np_aos, 0, sizeof(sat_np_aos));
         memset(sat_np_los, 0, sizeof(sat_np_los));
@@ -274,6 +284,9 @@ static void satAutoFetchIfEmpty() {
     bool ok = satFetchTLEs();
     lv_obj_del(overlay);
     if (ok) {
+        lv_obj_t* fov = createLoadingOverlay("Downloading frequencies...");
+        satFetchTransmitters();
+        lv_obj_del(fov);
         memset(sat_np_aos, 0, sizeof(sat_np_aos));
         memset(sat_np_los, 0, sizeof(sat_np_los));
         beep(1000, 100);
@@ -641,6 +654,7 @@ static lv_obj_t* createSatListScreenVariant(SatListVariant variant) {
     if (!satCatalog.valid) {
         satLoadTLEsFromStorage();
     }
+    satLoadXmtrsFromStorage();
     satAutoFetchIfEmpty();
 
     // Entering a different list than last time starts clean
@@ -1000,6 +1014,11 @@ static void sat_detail_countdown_cb(lv_timer_t* timer) {
     lv_label_set_text(sat_detail_countdown_label, buf);
 }
 
+static void sat_detail_freqs_btn_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    onLVGLMenuSelect(MODE_SAT_FREQS);
+}
+
 static void sat_detail_live_btn_handler(lv_event_t* e) {
     if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
         onLVGLMenuSelect(MODE_SAT_LIVE);
@@ -1083,9 +1102,12 @@ lv_obj_t* createSatPassDetailScreen() {
         lv_obj_set_style_text_color(dur_lbl, LV_COLOR_TEXT_SECONDARY, 0);
     }
 
-    // Frequency reference card (curated table)
+    // Frequency reference card: curated table first (hand-written operating
+    // notes), otherwise the best SatNOGS transmitter for this bird
     const SatFreqInfo* fi = lookupSatFreqs(norad);
-    if (fi) {
+    satLoadXmtrsFromStorage();
+    const SatTransmitter* bx = satBestXmtr(norad);
+    if (fi || bx) {
         lv_obj_t* fcard = lv_obj_create(content);
         lv_obj_set_size(fcard, lv_pct(100), LV_SIZE_CONTENT);
         applyCardStyle(fcard);
@@ -1095,29 +1117,74 @@ lv_obj_t* createSatPassDetailScreen() {
         lv_obj_set_flex_flow(fcard, LV_FLEX_FLOW_COLUMN);
         lv_obj_clear_flag(fcard, LV_OBJ_FLAG_SCROLLABLE);
 
-        if (fi->uplink[0] != '\0') {
-            snprintf(buf, sizeof(buf), "UP  %s MHz", fi->uplink);
-            lv_obj_t* l = lv_label_create(fcard);
-            lv_label_set_text(l, buf);
-            lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
-            lv_obj_set_style_text_color(l, LV_COLOR_TEXT_PRIMARY, 0);
-        }
-        snprintf(buf, sizeof(buf), "DN  %s MHz   (%s)", fi->downlink, fi->mode);
-        lv_obj_t* dn = lv_label_create(fcard);
-        lv_label_set_text(dn, buf);
-        lv_obj_set_style_text_font(dn, &lv_font_montserrat_14, 0);
-        lv_obj_set_style_text_color(dn, LV_COLOR_SUCCESS, 0);
+        if (fi) {
+            if (fi->uplink[0] != '\0') {
+                snprintf(buf, sizeof(buf), "UP  %s MHz", fi->uplink);
+                lv_obj_t* l = lv_label_create(fcard);
+                lv_label_set_text(l, buf);
+                lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
+                lv_obj_set_style_text_color(l, LV_COLOR_TEXT_PRIMARY, 0);
+            }
+            snprintf(buf, sizeof(buf), "DN  %s MHz   (%s)", fi->downlink, fi->mode);
+            lv_obj_t* dn = lv_label_create(fcard);
+            lv_label_set_text(dn, buf);
+            lv_obj_set_style_text_font(dn, &lv_font_montserrat_14, 0);
+            lv_obj_set_style_text_color(dn, LV_COLOR_SUCCESS, 0);
 
-        lv_obj_t* note = lv_label_create(fcard);
-        lv_label_set_text(note, fi->note);
-        lv_obj_set_style_text_font(note, &lv_font_montserrat_12, 0);
-        lv_obj_set_style_text_color(note, LV_COLOR_WARNING, 0);
-        lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
-        lv_obj_set_width(note, SCREEN_WIDTH - 60);
+            lv_obj_t* note = lv_label_create(fcard);
+            lv_label_set_text(note, fi->note);
+            lv_obj_set_style_text_font(note, &lv_font_montserrat_12, 0);
+            lv_obj_set_style_text_color(note, LV_COLOR_WARNING, 0);
+            lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+            lv_obj_set_width(note, SCREEN_WIDTH - 60);
+        } else {
+            char up[14], dn2[14];
+            satFmtMHz(bx->upHz, up, sizeof(up));
+            satFmtMHz(bx->downHz, dn2, sizeof(dn2));
+            if (bx->upHz) {
+                snprintf(buf, sizeof(buf), "UP  %s MHz", up);
+                lv_obj_t* l = lv_label_create(fcard);
+                lv_label_set_text(l, buf);
+                lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
+                lv_obj_set_style_text_color(l, LV_COLOR_TEXT_PRIMARY, 0);
+            }
+            snprintf(buf, sizeof(buf), "DN  %s MHz   (%s)", dn2, bx->mode[0] ? bx->mode : "?");
+            lv_obj_t* dn = lv_label_create(fcard);
+            lv_label_set_text(dn, buf);
+            lv_obj_set_style_text_font(dn, &lv_font_montserrat_14, 0);
+            lv_obj_set_style_text_color(dn, LV_COLOR_SUCCESS, 0);
+
+            lv_obj_t* note = lv_label_create(fcard);
+            lv_label_set_text(note, bx->desc);
+            lv_obj_set_style_text_font(note, &lv_font_montserrat_12, 0);
+            lv_obj_set_style_text_color(note, LV_COLOR_TEXT_SECONDARY, 0);
+            lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+            lv_obj_set_width(note, SCREEN_WIDTH - 60);
+        }
+
+        int nx = satXmtrCountFor(norad);
+        if (nx > 1) {
+            snprintf(buf, sizeof(buf), "%d transmitters known - see FREQS", nx);
+            lv_obj_t* more = lv_label_create(fcard);
+            lv_label_set_text(more, buf);
+            lv_obj_set_style_text_font(more, &lv_font_montserrat_12, 0);
+            lv_obj_set_style_text_color(more, LV_COLOR_TEXT_TERTIARY, 0);
+        }
     }
 
+    // Button row: LIVE VIEW + FREQS
+    lv_obj_t* btn_row = lv_obj_create(content);
+    lv_obj_set_size(btn_row, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(btn_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(btn_row, 0, 0);
+    lv_obj_set_style_pad_all(btn_row, 0, 0);
+    lv_obj_set_style_pad_column(btn_row, 10, 0);
+    lv_obj_set_layout(btn_row, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(btn_row, LV_FLEX_FLOW_ROW);
+    lv_obj_clear_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
+
     // LIVE VIEW button (also the ESC anchor)
-    lv_obj_t* live_btn = lv_obj_create(content);
+    lv_obj_t* live_btn = lv_obj_create(btn_row);
     lv_obj_set_size(live_btn, 160, 34);
     lv_obj_add_flag(live_btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(live_btn, LV_OBJ_FLAG_SCROLLABLE);
@@ -1137,10 +1204,162 @@ lv_obj_t* createSatPassDetailScreen() {
     lv_obj_add_event_cb(live_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
     addNavigableWidget(live_btn);
 
-    satCreateFooter(screen, "ENTER Live View   ESC Back");
+    // FREQS button - full transmitter list for this bird
+    lv_obj_t* freq_btn = lv_obj_create(btn_row);
+    lv_obj_set_size(freq_btn, 130, 34);
+    lv_obj_add_flag(freq_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(freq_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(freq_btn, LV_COLOR_BG_CARD, 0);
+    lv_obj_set_style_radius(freq_btn, 8, 0);
+    lv_obj_set_style_border_width(freq_btn, 1, 0);
+    lv_obj_set_style_border_color(freq_btn, LV_COLOR_BORDER_SUBTLE, 0);
+    lv_obj_set_style_border_width(freq_btn, 2, LV_STATE_FOCUSED);
+    lv_obj_set_style_border_color(freq_btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
+    lv_obj_t* freq_lbl = lv_label_create(freq_btn);
+    lv_label_set_text(freq_lbl, LV_SYMBOL_AUDIO " FREQS");
+    lv_obj_set_style_text_font(freq_lbl, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(freq_lbl, LV_COLOR_TEXT_PRIMARY, 0);
+    lv_obj_center(freq_lbl);
+
+    lv_obj_add_event_cb(freq_btn, sat_detail_freqs_btn_handler, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(freq_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
+    addNavigableWidget(freq_btn);
+
+    satCreateFooter(screen, "UP/DN Select   ENTER Open   ESC Back");
 
     sat_detail_countdown_cb(NULL);
     sat_detail_timer = lv_timer_create(sat_detail_countdown_cb, 1000, NULL);
+    return screen;
+}
+
+// ============================================
+// Frequencies Screen (all transmitters for the selected bird)
+// ============================================
+
+static void sat_freqs_key_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
+    uint32_t norad = (sat_selected_catalog_idx >= 0 && sat_selected_catalog_idx < satCatalog.count)
+        ? satCatalog.sats[sat_selected_catalog_idx].norad : 0;
+    int rows = satXmtrCountFor(norad);
+
+    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
+        if (sat_freqs_selected_row > 0) {
+            sat_freqs_selected_row--;
+            satScrollTableToRow(sat_freqs_table, sat_freqs_selected_row, rows);
+        }
+        lv_event_stop_processing(e);
+        return;
+    }
+    if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
+        if (sat_freqs_selected_row < rows - 1) {
+            sat_freqs_selected_row++;
+            satScrollTableToRow(sat_freqs_table, sat_freqs_selected_row, rows);
+        }
+        lv_event_stop_processing(e);
+        return;
+    }
+    if (key == LV_KEY_ENTER) {
+        lv_event_stop_processing(e);  // nothing to activate
+        return;
+    }
+}
+
+lv_obj_t* createSatFreqsScreen() {
+    clearNavigationGroup();
+    lv_obj_t* screen = createScreen();
+    applyScreenStyle(screen);
+
+    satLoadXmtrsFromStorage();
+    sat_freqs_selected_row = 0;
+
+    uint32_t norad = 0;
+    const char* satName = "FREQUENCIES";
+    if (sat_selected_catalog_idx >= 0 && sat_selected_catalog_idx < satCatalog.count) {
+        norad = satCatalog.sats[sat_selected_catalog_idx].norad;
+        satName = satCatalog.sats[sat_selected_catalog_idx].name;
+    }
+    satCreateHeader(screen, satName);
+
+    // Curated operating note (tones, schedules) when we have one
+    const SatFreqInfo* fi = lookupSatFreqs(norad);
+    int table_top = HEADER_HEIGHT + 4;
+    if (fi) {
+        lv_obj_t* note = lv_label_create(screen);
+        char nbuf[96];
+        snprintf(nbuf, sizeof(nbuf), "%s", fi->note);
+        lv_label_set_text(note, nbuf);
+        lv_obj_set_style_text_font(note, &lv_font_montserrat_12, 0);
+        lv_obj_set_style_text_color(note, LV_COLOR_WARNING, 0);
+        lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(note, SCREEN_WIDTH - 30);
+        lv_obj_set_pos(note, 15, table_top);
+        table_top += 34;
+    }
+
+    // Column headers
+    lv_obj_t* header_bar = lv_obj_create(screen);
+    lv_obj_set_size(header_bar, SCREEN_WIDTH - 20, 24);
+    lv_obj_set_pos(header_bar, 10, table_top);
+    lv_obj_set_style_bg_color(header_bar, getThemeColors()->bg_layer2, 0);
+    lv_obj_set_style_bg_opa(header_bar, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(header_bar, 0, 0);
+    lv_obj_set_style_pad_all(header_bar, 0, 0);
+    lv_obj_clear_flag(header_bar, LV_OBJ_FLAG_SCROLLABLE);
+
+    const char* colNames[4] = { "TRANSMITTER", "UP MHz", "DN MHz", "MODE" };
+    int colX[4] = { 8, 214, 302, 390 };
+    for (int i = 0; i < 4; i++) {
+        lv_obj_t* h = lv_label_create(header_bar);
+        lv_label_set_text(h, colNames[i]);
+        lv_obj_set_style_text_font(h, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_color(h, LV_COLOR_ACCENT_PRIMARY, 0);
+        lv_obj_set_pos(h, colX[i], 3);
+    }
+
+    int table_y = table_top + 26;
+    int table_height = SCREEN_HEIGHT - table_y - FOOTER_HEIGHT - 5;
+
+    sat_freqs_table = lv_table_create(screen);
+    lv_obj_set_size(sat_freqs_table, SCREEN_WIDTH - 20, table_height);
+    lv_obj_set_pos(sat_freqs_table, 10, table_y);
+    satStyleTable(sat_freqs_table);
+    lv_table_set_col_cnt(sat_freqs_table, 4);
+    lv_table_set_col_width(sat_freqs_table, 0, 206);
+    lv_table_set_col_width(sat_freqs_table, 1, 88);
+    lv_table_set_col_width(sat_freqs_table, 2, 88);
+    lv_table_set_col_width(sat_freqs_table, 3, 78);
+
+    int rows = satXmtrCountFor(norad);
+    if (rows == 0) {
+        lv_table_set_row_cnt(sat_freqs_table, 1);
+        lv_table_set_cell_value(sat_freqs_table, 0, 0,
+            satXmtrCount == 0 ? "No frequency data downloaded yet.\nRun Update TLEs with WiFi."
+                              : "No active transmitters known\nfor this satellite (SatNOGS)");
+        for (int c = 1; c < 4; c++) lv_table_set_cell_value(sat_freqs_table, 0, c, "");
+    } else {
+        lv_table_set_row_cnt(sat_freqs_table, rows);
+        for (int i = 0; i < rows; i++) {
+            const SatTransmitter* x = satXmtrFor(norad, i);
+            if (!x) break;
+            char up[14], dn[14], mode[20];
+            satFmtMHz(x->upHz, up, sizeof(up));
+            satFmtMHz(x->downHz, dn, sizeof(dn));
+            snprintf(mode, sizeof(mode), "%s%s", x->mode[0] ? x->mode : "?", x->invert ? " inv" : "");
+            lv_table_set_cell_value(sat_freqs_table, i, 0, x->desc);
+            lv_table_set_cell_value(sat_freqs_table, i, 1, up);
+            lv_table_set_cell_value(sat_freqs_table, i, 2, dn);
+            lv_table_set_cell_value(sat_freqs_table, i, 3, mode);
+        }
+    }
+
+    lv_obj_add_event_cb(sat_freqs_table, sat_table_highlight_cb, LV_EVENT_DRAW_PART_BEGIN, &sat_freqs_selected_row);
+    lv_obj_add_flag(sat_freqs_table, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(sat_freqs_table, sat_freqs_key_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(sat_freqs_table, linear_nav_handler, LV_EVENT_KEY, NULL);
+    addNavigableWidget(sat_freqs_table);
+
+    satCreateFooter(screen, "UP/DN Scroll   ESC Back");
     return screen;
 }
 
@@ -1249,12 +1468,21 @@ lv_obj_t* createSatLiveScreen() {
     uint32_t liveNorad = (sat_selected_catalog_idx >= 0 && sat_selected_catalog_idx < satCatalog.count)
         ? satCatalog.sats[sat_selected_catalog_idx].norad : 0;
     const SatFreqInfo* lfi = lookupSatFreqs(liveNorad);
-    if (lfi) {
+    const SatTransmitter* lbx = lfi ? NULL : satBestXmtr(liveNorad);
+    if (lfi || lbx) {
         char fbuf[80];
-        if (lfi->uplink[0] != '\0') {
-            snprintf(fbuf, sizeof(fbuf), "DN %s   UP %s", lfi->downlink, lfi->uplink);
+        if (lfi) {
+            if (lfi->uplink[0] != '\0') {
+                snprintf(fbuf, sizeof(fbuf), "DN %s   UP %s", lfi->downlink, lfi->uplink);
+            } else {
+                snprintf(fbuf, sizeof(fbuf), "DN %s", lfi->downlink);
+            }
         } else {
-            snprintf(fbuf, sizeof(fbuf), "DN %s", lfi->downlink);
+            char up[14], dn[14];
+            satFmtMHz(lbx->upHz, up, sizeof(up));
+            satFmtMHz(lbx->downHz, dn, sizeof(dn));
+            if (lbx->upHz) snprintf(fbuf, sizeof(fbuf), "DN %s   UP %s", dn, up);
+            else snprintf(fbuf, sizeof(fbuf), "DN %s", dn);
         }
         lv_obj_t* freq_lbl = lv_label_create(screen);
         lv_label_set_text(freq_lbl, fbuf);
@@ -1504,6 +1732,7 @@ static lv_obj_t* createSatWindowScreenVariant(bool focusTable) {
     if (!satCatalog.valid) {
         satLoadTLEsFromStorage();
     }
+    satLoadXmtrsFromStorage();
     satAutoFetchIfEmpty();
 
     sat_win_focus_table = focusTable;
@@ -1810,6 +2039,7 @@ lv_obj_t* createSatelliteScreenForMode(int mode) {
         case MODE_SAT_BYPASS:      return createSatListScreenVariant(SAT_LIST_BYPASS);
         case MODE_SAT_PASSES:      return createSatPassesScreen();
         case MODE_SAT_PASS_DETAIL: return createSatPassDetailScreen();
+        case MODE_SAT_FREQS:       return createSatFreqsScreen();
         case MODE_SAT_LIVE:        return createSatLiveScreen();
         case MODE_SAT_SETTINGS:    return createSatSettingsScreen();
         case MODE_SAT_WINDOW:      return createSatWindowScreenVariant(false);
