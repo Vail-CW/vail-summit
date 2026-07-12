@@ -202,9 +202,12 @@ bool satLoadXmtrsFromStorage() {
 // SatNOGS Fetch (streaming)
 // ============================================
 
-// Parse one JSON object from the stream and keep it if relevant
+// Parse one JSON object from the stream and keep it if relevant.
+// One reused document - allocating a fresh 2KB doc for each of the ~3200
+// stream objects churns the heap for no benefit.
 static void satParseXmtrObject(const char* obj) {
-    DynamicJsonDocument doc(2048);
+    static DynamicJsonDocument doc(2048);
+    doc.clear();
     if (deserializeJson(doc, obj) != DeserializationError::Ok) return;
 
     const char* status = doc["status"] | "";
@@ -249,14 +252,21 @@ bool satFetchTransmitters() {
     int depth = 0;
     bool inStr = false, esc = false;
     uint32_t lastData = millis();
+    uint32_t started = millis();
+    uint32_t chunks = 0;
 
     while (http.connected() || stream->available()) {
+        if (millis() - started > 120000UL) break;       // hard cap: 2 minutes
         int avail = stream->available();
         if (avail <= 0) {
             if (millis() - lastData > 15000UL) break;   // stalled
             delay(1);
             continue;
         }
+        // This loop runs for tens of seconds on a ~2-3MB stream. Yield
+        // regularly or the idle task starves and the watchdog reboots us
+        // mid-download (the crash mode this replaced).
+        if ((++chunks & 0x03) == 0) delay(1);
         lastData = millis();
         int n = stream->readBytes(chunk, min(avail, (int)sizeof(chunk)));
         for (int i = 0; i < n; i++) {

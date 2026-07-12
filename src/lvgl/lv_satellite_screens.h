@@ -1200,8 +1200,16 @@ lv_obj_t* createSatPassDetailScreen() {
     lv_obj_set_style_text_color(live_lbl, LV_COLOR_TEXT_PRIMARY, 0);
     lv_obj_center(live_lbl);
 
+    // The two buttons sit side by side: LEFT/RIGHT must move between them,
+    // so they use grid_nav_handler (2 columns), not linear_nav_handler
+    static lv_obj_t* detail_btns[2];
+    static int detail_btn_count = 0;
+    static NavGridContext detail_nav_ctx = { detail_btns, &detail_btn_count, 2 };
+    detail_btn_count = 0;
+
     lv_obj_add_event_cb(live_btn, sat_detail_live_btn_handler, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(live_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(live_btn, grid_nav_handler, LV_EVENT_KEY, &detail_nav_ctx);
+    detail_btns[detail_btn_count++] = live_btn;
     addNavigableWidget(live_btn);
 
     // FREQS button - full transmitter list for this bird
@@ -1222,10 +1230,11 @@ lv_obj_t* createSatPassDetailScreen() {
     lv_obj_center(freq_lbl);
 
     lv_obj_add_event_cb(freq_btn, sat_detail_freqs_btn_handler, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(freq_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(freq_btn, grid_nav_handler, LV_EVENT_KEY, &detail_nav_ctx);
+    detail_btns[detail_btn_count++] = freq_btn;
     addNavigableWidget(freq_btn);
 
-    satCreateFooter(screen, "UP/DN Select   ENTER Open   ESC Back");
+    satCreateFooter(screen, "LEFT/RIGHT Select   ENTER Open   ESC Back");
 
     sat_detail_countdown_cb(NULL);
     sat_detail_timer = lv_timer_create(sat_detail_countdown_cb, 1000, NULL);
