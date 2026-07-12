@@ -929,8 +929,11 @@ void loop() {
     updateSettingsBackup();
   }
 
-  // Update BLE Keyboard host (for auto-reconnect, skip during BT modes)
-  if (currentMode != MODE_BT_HID && currentMode != MODE_BT_MIDI) {
+  // Update BLE Keyboard host (for auto-reconnect, skip during BT modes).
+  // Also paused while the satellite data download streams: BLE scanning and
+  // sustained WiFi TLS share the 2.4GHz radio and RAM, and running both is
+  // an intermittent-crash recipe (seen mid-download with scans in the log).
+  if (currentMode != MODE_BT_HID && currentMode != MODE_BT_MIDI && !satUpdateJobActive()) {
     updateBLEKeyboardHost();
   }
 

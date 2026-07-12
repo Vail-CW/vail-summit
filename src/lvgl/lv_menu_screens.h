@@ -120,11 +120,12 @@ static const LVMenuItem hamToolsMenuItems[] = {
     MENU_ITEM_FA(FA_EXTRA_TREE, "POTA", MODE_POTA_MENU),
     MENU_ITEM_LV(LV_SYMBOL_LIST, "Band Plans", MODE_BAND_PLANS),
     MENU_ITEM_FA(FA_EXTRA_CLOUD_SUN_RAIN, "Band Conditions", MODE_PROPAGATION),
+    MENU_ITEM_FA(FA_EXTRA_SATELLITE_DISH, "Satellites", MODE_SAT_MENU),
     MENU_ITEM_LV(LV_SYMBOL_CHARGE, "Antennas", MODE_ANTENNAS),
     MENU_ITEM_FA(FA_EXTRA_EDIT, "License Study", MODE_LICENSE_SELECT),
     MENU_ITEM_LV(LV_SYMBOL_ENVELOPE, "Summit Chat", MODE_SUMMIT_CHAT)
 };
-#define HAM_TOOLS_COUNT 7
+#define HAM_TOOLS_COUNT 8
 
 // Bluetooth submenu items
 static const LVMenuItem bluetoothMenuItems[] = {

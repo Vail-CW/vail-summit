@@ -166,6 +166,23 @@ static const ModeInfo modeInfoTable[] = {
     { MODE_SUMMIT_CHAT, MODE_HAM_TOOLS_MENU, 0, nullptr },
     { MODE_POTA_MENU, MODE_HAM_TOOLS_MENU, 0, nullptr },
 
+    // Satellite tracker hierarchy: hub menu with list/window/settings leaves.
+    // Pass detail's parent is the passes list even when reached from a sky
+    // window - backing into "all passes of that bird" is useful context.
+    { MODE_SAT_MENU, MODE_HAM_TOOLS_MENU, MODE_FLAG_MENU | MODE_FLAG_PURE_NAV, nullptr },
+    { MODE_SAT_MY, MODE_SAT_MENU, 0, nullptr },
+    { MODE_SAT_POPULAR, MODE_SAT_MENU, 0, nullptr },
+    { MODE_SAT_LIST, MODE_SAT_MENU, 0, nullptr },
+    { MODE_SAT_BYPASS, MODE_SAT_MENU, 0, nullptr },
+    { MODE_SAT_WINDOW, MODE_SAT_MENU, 0, nullptr },
+    { MODE_SAT_WINDOW_NOW, MODE_SAT_MENU, 0, nullptr },
+    { MODE_SAT_SETTINGS, MODE_SAT_MENU, 0, nullptr },
+    { MODE_SAT_TLE_UPDATE, MODE_SAT_MENU, 0, nullptr },
+    { MODE_SAT_PASSES, MODE_SAT_LIST, 0, nullptr },
+    { MODE_SAT_PASS_DETAIL, MODE_SAT_PASSES, 0, nullptr },
+    { MODE_SAT_LIVE, MODE_SAT_PASS_DETAIL, 0, nullptr },
+    { MODE_SAT_FREQS, MODE_SAT_PASS_DETAIL, 0, nullptr },
+
     // POTA hierarchy
     { MODE_POTA_ACTIVE_SPOTS, MODE_POTA_MENU, 0, nullptr },
     { MODE_POTA_ACTIVATE, MODE_POTA_MENU, 0, nullptr },

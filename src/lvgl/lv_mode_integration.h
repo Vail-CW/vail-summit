@@ -25,6 +25,7 @@
 #include "lv_band_conditions.h"
 #include "lv_band_plans.h"
 #include "lv_pota_screens.h"
+#include "lv_satellite_screens.h"
 #include "lv_story_time_screens.h"
 #include "lv_web_download_screen.h"
 #include "lv_mailbox_screens.h"
@@ -256,6 +257,10 @@ lv_obj_t* createScreenForModeInt(int mode) {
     // POTA screens
     lv_obj_t* potaScreen = createPOTAScreenForMode(mode);
     if (potaScreen != NULL) return potaScreen;
+
+    // Satellite tracker screens
+    lv_obj_t* satScreen = createSatelliteScreenForMode(mode);
+    if (satScreen != NULL) return satScreen;
 
     // Story Time screens
     lv_obj_t* storyTimeScreen = createStoryTimeScreenForMode(mode);
@@ -712,6 +717,14 @@ void onLVGLMenuSelect(int target_mode) {
         return;
     }
 
+    // Satellite data update: an action, not a screen - the non-blocking job
+    // shows its own progress overlay and the menu stays put underneath
+    if (target_mode == MODE_SAT_TLE_UPDATE) {
+        beep(TONE_SELECT, BEEP_MEDIUM);
+        satStartUpdateUI();
+        return;
+    }
+
     // Web Files management screen - shows version info and allows force download
     if (target_mode == MODE_WEB_FILES_UPDATE) {
         // Play selection beep
@@ -823,6 +836,12 @@ int getParentModeInt(int mode) {
         return MODE_HOME;
     }
 
+    // Satellite passes: return to whichever list/window launched the search
+    // (My Sats, Popular, All, By Next Pass, or a sky window via pass detail)
+    if (mode == MODE_SAT_PASSES) {
+        return satPassesReturnMode;
+    }
+
     // Onboarding WiFi branch: return to wizard instead of WiFi submenu
     if (onboardingActive && mode == MODE_WIFI_SETTINGS) {
         Serial.println("[ModeIntegration] Returning from onboarding WiFi to wizard");
@@ -868,6 +887,19 @@ static const ModeCallbackEntry cleanupTable[] = {
     { MODE_POTA_ACTIVE_SPOTS,            cleanupPOTAScreen },
     { MODE_POTA_SPOT_DETAIL,             cleanupPOTAScreen },
     { MODE_POTA_FILTERS,                 cleanupPOTAScreen },
+    // Satellite tracker: every screen may own an LVGL timer (pass search,
+    // countdown, live tracking) - one cleanup deletes whatever exists.
+    { MODE_SAT_LIST,                     cleanupSatelliteScreens },
+    { MODE_SAT_MY,                       cleanupSatelliteScreens },
+    { MODE_SAT_POPULAR,                  cleanupSatelliteScreens },
+    { MODE_SAT_BYPASS,                   cleanupSatelliteScreens },
+    { MODE_SAT_PASSES,                   cleanupSatelliteScreens },
+    { MODE_SAT_PASS_DETAIL,              cleanupSatelliteScreens },
+    { MODE_SAT_LIVE,                     cleanupSatelliteScreens },
+    { MODE_SAT_SETTINGS,                 cleanupSatelliteScreens },
+    { MODE_SAT_WINDOW,                   cleanupSatelliteScreens },
+    { MODE_SAT_WINDOW_NOW,               cleanupSatelliteScreens },
+    { MODE_SAT_FREQS,                    cleanupSatelliteScreens },
     { MODE_VAIL_REPEATER,                cleanupVailRepeaterMode },
     // CWA cleanup functions delete timers/widgets and call the core state
     // resets (resetCWA*PracticeState) internally.
