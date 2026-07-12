@@ -117,6 +117,7 @@ struct SatPassSearch {
     double startJd;
     double endJd;
     int catalogIdx;      // catalog index being searched
+    uint16_t calls;      // nextpass() invocations - hard runaway backstop
 };
 
 static SatPassSearch satSearch = { false, false, 0, {}, 0.0, 0.0, -1 };
@@ -179,7 +180,10 @@ bool satPassSearchStep(uint32_t budgetMs) {
     vsgp4::passinfo p;
 
     while ((millis() - t0) < budgetMs) {
+        // 600 calls is ~10x a worst-case 72h LEO window - anything past that
+        // is a runaway, not a search
         if (satSearch.count >= SAT_MAX_PASSES ||
+            satSearch.calls++ > 600 ||
             satPredictor.getpredpoint() > satSearch.endJd) {
             satSearch.active = false;
             satSearch.done = true;
@@ -192,13 +196,38 @@ bool satPassSearchStep(uint32_t budgetMs) {
         // considered). With 1 iteration it therefore *always* fails. Use 2
         // iterations, and on failure rewind one orbit so the orbit that may
         // have qualified on the exhausted final hop is re-checked as the
-        // first hop of the next call. Net progress stays ~one orbit per call,
-        // keeping this loop chunkable.
+        // first hop of the next call.
+        //
+        // The rewind must be progress-aware: nextpass() has OTHER failure
+        // exits that advance only one orbit (NaN elevation from a decayed
+        // bird's propagation breaks its loop condition; its AOS/LOS zbrent
+        // can fail), and blindly rewinding one orbit after a one-orbit
+        // advance nets zero progress - the search then spins on the same
+        // satellite forever (NaN also disables the endJd termination).
+        double before = satPredictor.getpredpoint();
         bool found = satPredictor.nextpass(&p, 2, false, (double)satSettings.minElevation);
+        double after = satPredictor.getpredpoint();
+        double jump = (satPredictor.revpday > 0.1) ? (1.0 / satPredictor.revpday) : 0.0;
+
+        if (isnan(after) || after <= before || jump <= 0.0) {
+            // Propagation or bracket search went sideways - this bird is
+            // unusable with the current TLE. Report "no passes" and move on.
+            satSearch.active = false;
+            satSearch.done = true;
+            return true;
+        }
+
         if (!found) {
-            if (satPredictor.revpday > 0.1) {
-                satPredictor.setpredpoint(satPredictor.getpredpoint() - 1.0 / satPredictor.revpday);
+            // Only un-hop the final orbit when both hops actually happened
+            if (after - before >= 1.5 * jump) {
+                satPredictor.setpredpoint(after - jump);
             }
+            continue;
+        }
+
+        // Reject numerically bogus passes (NaN boundaries etc.)
+        if (isnan(p.jdstart) || isnan(p.jdstop) || isnan(p.maxelevation) ||
+            p.jdstop <= p.jdstart) {
             continue;
         }
 
