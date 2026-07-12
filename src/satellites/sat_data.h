@@ -10,6 +10,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <SPIFFS.h>
 #include <time.h>
 #include "../storage/sd_card.h"
 
@@ -144,20 +145,27 @@ static void satParseTLELine(SatTLEParseState& st, char* line) {
 }
 
 // ============================================
-// SD Card Cache
+// TLE Cache - SD card preferred, internal SPIFFS flash as fallback so field
+// use (offline predictions) works with no SD card inserted at all.
 // ============================================
 
-bool satSaveTLEsToSD() {
-    if (!sdCardAvailable) return false;
-    if (!satCatalog.valid || satCatalog.count == 0) return false;
+enum SatTLEStorage : uint8_t { SAT_STORE_NONE = 0, SAT_STORE_SD, SAT_STORE_FLASH };
+static SatTLEStorage satTLEStorage = SAT_STORE_NONE;
 
-    if (!SD.exists(SAT_SD_DIR)) SD.mkdir(SAT_SD_DIR);
-
-    File f = SD.open(SAT_SD_TLE_FILE, FILE_WRITE);
-    if (!f) {
-        Serial.println("[SAT] ERROR: cannot write TLE cache");
+static bool satEnsureFlashFS() {
+    static bool mounted = false;
+    if (mounted) return true;
+    if (!SPIFFS.begin(false) && !SPIFFS.begin(true)) {
+        Serial.println("[SAT] SPIFFS mount failed");
         return false;
     }
+    mounted = true;
+    return true;
+}
+
+static bool satWriteTLECache(fs::FS& fs) {
+    File f = fs.open(SAT_SD_TLE_FILE, FILE_WRITE);
+    if (!f) return false;
     for (int i = 0; i < satCatalog.count; i++) {
         f.println(satCatalog.sats[i].name);
         f.println(satCatalog.sats[i].line1);
@@ -165,22 +173,16 @@ bool satSaveTLEsToSD() {
     }
     f.close();
 
-    File m = SD.open(SAT_SD_META_FILE, FILE_WRITE);
+    File m = fs.open(SAT_SD_META_FILE, FILE_WRITE);
     if (m) {
         m.printf("%lu\n", (unsigned long)satCatalog.tleFetchUnix);
         m.close();
     }
-    Serial.printf("[SAT] Saved %d TLEs to SD\n", satCatalog.count);
     return true;
 }
 
-bool satLoadTLEsFromSD() {
-    if (!sdCardAvailable) initSDCard();
-    if (!sdCardAvailable) return false;
-    if (!initSatCatalog()) return false;
-    if (!SD.exists(SAT_SD_TLE_FILE)) return false;
-
-    File f = SD.open(SAT_SD_TLE_FILE);
+static bool satReadTLECache(fs::FS& fs) {
+    File f = fs.open(SAT_SD_TLE_FILE);
     if (!f) return false;
 
     satCatalog.count = 0;
@@ -195,7 +197,7 @@ bool satLoadTLEsFromSD() {
     f.close();
 
     satCatalog.tleFetchUnix = 0;
-    File m = SD.open(SAT_SD_META_FILE);
+    File m = fs.open(SAT_SD_META_FILE);
     if (m) {
         char meta[24];
         int n = m.readBytesUntil('\n', meta, sizeof(meta) - 1);
@@ -205,8 +207,46 @@ bool satLoadTLEsFromSD() {
     }
 
     satCatalog.valid = (satCatalog.count > 0);
-    Serial.printf("[SAT] Loaded %d TLEs from SD cache\n", satCatalog.count);
     return satCatalog.valid;
+}
+
+bool satSaveTLEs() {
+    if (!satCatalog.valid || satCatalog.count == 0) return false;
+
+    if (!sdCardAvailable) initSDCard();
+    if (sdCardAvailable) {
+        if (!SD.exists(SAT_SD_DIR)) SD.mkdir(SAT_SD_DIR);
+        if (satWriteTLECache(SD)) {
+            satTLEStorage = SAT_STORE_SD;
+            Serial.printf("[SAT] Saved %d TLEs to SD\n", satCatalog.count);
+            return true;
+        }
+    }
+    if (satEnsureFlashFS() && satWriteTLECache(SPIFFS)) {
+        satTLEStorage = SAT_STORE_FLASH;
+        Serial.printf("[SAT] Saved %d TLEs to internal flash\n", satCatalog.count);
+        return true;
+    }
+    satTLEStorage = SAT_STORE_NONE;
+    Serial.println("[SAT] ERROR: TLE cache not saved (no storage) - RAM only");
+    return false;
+}
+
+bool satLoadTLEsFromStorage() {
+    if (!initSatCatalog()) return false;
+
+    if (!sdCardAvailable) initSDCard();
+    if (sdCardAvailable && SD.exists(SAT_SD_TLE_FILE) && satReadTLECache(SD)) {
+        satTLEStorage = SAT_STORE_SD;
+        Serial.printf("[SAT] Loaded %d TLEs from SD cache\n", satCatalog.count);
+        return true;
+    }
+    if (satEnsureFlashFS() && SPIFFS.exists(SAT_SD_TLE_FILE) && satReadTLECache(SPIFFS)) {
+        satTLEStorage = SAT_STORE_FLASH;
+        Serial.printf("[SAT] Loaded %d TLEs from flash cache\n", satCatalog.count);
+        return true;
+    }
+    return false;
 }
 
 // ============================================
@@ -262,14 +302,14 @@ bool satFetchTLEs() {
     Serial.printf("[SAT] Fetch results: amateur=%d iss=%d\n", amateur, iss);
 
     if (satCatalog.count == 0) {
-        // Fetch failed entirely - try to restore the SD cache
-        satLoadTLEsFromSD();
+        // Fetch failed entirely - try to restore the cached copy
+        satLoadTLEsFromStorage();
         return false;
     }
 
     satCatalog.valid = true;
     satCatalog.tleFetchUnix = ntpSynced ? time(nullptr) : 0;
-    satSaveTLEsToSD();
+    satSaveTLEs();
     return true;
 }
 

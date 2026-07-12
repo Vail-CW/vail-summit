@@ -247,7 +247,10 @@ static bool satRunTLEUpdate() {
         memset(sat_np_aos, 0, sizeof(sat_np_aos));
         memset(sat_np_los, 0, sizeof(sat_np_los));
         beep(1000, 100);
-        showToast("TLEs updated");
+        // Say where they landed - offline field use depends on it
+        if (satTLEStorage == SAT_STORE_SD) showToast("TLEs updated - saved to SD card");
+        else if (satTLEStorage == SAT_STORE_FLASH) showToast("TLEs updated - saved to internal flash");
+        else showToast("TLEs updated - NOT saved, lost at power-off!");
     } else {
         satFlushEnterRelease();  // a fast HTTP failure can beat the key release
         beep(400, 200);
@@ -409,7 +412,9 @@ static void satUpdateListHeaderLabels() {
             strlcpy(buf, "TLE age: unknown", sizeof(buf));
             lv_obj_set_style_text_color(sat_list_tle_label, LV_COLOR_WARNING, 0);
         } else {
-            snprintf(buf, sizeof(buf), "TLE age: %dd", age);
+            const char* store = (satTLEStorage == SAT_STORE_SD) ? "SD"
+                              : (satTLEStorage == SAT_STORE_FLASH) ? "flash" : "RAM!";
+            snprintf(buf, sizeof(buf), "TLE age: %dd (%s)", age, store);
             if (age >= SAT_TLE_STALE_DAYS) {
                 lv_obj_set_style_text_color(sat_list_tle_label, LV_COLOR_ERROR, 0);
             } else if (age >= SAT_TLE_WARN_DAYS) {
@@ -610,7 +615,7 @@ static lv_obj_t* createSatListScreenVariant(SatListVariant variant) {
     loadSatSettings();
     loadSatFavorites();
     if (!satCatalog.valid) {
-        satLoadTLEsFromSD();
+        satLoadTLEsFromStorage();
     }
 
     // Entering a different list than last time starts clean
@@ -1466,6 +1471,14 @@ static lv_obj_t* createSatWindowScreenVariant(bool focusTable) {
     clearNavigationGroup();
     lv_obj_t* screen = createScreen();
     applyScreenStyle(screen);
+
+    // May be the first satellite screen visited this boot - load the cache
+    initSatCatalog();
+    loadSatSettings();
+    loadSatFavorites();
+    if (!satCatalog.valid) {
+        satLoadTLEsFromStorage();
+    }
 
     sat_win_focus_table = focusTable;
     sat_win_start = satWinRoundUp(time(nullptr));
