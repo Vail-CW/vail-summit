@@ -259,6 +259,30 @@ static bool satRunTLEUpdate() {
     return ok;
 }
 
+// Auto-download TLEs on screen entry when nothing has ever been grabbed and
+// WiFi is available - a fresh device shouldn't need to find Update TLEs
+// first. Retries at most once a minute so a Celestrak outage doesn't hang
+// every screen entry; on failure the empty-state message explains instead.
+static void satAutoFetchIfEmpty() {
+    static uint32_t lastAttempt = 0;
+    if (satCatalog.valid) return;
+    if (WiFi.status() != WL_CONNECTED) return;
+    if (lastAttempt != 0 && (millis() - lastAttempt) < 60000UL) return;
+    lastAttempt = millis();
+
+    lv_obj_t* overlay = createLoadingOverlay("Downloading TLEs...");
+    bool ok = satFetchTLEs();
+    lv_obj_del(overlay);
+    if (ok) {
+        memset(sat_np_aos, 0, sizeof(sat_np_aos));
+        memset(sat_np_los, 0, sizeof(sat_np_los));
+        beep(1000, 100);
+        if (satTLEStorage == SAT_STORE_SD) showToast("TLEs downloaded - saved to SD card");
+        else if (satTLEStorage == SAT_STORE_FLASH) showToast("TLEs downloaded - saved to internal flash");
+        else showToast("TLEs downloaded - NOT saved, lost at power-off!");
+    }
+}
+
 // ============================================
 // Favorite Next-Pass Column (background compute)
 // ============================================
@@ -459,7 +483,7 @@ static void satRefreshListTable() {
         else lv_obj_add_flag(sat_list_empty_label, LV_OBJ_FLAG_HIDDEN);
         const char* emptyMsg;
         if (!satCatalog.valid) {
-            emptyMsg = "No TLE data on device.\nUse Update TLEs in the Satellites menu.";
+            emptyMsg = "No satellite data yet.\nConnect to WiFi and re-open this list -\nTLEs download automatically.";
         } else if (sat_list_variant == SAT_LIST_MY && sat_search_filter[0] == '\0') {
             emptyMsg = "No favorites yet.\nAdd them with F from any other list.";
         } else {
@@ -617,6 +641,7 @@ static lv_obj_t* createSatListScreenVariant(SatListVariant variant) {
     if (!satCatalog.valid) {
         satLoadTLEsFromStorage();
     }
+    satAutoFetchIfEmpty();
 
     // Entering a different list than last time starts clean
     if (variant != sat_list_variant) {
@@ -1479,6 +1504,7 @@ static lv_obj_t* createSatWindowScreenVariant(bool focusTable) {
     if (!satCatalog.valid) {
         satLoadTLEsFromStorage();
     }
+    satAutoFetchIfEmpty();
 
     sat_win_focus_table = focusTable;
     sat_win_start = satWinRoundUp(time(nullptr));
