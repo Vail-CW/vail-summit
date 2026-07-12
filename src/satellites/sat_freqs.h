@@ -43,6 +43,10 @@ static const SatFreqInfo satFreqTable[] = {
       "AO-92 (Fox-1D): 24h L-band/U-band schedule varies" },
     { 47311, "145.970", "436.400", "FM",
       "TEVEL series: eight identical FM birds, no tone required" },
+    { 40908, "144.350", "437.200", "FM",
+      "LilacSat-2 (CAS-3H): FM repeater active on schedule only" },
+    { 53106, "435.310", "435.310", "Digipeater (1k2 GMSK)",
+      "IO-117 (GreenCube): MEO packet digipeater, huge footprint" },
 };
 #define SAT_FREQ_TABLE_SIZE (sizeof(satFreqTable) / sizeof(satFreqTable[0]))
 
