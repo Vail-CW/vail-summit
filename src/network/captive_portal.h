@@ -26,7 +26,7 @@ enum CaptivePortalCheckResult {
     CPORTAL_OFFLINE            // No HTTP response at all - no internet, no portal
 };
 
-#define CPORTAL_PROBE_TIMEOUT 4000   // Per-probe HTTP timeout (ms)
+#define CPORTAL_PROBE_TIMEOUT 3000   // Per-probe HTTP timeout (ms) - probes answer fast; keeps worst-case UI stall (both endpoints dead) to ~6s
 #define CPORTAL_URL_MAX 160
 #define CPORTAL_HOST_MAX 64
 
@@ -103,7 +103,7 @@ void noteCaptivePortalRedirect(const char* location) {
 }
 
 /*
- * Probe for a captive portal (blocking, up to ~8s worst case).
+ * Probe for a captive portal (blocking, up to ~6s worst case).
  * Call from a deferred LVGL timer or other UI-safe context, never from
  * audio-critical code paths.
  */
