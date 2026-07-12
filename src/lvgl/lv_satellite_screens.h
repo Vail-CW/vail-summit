@@ -197,6 +197,16 @@ static void satStyleTable(lv_obj_t* table) {
     lv_obj_set_style_pad_left(table, 4, LV_PART_ITEMS);
 }
 
+// Discard the in-flight ENTER press. Required before any screen navigation
+// or dialog opened from an LV_EVENT_KEY handler: the KEY event fires on key
+// DOWN, and without this the key UP is delivered as a CLICK to whatever
+// widget is focused on the new screen/dialog (e.g. instantly activating the
+// pass detail's LIVE VIEW button, or dismissing an alert unread).
+static void satFlushEnterRelease() {
+    lv_indev_t* indev = getLVGLKeypad();
+    if (indev) lv_indev_wait_release(indev);
+}
+
 // Keep the highlighted row visible. Uses the exact per-row heights that
 // lv_table maintains internally (lv_table_t.row_h) - any uniform-row-height
 // estimate rounds or wraps wrong and the scroll position drifts away from
@@ -224,10 +234,7 @@ static void satScrollTableToRow(lv_obj_t* table, int row, int rowCount) {
 // Returns true on success.
 static bool satRunTLEUpdate() {
     if (WiFi.status() != WL_CONNECTED) {
-        // May be invoked from a held ENTER (settings row) - discard the press
-        // so its release cannot instantly dismiss the alert.
-        lv_indev_t* indev = getLVGLKeypad();
-        if (indev) lv_indev_wait_release(indev);
+        satFlushEnterRelease();
         playAlertChirp();
         createAlertDialog("WiFi Required", "Connect to WiFi first to\ndownload satellite TLEs.");
         return false;
@@ -242,6 +249,7 @@ static bool satRunTLEUpdate() {
         beep(1000, 100);
         showToast("TLEs updated");
     } else {
+        satFlushEnterRelease();  // a fast HTTP failure can beat the key release
         beep(400, 200);
         createAlertDialog("Download Failed", "Could not fetch TLEs from\nCelestrak. Try again later.");
     }
@@ -549,16 +557,12 @@ static void sat_list_key_handler(lv_event_t* e) {
         if (satDisplayCount > 0 && sat_list_selected_row < satDisplayCount) {
             double lat, lon;
             if (!gridToLatLon(satEffectiveGrid(), &lat, &lon)) {
-                // Discard the in-flight ENTER press: its release would land on
-                // the alert's OK button and dismiss the dialog instantly.
-                lv_indev_t* indev = getLVGLKeypad();
-                if (indev) lv_indev_wait_release(indev);
+                satFlushEnterRelease();
                 playAlertChirp();
                 createAlertDialog("Grid Square Needed",
                     "Set your Maidenhead grid in\nSatellites > Settings so passes\ncan be computed for your location.");
             } else if (!ntpSynced) {
-                lv_indev_t* indev = getLVGLKeypad();
-                if (indev) lv_indev_wait_release(indev);
+                satFlushEnterRelease();
                 playAlertChirp();
                 createAlertDialog("Clock Not Set",
                     "Time is not synced yet.\nConnect to WiFi so NTP can\nset the clock, then retry.");
@@ -571,6 +575,7 @@ static void sat_list_key_handler(lv_event_t* e) {
                 // ESC from the passes screen returns to this list variant
                 static const int variantModes[4] = { MODE_SAT_LIST, MODE_SAT_MY, MODE_SAT_POPULAR, MODE_SAT_BYPASS };
                 satPassesReturnMode = variantModes[sat_list_variant];
+                satFlushEnterRelease();
                 onLVGLMenuSelect(MODE_SAT_PASSES);
             }
         }
@@ -852,6 +857,7 @@ static void sat_passes_key_handler(lv_event_t* e) {
         if (satSearch.done && satSearch.count > 0 && sat_passes_selected_row < satSearch.count) {
             satSelectedPass = satSearch.passes[sat_passes_selected_row];
             satSelectedPassValid = true;
+            satFlushEnterRelease();  // else the release clicks LIVE VIEW on the detail screen
             onLVGLMenuSelect(MODE_SAT_PASS_DETAIL);
         }
         lv_event_stop_processing(e);
@@ -1448,6 +1454,7 @@ static void sat_win_table_key_handler(lv_event_t* e) {
             sat_win_inflight = false;
             // Detail -> ESC -> that bird's passes -> ESC -> back to this window
             satPassesReturnMode = sat_win_focus_table ? MODE_SAT_WINDOW_NOW : MODE_SAT_WINDOW;
+            satFlushEnterRelease();  // else the release clicks LIVE VIEW on the detail screen
             onLVGLMenuSelect(MODE_SAT_PASS_DETAIL);
         }
         lv_event_stop_processing(e);
