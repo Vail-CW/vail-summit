@@ -11,6 +11,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <SPIFFS.h>
+#include <esp_task_wdt.h>
 #include <time.h>
 #include "../storage/sd_card.h"
 
@@ -274,6 +275,7 @@ static int satFetchTLEUrl(const char* url) {
     char line[96];
     unsigned long lastData = millis();
     while ((http.connected() || stream->available()) && (millis() - lastData) < 3000) {
+        esp_task_wdt_reset();  // loopTask WDT is only fed by loop(); this blocks it
         if (!stream->available()) {
             delay(1);
             continue;

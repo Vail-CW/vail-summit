@@ -12,6 +12,7 @@
 #include <Arduino.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <esp_task_wdt.h>
 #include "sat_data.h"
 
 #define SAT_XMTR_URL      "https://db.satnogs.org/api/transmitters/?format=json"
@@ -257,16 +258,18 @@ bool satFetchTransmitters() {
 
     while (http.connected() || stream->available()) {
         if (millis() - started > 120000UL) break;       // hard cap: 2 minutes
+        // loopTask is subscribed to the task WDT (see vail-summit.ino setup)
+        // and only loop() feeds it - delay() does NOT. This blocking fetch
+        // runs far past the timeout on the ~2-3MB stream, so it must feed
+        // the watchdog itself (same as the BLE host's long operations).
+        esp_task_wdt_reset();
         int avail = stream->available();
         if (avail <= 0) {
             if (millis() - lastData > 15000UL) break;   // stalled
             delay(1);
             continue;
         }
-        // This loop runs for tens of seconds on a ~2-3MB stream. Yield
-        // regularly or the idle task starves and the watchdog reboots us
-        // mid-download (the crash mode this replaced).
-        if ((++chunks & 0x03) == 0) delay(1);
+        if ((++chunks & 0x03) == 0) delay(1);           // let WiFi breathe
         lastData = millis();
         int n = stream->readBytes(chunk, min(avail, (int)sizeof(chunk)));
         for (int i = 0; i < n; i++) {
