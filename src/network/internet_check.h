@@ -12,6 +12,7 @@
 
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include "captive_portal.h"
 
 // Connectivity states
 enum InternetStatus {
@@ -115,14 +116,39 @@ bool checkInternetConnectivity() {
     bool success = false;
 
     if (http.begin(url)) {
+        // Don't follow redirects - a redirect means a captive portal hijacked us
+        http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+        const char* headerKeys[] = { "Location" };
+        http.collectHeaders(headerKeys, 1);
+
         int httpCode = http.GET();
+
+        if (httpCode == 204) {
+            // Expected response for generate_204 endpoints
+            success = true;
+        } else if (httpCode == 200) {
+            // Only the Apple endpoint legitimately returns 200, and its body
+            // says "Success". A 200 from anything else (or a login page from
+            // a hijacked Apple check) means a captive portal answered.
+            String body = http.getString();
+            if (strstr(url, "captive.apple.com") != NULL && body.indexOf("Success") >= 0) {
+                success = true;
+            } else {
+                captivePortalSuspected = true;
+                Serial.printf("[InetCheck] Portal suspected: unexpected 200 from %s\n", url);
+            }
+        } else if (httpCode >= 300 && httpCode < 400) {
+            // Redirected to a captive portal login page
+            String location = http.header("Location");
+            noteCaptivePortalRedirect(location.c_str());
+            Serial.printf("[InetCheck] Portal suspected: HTTP %d from %s\n", httpCode, url);
+        }
+
         http.end();
 
-        // 204 = success for generate_204 endpoints
-        // 200 = success for Apple endpoint
-        if (httpCode == 204 || httpCode == 200) {
+        if (success) {
             Serial.printf("[InetCheck] Success via %s (HTTP %d)\n", url, httpCode);
-            success = true;
+            clearCaptivePortalSuspicion();
         } else {
             Serial.printf("[InetCheck] Failed via %s (HTTP %d)\n", url, httpCode);
         }

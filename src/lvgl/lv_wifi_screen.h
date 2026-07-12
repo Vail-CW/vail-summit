@@ -13,6 +13,8 @@
 #include "lv_screen_manager.h"
 #include "../core/config.h"
 #include "../settings/settings_wifi.h"
+#include "../network/captive_portal.h"
+#include "../network/internet_check.h"
 
 // Private key code for WiFi password visibility toggle.
 // LVGL v8.3 does not expose LV_USER_KEY_START in headers; use an unused control-code slot instead.
@@ -33,7 +35,9 @@ enum WiFiLVGLState {
     LVGL_WIFI_CONNECTED,           // Connection successful
     LVGL_WIFI_ERROR,               // Connection failed
     LVGL_WIFI_AP_MODE,             // AP mode active
-    LVGL_WIFI_RESET_CONFIRM        // Reset credentials confirmation
+    LVGL_WIFI_RESET_CONFIRM,       // Reset credentials confirmation
+    LVGL_WIFI_PORTAL_CHECK,        // Probing for captive portal after connect
+    LVGL_WIFI_PORTAL               // Captive portal detected - show login help
 };
 
 // ============================================
@@ -88,6 +92,9 @@ void createConnectedView(lv_obj_t* parent);
 void createErrorView(lv_obj_t* parent);
 void createAPModeView(lv_obj_t* parent);
 void createResetConfirmView(lv_obj_t* parent);
+void createPortalCheckView(lv_obj_t* parent);
+void createPortalView(lv_obj_t* parent);
+void triggerPortalCheck();
 void createSignalBars(lv_obj_t* parent, int rssi, int x_offset);
 void performWiFiScan();
 void attemptWiFiConnection(const String& ssid, const String& password);
@@ -335,6 +342,13 @@ static void wifi_global_key_handler(lv_event_t* e) {
                 beep(TONE_MENU_NAV, BEEP_SHORT);
                 return;
 
+            case LVGL_WIFI_PORTAL:
+                // Portal info screen - back to current connection details
+                wifi_lvgl_state = LVGL_WIFI_CURRENT_CONNECTION;
+                updateWiFiContent();
+                beep(TONE_MENU_NAV, BEEP_SHORT);
+                return;
+
             case LVGL_WIFI_CURRENT_CONNECTION:
             case LVGL_WIFI_NETWORK_LIST:
                 // These states allow ESC to exit the WiFi setup entirely
@@ -362,6 +376,21 @@ static void wifi_global_key_handler(lv_event_t* e) {
                 wifi_lvgl_state = LVGL_WIFI_AP_MODE;
                 updateWiFiContent();
                 beep(TONE_SELECT, BEEP_MEDIUM);
+            } else if ((key == 'i' || key == 'I') && isCaptivePortalSuspected()) {
+                // Show captive portal login info
+                wifi_lvgl_state = LVGL_WIFI_PORTAL;
+                updateWiFiContent();
+                beep(TONE_SELECT, BEEP_MEDIUM);
+            }
+            break;
+
+        case LVGL_WIFI_PORTAL:
+            if (key == 'r' || key == 'R' || key == LV_KEY_ENTER) {
+                // Re-check whether the portal has been cleared
+                wifi_lvgl_state = LVGL_WIFI_PORTAL_CHECK;
+                updateWiFiContent();
+                beep(TONE_SELECT, BEEP_MEDIUM);
+                triggerPortalCheck();
             }
             break;
 
@@ -496,9 +525,29 @@ static void wifi_view_key_handler(lv_event_t* e) {
                 wifi_lvgl_state = LVGL_WIFI_AP_MODE;
                 updateWiFiContent();
                 beep(TONE_SELECT, BEEP_MEDIUM);
+            } else if ((key == 'i' || key == 'I') && isCaptivePortalSuspected()) {
+                // Show captive portal login info
+                wifi_lvgl_state = LVGL_WIFI_PORTAL;
+                updateWiFiContent();
+                beep(TONE_SELECT, BEEP_MEDIUM);
             } else if (key == LV_KEY_ESC) {
                 lv_event_stop_processing(e);  // Prevent double ESC handling
                 onLVGLBackNavigation();
+            }
+            break;
+
+        case LVGL_WIFI_PORTAL:
+            if (key == 'r' || key == 'R' || key == LV_KEY_ENTER) {
+                // Re-check whether the portal has been cleared
+                wifi_lvgl_state = LVGL_WIFI_PORTAL_CHECK;
+                updateWiFiContent();
+                beep(TONE_SELECT, BEEP_MEDIUM);
+                triggerPortalCheck();
+            } else if (key == LV_KEY_ESC) {
+                lv_event_stop_processing(e);  // Prevent double ESC handling
+                wifi_lvgl_state = LVGL_WIFI_CURRENT_CONNECTION;
+                updateWiFiContent();
+                beep(TONE_MENU_NAV, BEEP_SHORT);
             }
             break;
 
@@ -686,6 +735,15 @@ void createCurrentConnectionView(lv_obj_t* parent) {
     lv_obj_set_style_text_color(rssi_val, LV_COLOR_TEXT_SECONDARY, 0);
     lv_obj_set_style_text_font(rssi_val, getThemeFonts()->font_small, 0);
     lv_obj_align(rssi_val, LV_ALIGN_RIGHT_MID, -55, 0);
+
+    // Captive portal warning (background internet checks flag hijacked responses)
+    if (isCaptivePortalSuspected()) {
+        lv_obj_t* portal_warn = lv_label_create(parent);
+        lv_label_set_text(portal_warn, LV_SYMBOL_WARNING " Network login required - press I for info");
+        lv_obj_set_style_text_color(portal_warn, LV_COLOR_WARNING, 0);
+        lv_obj_set_style_text_font(portal_warn, getThemeFonts()->font_small, 0);
+        lv_obj_align(portal_warn, LV_ALIGN_TOP_MID, 0, 185);
+    }
 }
 
 void createScanningView(lv_obj_t* parent) {
@@ -987,6 +1045,77 @@ void createResetConfirmView(lv_obj_t* parent) {
     lv_obj_align(msg, LV_ALIGN_CENTER, 0, 50);
 }
 
+void createPortalCheckView(lv_obj_t* parent) {
+    lv_obj_t* label = lv_label_create(parent);
+    lv_label_set_text(label, "Checking internet access...");
+    lv_obj_set_style_text_color(label, LV_COLOR_WARNING, 0);
+    lv_obj_set_style_text_font(label, getThemeFonts()->font_subtitle, 0);
+    lv_obj_center(label);
+
+    lv_obj_t* spinner = lv_spinner_create(parent, 1000, 60);
+    lv_obj_set_size(spinner, 50, 50);
+    lv_obj_align(spinner, LV_ALIGN_CENTER, 0, 50);
+}
+
+void createPortalView(lv_obj_t* parent) {
+    // Key receiver for this view
+    createKeyReceiver(parent);
+
+    // Title
+    lv_obj_t* title = lv_label_create(parent);
+    lv_label_set_text(title, LV_SYMBOL_WARNING " WiFi Login Required");
+    lv_obj_set_style_text_color(title, LV_COLOR_WARNING, 0);
+    lv_obj_set_style_text_font(title, getThemeFonts()->font_subtitle, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 2);
+
+    // Info card
+    lv_obj_t* card = lv_obj_create(parent);
+    lv_obj_set_size(card, lv_pct(96), 195);
+    lv_obj_align(card, LV_ALIGN_TOP_MID, 0, 32);
+    applyCardStyle(card);
+    lv_obj_set_layout(card, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(card, 12, 0);
+    lv_obj_set_style_pad_row(card, 5, 0);
+
+    lv_obj_t* intro = lv_label_create(card);
+    lv_label_set_text(intro, "This network uses a browser login page, which the Summit can't open. To get online:");
+    lv_obj_set_width(intro, lv_pct(100));
+    lv_obj_set_style_text_color(intro, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_style_text_font(intro, getThemeFonts()->font_small, 0);
+
+    lv_obj_t* opt1 = lv_label_create(card);
+    lv_label_set_text(opt1, "1. On your phone, use the network's login or \"add a device\" page to register this MAC:");
+    lv_obj_set_width(opt1, lv_pct(100));
+    lv_obj_set_style_text_color(opt1, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_style_text_font(opt1, getThemeFonts()->font_small, 0);
+
+    // Device MAC address - the key piece of info for "add a device" flows
+    lv_obj_t* mac_val = lv_label_create(card);
+    char mac_str[24];
+    getDeviceMACString(mac_str, sizeof(mac_str));
+    lv_label_set_text(mac_val, mac_str);
+    lv_obj_set_style_text_color(mac_val, LV_COLOR_ACCENT_PRIMARY, 0);
+    lv_obj_set_style_text_font(mac_val, getThemeFonts()->font_input, 0);
+
+    // Show the portal's login page host if we captured it from the redirect
+    if (getCaptivePortalHost()[0] != '\0') {
+        lv_obj_t* portal_host = lv_label_create(card);
+        char host_str[CPORTAL_HOST_MAX + 16];
+        snprintf(host_str, sizeof(host_str), "Login page: %s", getCaptivePortalHost());
+        lv_label_set_text(portal_host, host_str);
+        lv_obj_set_width(portal_host, lv_pct(100));
+        lv_obj_set_style_text_color(portal_host, LV_COLOR_TEXT_SECONDARY, 0);
+        lv_obj_set_style_text_font(portal_host, getThemeFonts()->font_small, 0);
+    }
+
+    lv_obj_t* opt2 = lv_label_create(card);
+    lv_label_set_text(opt2, "2. Or connect the Summit to a phone hotspot instead.");
+    lv_obj_set_width(opt2, lv_pct(100));
+    lv_obj_set_style_text_color(opt2, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_style_text_font(opt2, getThemeFonts()->font_small, 0);
+}
+
 // ============================================
 // WiFi Operations
 // ============================================
@@ -1027,6 +1156,40 @@ void triggerWiFiScan() {
     lv_timer_create(wifi_scan_timer_cb, 50, NULL);  // 50ms delay
 }
 
+// Timer callback for deferred captive portal probe (one-shot, same pattern as scan)
+static void wifi_portal_check_timer_cb(lv_timer_t* timer) {
+    lv_timer_del(timer);  // One-shot timer
+
+    // Check if screen was destroyed (navigated away)
+    if (!wifi_content || !lv_obj_is_valid(wifi_content)) {
+        Serial.println("[WiFi LVGL] Portal check fired but screen destroyed, aborting");
+        return;
+    }
+
+    if (wifi_lvgl_state != LVGL_WIFI_PORTAL_CHECK) return;  // State changed, abort
+
+    Serial.println("[WiFi LVGL] Probing for captive portal...");
+    CaptivePortalCheckResult result = runCaptivePortalCheck();
+
+    // Refresh the status bar icon soon with whatever we just learned
+    forceInternetCheck();
+
+    if (result == CPORTAL_PORTAL_DETECTED) {
+        wifi_lvgl_state = LVGL_WIFI_PORTAL;
+        beep(TONE_ERROR, BEEP_MEDIUM);
+    } else {
+        // Real internet, or offline with no portal - show the normal connected view
+        wifi_lvgl_state = LVGL_WIFI_CONNECTED;
+    }
+
+    updateWiFiContent();
+}
+
+void triggerPortalCheck() {
+    // Schedule probe for next LVGL tick so the spinner can render first
+    lv_timer_create(wifi_portal_check_timer_cb, 50, NULL);
+}
+
 void performWiFiScan() {
     // Show scanning UI first
     wifi_lvgl_state = LVGL_WIFI_SCANNING;
@@ -1054,11 +1217,15 @@ void updateWiFiScreen() {
     WiFiConnectionState connState = getWiFiConnectionState();
 
     if (connState == WIFI_CONN_SUCCESS) {
-        wifi_lvgl_state = LVGL_WIFI_CONNECTED;
+        // Connected to the AP - now probe for a captive portal before
+        // declaring victory (hotel/coffee shop networks intercept traffic
+        // until a browser login is completed)
+        wifi_lvgl_state = LVGL_WIFI_PORTAL_CHECK;
         wifi_failed_ssid = "";
         clearWiFiConnectionState();
         beep(TONE_SUCCESS, BEEP_LONG);
         updateWiFiContent();
+        triggerPortalCheck();
     } else if (connState == WIFI_CONN_FAILED) {
         wifi_lvgl_state = LVGL_WIFI_ERROR;
         wifi_error_message = "Connection failed.\nCheck password and try again.";
@@ -1109,6 +1276,12 @@ void updateWiFiFooter() {
             break;
         case LVGL_WIFI_RESET_CONFIRM:
             text = "Y: Yes, erase all    N/ESC: Cancel";
+            break;
+        case LVGL_WIFI_PORTAL_CHECK:
+            text = "Checking internet access...";
+            break;
+        case LVGL_WIFI_PORTAL:
+            text = "R: Re-check    ESC: Back";
             break;
     }
 
@@ -1162,6 +1335,12 @@ void updateWiFiContent() {
             break;
         case LVGL_WIFI_RESET_CONFIRM:
             createResetConfirmView(wifi_content);
+            break;
+        case LVGL_WIFI_PORTAL_CHECK:
+            createPortalCheckView(wifi_content);
+            break;
+        case LVGL_WIFI_PORTAL:
+            createPortalView(wifi_content);
             break;
     }
 
