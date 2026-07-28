@@ -1,6 +1,8 @@
 /*
  * Web API - Morse Notes Endpoints
- * REST API for Morse Notes recording management and WAV export
+ * REST API for Morse Notes recording management. WAV synthesis from the
+ * raw timing file happens client-side (see morse-notes.js) so the device
+ * only ever serves the small .mr timing file, never a full audio render.
  */
 
 #ifndef WEB_API_MORSE_NOTES_H
@@ -10,7 +12,6 @@
 #include <ArduinoJson.h>
 #include "../../morse_notes/morse_notes_types.h"
 #include "../../morse_notes/morse_notes_storage.h"
-#include "../../morse_notes/morse_notes_wav_export.h"
 #include "../../storage/sd_card.h"
 
 // ===================================
@@ -109,7 +110,7 @@ void handleGetMorseNoteMetadata(AsyncWebServerRequest *request) {
 
 /**
  * GET /api/morse-notes/download?id=X
- * Downloads raw .mr file
+ * Downloads raw .mr timing file (client synthesizes audio from this — see morse-notes.js)
  */
 void handleDownloadMorseNote(AsyncWebServerRequest *request) {
     if (!sdCardAvailable) {
@@ -124,68 +125,32 @@ void handleDownloadMorseNote(AsyncWebServerRequest *request) {
 
     unsigned long id = request->getParam("id")->value().toInt();
 
-    // Build filename
-    char filename[64];
-    snprintf(filename, sizeof(filename), MN_DIR "/%lu.mr", id);
+    if (!mnLoadLibrary()) {
+        request->send(500, "text/plain", "Failed to load library");
+        return;
+    }
 
-    if (!fileExists(filename)) {
+    // Recordings are saved under a date-formatted filename, not "<id>.mr" —
+    // look up the real filename via the library rather than guessing it.
+    MorseNoteMetadata* metadata = mnGetMetadata(id);
+    if (!metadata) {
         request->send(404, "text/plain", "Recording not found");
         return;
     }
 
-    // Send file
-    request->send(SD, filename, "application/octet-stream", true);
-}
+    char filename[64];
+    mnGenerateFilename(metadata->timestamp, filename, sizeof(filename));
 
-/**
- * GET /api/morse-notes/export/wav?id=X
- * Exports recording as WAV file
- */
-void handleExportMorseNoteWAV(AsyncWebServerRequest *request) {
-    if (!sdCardAvailable) {
-        request->send(503, "text/plain", "SD card not available");
+    if (!fileExists(filename)) {
+        request->send(404, "text/plain", "Recording file missing");
         return;
     }
 
-    if (!request->hasParam("id")) {
-        request->send(400, "text/plain", "Missing id parameter");
-        return;
-    }
-
-    unsigned long id = request->getParam("id")->value().toInt();
-
-    // Generate WAV file
-    String wavPath = mnGenerateWAV(id);
-
-    if (wavPath.isEmpty()) {
-        request->send(500, "text/plain", "Failed to generate WAV file");
-        return;
-    }
-
-    // Send WAV file
-    File wavFile = SD.open(wavPath.c_str(), FILE_READ);
-    if (!wavFile) {
-        request->send(500, "text/plain", "Failed to open WAV file");
-        return;
-    }
-
-    // Create response with callback to delete temp file after sending
-    AsyncWebServerResponse *response = request->beginResponse(
-        SD,
-        wavPath,
-        "audio/wav",
-        true  // download = true
-    );
-
-    // Set filename for download
-    char filename[128];
-    snprintf(filename, sizeof(filename), "attachment; filename=\"morse_note_%lu.wav\"", id);
-    response->addHeader("Content-Disposition", filename);
-
-    // Send response
+    AsyncWebServerResponse *response = request->beginResponse(SD, filename, "application/octet-stream", true);
+    char contentDisposition[64];
+    snprintf(contentDisposition, sizeof(contentDisposition), "attachment; filename=\"%lu.mr\"", id);
+    response->addHeader("Content-Disposition", contentDisposition);
     request->send(response);
-
-    // Note: Temp file cleanup happens in mnGenerateWAV or can be done periodically
 }
 
 /**
@@ -253,9 +218,6 @@ void registerMorseNotesAPI(AsyncWebServer* server) {
 
     // Download raw .mr file
     server->on("/api/morse-notes/download", HTTP_GET, handleDownloadMorseNote);
-
-    // Export as WAV
-    server->on("/api/morse-notes/export/wav", HTTP_GET, handleExportMorseNoteWAV);
 
     // Delete recording
     server->on("/api/morse-notes/delete", HTTP_DELETE, handleDeleteMorseNote);

@@ -137,7 +137,6 @@ function createRecordingHTML(rec) {
                 </div>
                 <div class="audio-player" id="player-${rec.id}">
                     <audio controls preload="none">
-                        <source src="/api/morse-notes/export/wav?id=${rec.id}" type="audio/wav">
                         Your browser does not support audio playback.
                     </audio>
                 </div>
@@ -164,10 +163,126 @@ function createRecordingHTML(rec) {
 }
 
 // ===================================
+// CLIENT-SIDE AUDIO SYNTHESIS
+//
+// The device only ever serves the raw timing file (tiny, even for a
+// 30-minute recording). Audio is rendered here in the browser instead of
+// on the ESP32, which would otherwise have to write a full WAV (tens of MB
+// for a long recording) to SD on every play or download.
+// ===================================
+
+const MN_FILE_MAGIC = 0x4D524E54;   // "MRNT", matches MorseNoteFileHeader on device
+const MN_FILE_HEADER_SIZE = 28;
+const MN_WAV_SAMPLE_RATE = 22050;   // Arbitrary — no device-side counterpart to match anymore
+const MN_WAV_AMPLITUDE = 16384;
+
+const wavBlobCache = new Map(); // recording id -> Promise<Blob>
+
+function parseMorseNoteFile(buffer) {
+    const view = new DataView(buffer);
+    if (view.byteLength < MN_FILE_HEADER_SIZE) {
+        throw new Error('Recording file too short');
+    }
+
+    const magic = view.getUint32(0, true);
+    if (magic !== MN_FILE_MAGIC) {
+        throw new Error('Not a valid Morse Notes recording');
+    }
+
+    const eventCount = view.getUint32(8, true);
+    const toneFrequency = view.getUint32(12, true);
+
+    const expectedBytes = MN_FILE_HEADER_SIZE + eventCount * 4;
+    if (view.byteLength < expectedBytes) {
+        throw new Error('Recording file truncated');
+    }
+
+    const timings = new Float32Array(eventCount);
+    for (let i = 0; i < eventCount; i++) {
+        timings[i] = view.getFloat32(MN_FILE_HEADER_SIZE + i * 4, true);
+    }
+
+    return { toneFrequency, timings };
+}
+
+function writeAscii(view, offset, text) {
+    for (let i = 0; i < text.length; i++) {
+        view.setUint8(offset + i, text.charCodeAt(i));
+    }
+}
+
+function synthesizeWav(timings, toneFrequency) {
+    let totalDurationMs = 0;
+    for (let i = 0; i < timings.length; i++) {
+        totalDurationMs += Math.abs(timings[i]);
+    }
+    const totalSamples = Math.floor((totalDurationMs / 1000) * MN_WAV_SAMPLE_RATE);
+    const dataSize = totalSamples * 2; // 16-bit mono
+
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+
+    writeAscii(view, 0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeAscii(view, 8, 'WAVE');
+    writeAscii(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);               // fmt chunk size
+    view.setUint16(20, 1, true);                // PCM
+    view.setUint16(22, 1, true);                // mono
+    view.setUint32(24, MN_WAV_SAMPLE_RATE, true);
+    view.setUint32(28, MN_WAV_SAMPLE_RATE * 2, true); // byte rate
+    view.setUint16(32, 2, true);                // block align
+    view.setUint16(34, 16, true);               // bits per sample
+    writeAscii(view, 36, 'data');
+    view.setUint32(40, dataSize, true);
+
+    let phase = 0;
+    const phaseIncrement = (2 * Math.PI * toneFrequency) / MN_WAV_SAMPLE_RATE;
+    let sampleIndex = 0;
+    let offset = 44;
+
+    for (let i = 0; i < timings.length && sampleIndex < totalSamples; i++) {
+        const duration = Math.abs(timings[i]);
+        const toneOn = timings[i] > 0;
+        const samples = Math.floor((duration / 1000) * MN_WAV_SAMPLE_RATE);
+
+        for (let j = 0; j < samples && sampleIndex < totalSamples; j++) {
+            let sample = 0;
+            if (toneOn) {
+                sample = Math.round(MN_WAV_AMPLITUDE * Math.sin(phase));
+                phase += phaseIncrement;
+                if (phase >= 2 * Math.PI) phase -= 2 * Math.PI;
+            }
+            view.setInt16(offset, sample, true);
+            offset += 2;
+            sampleIndex++;
+        }
+    }
+
+    return new Blob([buffer], { type: 'audio/wav' });
+}
+
+async function getWavBlob(id) {
+    if (!wavBlobCache.has(id)) {
+        wavBlobCache.set(id, (async () => {
+            const response = await fetch(`/api/morse-notes/download?id=${id}`);
+            if (!response.ok) throw new Error('Failed to fetch recording data');
+            const raw = await response.arrayBuffer();
+            const { toneFrequency, timings } = parseMorseNoteFile(raw);
+            // Yield a tick so a "Converting..." UI state can paint before the
+            // (synchronous, potentially CPU-heavy for long recordings) synthesis runs.
+            await new Promise(resolve => setTimeout(resolve, 0));
+            return synthesizeWav(timings, toneFrequency);
+        })());
+    }
+    return wavBlobCache.get(id);
+}
+
+// ===================================
 // PLAYBACK FUNCTIONS
 // ===================================
 
-function togglePlay(id) {
+async function togglePlay(id) {
     const playerEl = document.getElementById(`player-${id}`);
     const audioEl = playerEl.querySelector('audio');
     const btnEl = event.target;
@@ -191,12 +306,18 @@ function togglePlay(id) {
         playerEl.classList.remove('active');
         btnEl.textContent = '▶️ Play';
         currentAudioPlayer = null;
-    } else {
+        return;
+    }
+
+    try {
+        if (!audioEl.src) {
+            btnEl.textContent = '⏳ Converting...';
+            const blob = await getWavBlob(id);
+            audioEl.src = URL.createObjectURL(blob);
+        }
+
         playerEl.classList.add('active');
-        audioEl.play().catch(err => {
-            console.error('Playback error:', err);
-            showToast('Failed to play audio', true);
-        });
+        await audioEl.play();
         btnEl.textContent = '⏸️ Pause';
         currentAudioPlayer = audioEl;
 
@@ -205,7 +326,12 @@ function togglePlay(id) {
             btnEl.textContent = '▶️ Play';
             playerEl.classList.remove('active');
             currentAudioPlayer = null;
-        });
+        }, { once: true });
+    } catch (err) {
+        console.error('Playback error:', err);
+        showToast('Failed to play audio', true);
+        btnEl.textContent = '▶️ Play';
+        playerEl.classList.remove('active');
     }
 }
 
@@ -213,11 +339,19 @@ function togglePlay(id) {
 // DOWNLOAD FUNCTIONS
 // ===================================
 
-function downloadWAV(id, title) {
-    const url = `/api/morse-notes/export/wav?id=${id}`;
-    const filename = sanitizeFilename(title) + '.wav';
-    downloadFile(url, filename);
-    showToast('Downloading WAV file...');
+async function downloadWAV(id, title) {
+    try {
+        showToast('Converting to WAV...');
+        const blob = await getWavBlob(id);
+        const url = URL.createObjectURL(blob);
+        const filename = sanitizeFilename(title) + '.wav';
+        downloadFile(url, filename);
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        showToast('WAV downloaded');
+    } catch (err) {
+        console.error('WAV export error:', err);
+        showToast('Failed to export WAV', true);
+    }
 }
 
 function downloadMR(id, title) {
