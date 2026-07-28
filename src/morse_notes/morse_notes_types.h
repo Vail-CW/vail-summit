@@ -8,10 +8,10 @@
 // ===================================
 
 // Maximum limits
-#define MN_MAX_RECORDING_EVENTS    10000                    // Max timing events per recording
-#define MN_MAX_RECORDING_DURATION_MS (5 * 60 * 1000)       // 5 minutes
+#define MN_MAX_RECORDING_EVENTS    40000                    // Max timing events per recording (covers ~40 WPM sustained for the full 30 min cap)
+#define MN_MAX_RECORDING_DURATION_MS (30 * 60 * 1000)      // 30 minutes
 #define MN_MAX_RECORDINGS          200                      // Max recordings in library
-#define MN_WARNING_TIME_MS         (4 * 60 * 1000 + 30 * 1000)  // Warning at 4:30
+#define MN_WARNING_TIME_MS         (29 * 60 * 1000 + 30 * 1000)  // Warning at 29:30
 
 // File paths
 #define MN_DIR                     "/morse-notes"
