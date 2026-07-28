@@ -15,7 +15,7 @@
 static MorseNotesRecordingSession mnRecordingSession;
 static MorseDecoder* mnRecordingDecoder = nullptr;  // For WPM calculation
 
-// Timing buffer allocated in PSRAM on first use (saves 40KB heap)
+// Timing buffer allocated in PSRAM on first use (saves 160KB heap)
 static float* mnRecordingTimingBuffer = nullptr;
 
 // Allocate recording buffer in PSRAM
@@ -314,7 +314,7 @@ void mnGetRecordingStats(char* buffer, size_t bufferSize) {
 
 /**
  * Get formatted recording duration string
- * Format: "MM:SS / 05:00"
+ * Format: "MM:SS / 30:00"
  */
 void mnGetRecordingDurationString(char* buffer, size_t bufferSize) {
     unsigned long elapsed = mnGetRecordingDuration();

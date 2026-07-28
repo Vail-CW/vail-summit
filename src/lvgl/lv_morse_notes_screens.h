@@ -936,7 +936,7 @@ lv_obj_t* createMorseNotesRecordScreen() {
 
     // Duration label
     mnRecordDurationLabel = lv_label_create(content);
-    lv_label_set_text(mnRecordDurationLabel, "00:00 / 05:00");
+    lv_label_set_text(mnRecordDurationLabel, "00:00 / 30:00");
     lv_obj_set_style_text_font(mnRecordDurationLabel, getThemeFonts()->font_large, 0);
 
     // Activity bar

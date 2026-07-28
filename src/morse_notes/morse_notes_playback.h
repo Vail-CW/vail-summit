@@ -11,7 +11,7 @@
 // Global playback session
 static MorseNotesPlaybackSession mnPlaybackSession;
 
-// Timing buffer allocated in PSRAM on first use (saves 40KB heap)
+// Timing buffer allocated in PSRAM on first use (saves 160KB heap)
 static float* mnPlaybackTimingBuffer = nullptr;
 
 // Allocate playback buffer in PSRAM
