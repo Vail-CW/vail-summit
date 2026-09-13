@@ -399,17 +399,19 @@ void updatePracticeDecoderDisplay(const char* text) {
 void updatePracticeActualWPM(float wpm) {
     if (practice_actual_label == NULL) return;
 
-    static float last_shown = -2.0f;  // Sentinel distinct from -1 ("--") to force first draw
-    if (fabsf(wpm - last_shown) < 0.05f) return;
-    last_shown = wpm;
-
+    char buf[16];
     if (wpm < 0) {
-        lv_label_set_text(practice_actual_label, "-- WPM");
+        snprintf(buf, sizeof(buf), "-- WPM");
     } else {
-        char buf[16];
         snprintf(buf, sizeof(buf), "%.1f WPM", wpm);
-        lv_label_set_text(practice_actual_label, buf);
     }
+
+    // Skip no-op redraws by comparing against the label's own current text
+    // rather than a cached value. A cache would outlive the label (it is
+    // recreated with "-- WPM" on every screen entry) and could suppress the
+    // first real reading of a new session if it happened to match the old one.
+    if (strcmp(lv_label_get_text(practice_actual_label), buf) == 0) return;
+    lv_label_set_text(practice_actual_label, buf);
 }
 
 // ============================================
