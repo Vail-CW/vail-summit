@@ -16,6 +16,19 @@
 static MorseNotesRecordingSession mnRecordingSession;
 static MorseDecoder* mnRecordingDecoder = nullptr;  // For WPM calculation
 
+// Why the last mnStartRecording() call failed, so the UI can show the right message.
+enum MnStartError { MN_START_OK = 0, MN_START_ALREADY_RECORDING, MN_START_NO_MEMORY, MN_START_NO_SD, MN_START_LOW_SPACE };
+static MnStartError mnLastStartError = MN_START_OK;
+MnStartError mnGetLastStartError() { return mnLastStartError; }
+// Free SD space in bytes (0 = no card), for the record-screen indicator.
+// Retries the mount once so a card inserted after boot is picked up here the
+// same way mnStartRecording() picks it up — otherwise the indicator could say
+// "No SD card" while pressing Record actually works.
+uint64_t mnGetFreeSpaceBytes() {
+    if (!sdCardAvailable) initSDCard();
+    return getSDFreeBytes();
+}
+
 // Shared effective-WPM tracker (see effective_wpm.h) — same measurement used
 // by the CW Practice "Actual" readout, so the two agree.
 static EffectiveWpm mnEffWpm;
@@ -68,21 +81,34 @@ extern int cwSpeed;
  * Start recording
  */
 bool mnStartRecording() {
+    mnLastStartError = MN_START_OK;
+
     // Check if already recording
     if (mnRecordingSession.state == MN_REC_RECORDING) {
         Serial.println("[MorseNotes] WARNING: Already recording");
+        mnLastStartError = MN_START_ALREADY_RECORDING;
         return false;
     }
 
     // Ensure buffer is allocated (in PSRAM)
     if (!mnEnsureRecordingBuffer()) {
         Serial.println("[MorseNotes] ERROR: Failed to allocate recording buffer");
+        mnLastStartError = MN_START_NO_MEMORY;
         return false;
     }
 
-    // Check SD card space (minimum 500KB)
-    if (!mnCheckSpace(500000)) {
+    // Make sure a card is actually mounted before judging free space (a missing
+    // card would otherwise be misreported as "insufficient space"). Retry init
+    // once, matching the QSO Logger's SD-required behavior.
+    if (!sdCardAvailable) initSDCard();
+    if (!sdCardAvailable) {
+        Serial.println("[MorseNotes] ERROR: SD card not available");
+        mnLastStartError = MN_START_NO_SD;
+        return false;
+    }
+    if (!mnCheckSpace(MN_MIN_FREE_BYTES)) {
         Serial.println("[MorseNotes] ERROR: Insufficient SD card space");
+        mnLastStartError = MN_START_LOW_SPACE;
         return false;
     }
 

@@ -13,6 +13,13 @@
 #define MN_MAX_RECORDINGS          200                      // Max recordings in library
 #define MN_WARNING_TIME_MS         (29 * 60 * 1000 + 30 * 1000)  // Warning at 29:30
 
+// Minimum free space required to START a recording. Keeps the prior 500 KB
+// behavior; comfortably covers a full MN_MAX_RECORDING_EVENTS recording
+// (40000 * 4 B = ~160 KB) plus the library.json rewrite and FAT slack.
+#define MN_MIN_FREE_BYTES        500000ULL
+// Proactive "space is getting low" warning threshold (well above the floor).
+#define MN_LOW_SPACE_WARN_BYTES  (5ULL * 1024ULL * 1024ULL)   // 5 MB
+
 // File paths
 #define MN_DIR                     "/morse-notes"
 #define MN_LIBRARY_FILE            "/morse-notes/library.json"

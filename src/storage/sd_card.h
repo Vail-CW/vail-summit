@@ -74,6 +74,33 @@ void updateSDCardStats() {
   sdCardUsed = SD.usedBytes() / (1024 * 1024);
 }
 
+// Free space on the SD card in bytes. 0 if no card is mounted. Guards the
+// uint64 underflow that would otherwise occur if usedBytes() exceeds totalBytes().
+uint64_t getSDFreeBytes() {
+  if (!sdCardAvailable) return 0;
+
+  uint64_t total = SD.totalBytes();
+  uint64_t used = SD.usedBytes();
+  return (used > total) ? 0 : (total - used);
+}
+
+// Human-readable size, e.g. "1.2 GB", "37.5 MB", "480 KB", "12 B". 1024-based.
+void formatBytes(uint64_t bytes, char* buf, size_t bufSize) {
+  const uint64_t KIB = 1024ULL;
+  const uint64_t MIB = 1024ULL * 1024ULL;
+  const uint64_t GIB = 1024ULL * 1024ULL * 1024ULL;
+
+  if (bytes >= GIB) {
+    snprintf(buf, bufSize, "%.1f GB", (double)bytes / (double)GIB);
+  } else if (bytes >= MIB) {
+    snprintf(buf, bufSize, "%.1f MB", (double)bytes / (double)MIB);
+  } else if (bytes >= KIB) {
+    snprintf(buf, bufSize, "%.0f KB", (double)bytes / (double)KIB);
+  } else {
+    snprintf(buf, bufSize, "%llu B", (unsigned long long)bytes);
+  }
+}
+
 // List files in a directory (recursive option)
 String listSDFiles(const char* dirname, bool recursive = false, int depth = 0) {
   if (!sdCardAvailable) {

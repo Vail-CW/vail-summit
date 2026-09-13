@@ -2,6 +2,7 @@
 #define MORSE_NOTES_STORAGE_H
 
 #include "morse_notes_types.h"
+#include "../storage/sd_card.h"
 #include <SD.h>
 #include <ArduinoJson.h>
 #include <time.h>
@@ -486,8 +487,7 @@ int mnGetLibraryCount() {
  * @return true if enough space available
  */
 bool mnCheckSpace(uint64_t minFreeBytes) {
-    uint64_t freeSpace = SD.totalBytes() - SD.usedBytes();
-    return freeSpace >= minFreeBytes;
+    return getSDFreeBytes() >= minFreeBytes;
 }
 
 #endif // MORSE_NOTES_STORAGE_H
