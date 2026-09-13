@@ -16,6 +16,7 @@
 void onLVGLMenuSelect(int menuItem);
 void getPaddleState(bool* dit, bool* dah);  // From task_manager.h
 void onLVGLBackNavigation();
+extern void beep(int frequency, int duration);  // From i2s_audio.h
 
 // ===================================
 // MORSE NOTES - LVGL UI SCREENS
@@ -556,6 +557,8 @@ static void mnSaveBtnClick(lv_event_t* e) {
         onLVGLMenuSelect(MODE_MORSE_NOTES_LIST);
     } else {
         Serial.println("[MorseNotes] ERROR: Failed to save recording");
+        beep(TONE_ERROR, BEEP_MEDIUM);
+        createAlertDialog("Save Failed", "Could not save the recording\nto the SD card.");
     }
 }
 
@@ -775,6 +778,34 @@ static void mnRecBtnClick(lv_event_t* e) {
         lv_group_focus_obj(mnRecordStopBtn);
 
         Serial.println("[MorseNotes] Recording started with keyer");
+    } else {
+        switch (mnGetLastStartError()) {
+            case MN_START_NO_SD:
+                beep(TONE_ERROR, BEEP_MEDIUM);
+                createAlertDialog("SD Card Required", "Please insert an SD card\nto record Morse Notes.");
+                break;
+            case MN_START_LOW_SPACE: {
+                char freeStr[24];
+                char needStr[24];
+                formatBytes(mnGetFreeSpaceBytes(), freeStr, sizeof(freeStr));
+                formatBytes(MN_MIN_FREE_BYTES, needStr, sizeof(needStr));
+                char msg[96];
+                snprintf(msg, sizeof(msg),
+                         "Not enough free space on\nthe SD card to record.\nFree: %s  (need %s)",
+                         freeStr, needStr);
+                beep(TONE_ERROR, BEEP_MEDIUM);
+                createAlertDialog("SD Card Full", msg);
+                break;
+            }
+            case MN_START_NO_MEMORY:
+                beep(TONE_ERROR, BEEP_MEDIUM);
+                createAlertDialog("Out of Memory", "Could not allocate the\nrecording buffer.");
+                break;
+            case MN_START_ALREADY_RECORDING:
+            default:
+                // Silent no-op.
+                break;
+        }
     }
 }
 
@@ -892,6 +923,35 @@ lv_obj_t* createMorseNotesRecordScreen() {
     lv_label_set_text(settings_lbl, settingsInfo);
     lv_obj_set_style_text_color(settings_lbl, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_text_font(settings_lbl, getThemeFonts()->font_small, 0);
+
+    // SD card space indicator. Computed once here (not on a timer) since
+    // SD.usedBytes() can be slow on large cards.
+    {
+        uint64_t freeB = mnGetFreeSpaceBytes();
+        char sz[24];
+        char txt[48];
+        lv_color_t color;
+        if (freeB == 0) {
+            snprintf(txt, sizeof(txt), "No SD card");
+            color = LV_COLOR_ERROR;
+        } else if (freeB < MN_MIN_FREE_BYTES) {
+            formatBytes(freeB, sz, sizeof(sz));
+            snprintf(txt, sizeof(txt), "SD full - %s free", sz);
+            color = LV_COLOR_ERROR;
+        } else if (freeB < MN_LOW_SPACE_WARN_BYTES) {
+            formatBytes(freeB, sz, sizeof(sz));
+            snprintf(txt, sizeof(txt), "SD space low - %s free", sz);
+            color = LV_COLOR_WARNING;
+        } else {
+            formatBytes(freeB, sz, sizeof(sz));
+            snprintf(txt, sizeof(txt), "SD free: %s", sz);
+            color = LV_COLOR_TEXT_SECONDARY;
+        }
+        lv_obj_t* space_lbl = lv_label_create(content);
+        lv_label_set_text(space_lbl, txt);
+        lv_obj_set_style_text_color(space_lbl, color, 0);
+        lv_obj_set_style_text_font(space_lbl, getThemeFonts()->font_small, 0);
+    }
 
     // Instructions
     lv_obj_t* instructions = lv_label_create(content);
