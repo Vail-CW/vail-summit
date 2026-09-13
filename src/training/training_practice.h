@@ -37,7 +37,7 @@ int ditDuration = 0;
 // Statistics
 unsigned long practiceStartTime = 0;
 
-// Decoder state — pointer selects Adaptive or Direct at runtime
+// Decoder state - pointer selects Adaptive or Direct at runtime
 static MorseDecoder* practiceDecoder = nullptr;
 
 // Timer for direct decoder tick (only used when DECODER_DIRECT is active)
@@ -57,7 +57,7 @@ unsigned long lastStateChangeTime = 0;
 bool lastToneState = false;
 unsigned long lastElementTime = 0;  // Track last element for timeout flush
 
-// "Actual" (effective) WPM tracking — shared measurement (see effective_wpm.h),
+// "Actual" (effective) WPM tracking - shared measurement (see effective_wpm.h),
 // PARIS convention (5 chars = 1 word). Unlike the keyer speed setting, this
 // reflects real throughput including any inter-character/word spacing the
 // operator adds. Also used by Morse Notes recording so both readouts agree.
@@ -410,7 +410,7 @@ void practiceToggleDecoding() {
 }
 
 // Get the current "actual" (effective) WPM reading for the CW Practice
-// screen — the current sending burst only (responsive; freezes at its last
+// screen - the current sending burst only (responsive; freezes at its last
 // value during a pause; -1 until there's a valid reading).
 float practiceGetActualWPM() {
   return practiceEffWpm.burstWpm();

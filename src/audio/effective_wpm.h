@@ -1,8 +1,8 @@
 /*
- * Effective ("actual") WPM tracking — PARIS convention (5 chars = 1 word).
+ * Effective ("actual") WPM tracking - PARIS convention (5 chars = 1 word).
  *
  * A keyer-speed or decoder dit-length WPM figure only measures element
- * speed — it ignores whatever inter-character/word spacing the operator
+ * speed - it ignores whatever inter-character/word spacing the operator
  * actually adds, so for a keyer user it just echoes the keyer setting back.
  * This tracker instead measures real throughput: wall-clock time from the
  * first tone of a sending burst to the most recent tone end, divided into
@@ -15,12 +15,12 @@
  * begins. The pause itself is excluded from both burst and session time.
  *
  * Two readouts share the same underlying events:
- *   - burstWpm()   — current burst only; responsive, freezes at its last
+ *   - burstWpm()   - current burst only; responsive, freezes at its last
  *                    valid value during a pause, -1 until there's data.
- *   - sessionWpm() — everything since the last reset(), pauses excluded.
+ *   - sessionWpm() - everything since the last reset(), pauses excluded.
  *
  * This header is numeric-only. Per project policy, effective WPM is always
- * shown as a number — never as a live dot/dash or symbol-timing display.
+ * shown as a number - never as a live dot/dash or symbol-timing display.
  */
 
 #ifndef EFFECTIVE_WPM_H
@@ -59,7 +59,7 @@ struct EffectiveWpm {
   void onToneStart(unsigned long now) {
     if (burstStartMs != 0 && lastToneEndMs != 0 &&
         (now - lastToneEndMs) > EFFECTIVE_WPM_IDLE_MS) {
-      // Operator stopped sending for a while — close out the current burst.
+      // Operator stopped sending for a while - close out the current burst.
       unsigned long elapsed = (lastToneEndMs >= burstStartMs) ? (lastToneEndMs - burstStartMs) : 0;
       float closedWpm = computeWpm(burstChars, elapsed);
       if (closedWpm >= 0.0f) lastBurstWpm = closedWpm;
@@ -71,7 +71,7 @@ struct EffectiveWpm {
       // First tone ever.
       burstStartMs = now;
     }
-    // Otherwise: normal gap within an ongoing burst — nothing to do.
+    // Otherwise: normal gap within an ongoing burst - nothing to do.
   }
 
   // Call when a tone ends (key/paddle released).
@@ -99,7 +99,7 @@ struct EffectiveWpm {
     return lastBurstWpm;
   }
 
-  // Effective WPM across everything since the last reset() — closed bursts
+  // Effective WPM across everything since the last reset() - closed bursts
   // plus whatever the current burst has accumulated so far. Pauses between
   // bursts are excluded. Returns -1.0f if there isn't a valid sample yet.
   float sessionWpm() {

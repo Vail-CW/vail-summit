@@ -22,14 +22,14 @@ static MnStartError mnLastStartError = MN_START_OK;
 MnStartError mnGetLastStartError() { return mnLastStartError; }
 // Free SD space in bytes (0 = no card), for the record-screen indicator.
 // Retries the mount once so a card inserted after boot is picked up here the
-// same way mnStartRecording() picks it up — otherwise the indicator could say
+// same way mnStartRecording() picks it up - otherwise the indicator could say
 // "No SD card" while pressing Record actually works.
 uint64_t mnGetFreeSpaceBytes() {
     if (!sdCardAvailable) initSDCard();
     return getSDFreeBytes();
 }
 
-// Shared effective-WPM tracker (see effective_wpm.h) — same measurement used
+// Shared effective-WPM tracker (see effective_wpm.h) - same measurement used
 // by the CW Practice "Actual" readout, so the two agree.
 static EffectiveWpm mnEffWpm;
 
@@ -186,7 +186,7 @@ bool mnSaveRecording(const char* title) {
     }
 
     // Calculate average (effective) WPM from the shared tracker. Fallback is
-    // only for "no reading" (< 0), not "reading is slow" — a genuinely slow
+    // only for "no reading" (< 0), not "reading is slow" - a genuinely slow
     // effective rate is a real measurement and must not be replaced by the
     // keyer setting.
     float avgWPM = mnEffWpm.sessionWpm();
@@ -267,7 +267,7 @@ int mnGetRecordingEventCount() {
  * Get recording average WPM
  */
 float mnGetRecordingWPM() {
-    // Fallback is only for "no reading" (< 0) — a genuinely slow effective
+    // Fallback is only for "no reading" (< 0) - a genuinely slow effective
     // rate is a real measurement and must not be replaced by the keyer
     // setting (unlike the old dit-length-only decoder WPM, which merely
     // echoed the keyer setting for a keyer user).

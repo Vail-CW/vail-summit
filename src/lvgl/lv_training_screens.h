@@ -241,7 +241,7 @@ lv_obj_t* createPracticeScreen() {
     lv_obj_set_style_text_font(practice_key_label, getThemeFonts()->font_subtitle, 0);
     lv_obj_align(practice_key_label, LV_ALIGN_BOTTOM_MID, 0, 0);
 
-    // Actual (effective) WPM indicator — reflects real throughput including
+    // Actual (effective) WPM indicator - reflects real throughput including
     // any Farnsworth-style spacing the operator adds, not the keyer setting.
     lv_obj_t* actual_box = lv_obj_create(settings_row);
     lv_obj_set_size(actual_box, 100, 44);
@@ -395,7 +395,7 @@ void updatePracticeDecoderDisplay(const char* text) {
 // Null-guarded because updatePracticeOscillator()/practiceKeyerCallback() are
 // also used by School Send mode, which never creates this label.
 // Note: LV_SPRINTF_USE_FLOAT is disabled in lv_conf.h, so %f is not usable
-// with lv_label_set_text_fmt() — format with snprintf() into a char buffer.
+// with lv_label_set_text_fmt() - format with snprintf() into a char buffer.
 void updatePracticeActualWPM(float wpm) {
     if (practice_actual_label == NULL) return;
 
