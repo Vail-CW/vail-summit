@@ -5,6 +5,7 @@
 #include "morse_notes_storage.h"
 #include "../audio/morse_decoder_adaptive.h"
 #include "../audio/morse_decoder_direct.h"
+#include "../audio/effective_wpm.h"
 #include "../settings/settings_decoder.h"
 
 // ===================================
@@ -14,6 +15,19 @@
 // Global recording session
 static MorseNotesRecordingSession mnRecordingSession;
 static MorseDecoder* mnRecordingDecoder = nullptr;  // For WPM calculation
+
+// Shared effective-WPM tracker (see effective_wpm.h) — same measurement used
+// by the CW Practice "Actual" readout, so the two agree.
+static EffectiveWpm mnEffWpm;
+
+// messageCallback target for mnRecordingDecoder: feeds each decoded char
+// into the effective-WPM tracker. Captureless (plain function pointer, per
+// the decoder's existing callback type).
+static void mnDecoderMessageCallback(String morse, String text) {
+    for (unsigned int i = 0; i < text.length(); i++) {
+        mnEffWpm.onChar(text[i]);
+    }
+}
 
 // Timing buffer allocated in PSRAM on first use (saves 160KB heap)
 static float* mnRecordingTimingBuffer = nullptr;
@@ -87,6 +101,8 @@ bool mnStartRecording() {
         ? (MorseDecoder*) new MorseDecoderDirect(20, 20, 30)
         : (MorseDecoder*) new MorseDecoderAdaptive(20, 20, 30);
     mnRecordingDecoder->flush();
+    mnEffWpm.reset();
+    mnRecordingDecoder->messageCallback = mnDecoderMessageCallback;
 
     Serial.println("[MorseNotes] Recording started");
     return true;
@@ -103,6 +119,12 @@ bool mnStopRecording() {
 
     // Ensure tone is stopped
     requestStopTone();
+
+    // Flush any remaining buffered timing so the final character is counted
+    // toward the effective-WPM figure.
+    if (mnRecordingDecoder) {
+        mnRecordingDecoder->flush();
+    }
 
     // Update state
     mnRecordingSession.state = MN_REC_COMPLETE;
@@ -137,9 +159,12 @@ bool mnSaveRecording(const char* title) {
         finalTitle = defaultTitle;
     }
 
-    // Calculate average WPM from decoder
-    float avgWPM = mnRecordingDecoder->getWPM();
-    if (avgWPM < 5.0f) {
+    // Calculate average (effective) WPM from the shared tracker. Fallback is
+    // only for "no reading" (< 0), not "reading is slow" — a genuinely slow
+    // effective rate is a real measurement and must not be replaced by the
+    // keyer setting.
+    float avgWPM = mnEffWpm.sessionWpm();
+    if (avgWPM < 0.0f) {
         avgWPM = (float)cwSpeed;  // Fall back to configured speed
     }
 
@@ -216,8 +241,12 @@ int mnGetRecordingEventCount() {
  * Get recording average WPM
  */
 float mnGetRecordingWPM() {
-    float wpm = mnRecordingDecoder ? mnRecordingDecoder->getWPM() : 0.0f;
-    return (wpm >= 5.0f) ? wpm : (float)cwSpeed;
+    // Fallback is only for "no reading" (< 0) — a genuinely slow effective
+    // rate is a real measurement and must not be replaced by the keyer
+    // setting (unlike the old dit-length-only decoder WPM, which merely
+    // echoed the keyer setting for a keyer user).
+    float wpm = mnEffWpm.sessionWpm();
+    return (wpm >= 0.0f) ? wpm : (float)cwSpeed;
 }
 
 /**
@@ -273,9 +302,13 @@ void mnKeyerCallback(bool keyDown, unsigned long timestamp) {
             float silence = -(float)(timestamp - mnRecordingSession.lastEventTime);
             mnRecordingSession.timingBuffer[mnRecordingSession.eventCount++] = silence;
 
-            // Feed to decoder for WPM calculation
+            // Feed to decoder for WPM calculation. This may flush the
+            // previous character, so the effective-WPM burst boundary below
+            // must be evaluated AFTER this call to credit that char to the
+            // burst it belongs to.
             mnRecordingDecoder->addTiming(silence);
         }
+        mnEffWpm.onToneStart(timestamp);
         mnRecordingSession.lastEventTime = timestamp;
         mnRecordingSession.keyState = true;
 
@@ -289,6 +322,7 @@ void mnKeyerCallback(bool keyDown, unsigned long timestamp) {
 
         // Feed to decoder for WPM calculation
         mnRecordingDecoder->addTiming(tone);
+        mnEffWpm.onToneEnd(timestamp);
 
         mnRecordingSession.lastEventTime = timestamp;
         mnRecordingSession.keyState = false;

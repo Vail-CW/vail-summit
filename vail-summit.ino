@@ -710,9 +710,18 @@ void readPaddles(bool &dit, bool &dah) {
 
 void pollPracticeMode() {
     updatePracticeOscillator();
-    if (needsUIUpdate && !isTonePlaying()) {
-        updatePracticeDecoderDisplay(decodedText.c_str());
-        needsUIUpdate = false;
+    if (!isTonePlaying()) {
+        if (needsUIUpdate) {
+            updatePracticeDecoderDisplay(decodedText.c_str());
+            needsUIUpdate = false;
+        }
+        // Throttled effective-WPM refresh, only between keyed elements (audio-critical mode)
+        static unsigned long lastActualUpdate = 0;
+        unsigned long now = millis();
+        if (now - lastActualUpdate >= 500) {
+            lastActualUpdate = now;
+            updatePracticeActualWPM(practiceGetActualWPM());
+        }
     }
 }
 

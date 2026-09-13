@@ -12,6 +12,7 @@
 #include "../settings/settings_decoder.h"
 #include "../audio/morse_decoder_adaptive.h"
 #include "../audio/morse_decoder_direct.h"
+#include "../audio/effective_wpm.h"
 #include "../keyer/keyer.h"
 #include <esp_timer.h>
 
@@ -56,10 +57,17 @@ unsigned long lastStateChangeTime = 0;
 bool lastToneState = false;
 unsigned long lastElementTime = 0;  // Track last element for timeout flush
 
+// "Actual" (effective) WPM tracking — shared measurement (see effective_wpm.h),
+// PARIS convention (5 chars = 1 word). Unlike the keyer speed setting, this
+// reflects real throughput including any inter-character/word spacing the
+// operator adds. Also used by Morse Notes recording so both readouts agree.
+static EffectiveWpm practiceEffWpm;
+
 // Forward declarations
 void startPracticeMode(LGFX &display);
 void updatePracticeOscillator();
 void practiceKeyerCallback(bool txOn, int element);
+float practiceGetActualWPM();
 
 // LVGL-callable action functions
 void practiceHandleEsc();
@@ -129,12 +137,17 @@ void startPracticeMode(LGFX &display) {
   lastElementTime = 0;  // Reset element timeout tracker
   showDecoding = true;
   needsUIUpdate = false;
+  practiceEffWpm.reset();
 
   // Setup decoder callbacks
   practiceDecoder->messageCallback = [](String morse, String text) {
     // Process each character in the decoded text individually
     for (int i = 0; i < text.length(); i++) {
       decodedText += text[i];
+      // Feed the shared effective-WPM tracker (excludes word-space markers).
+      // Counted here (not via decodedText.length()) because the display auto-
+      // clears decodedText after 4 lines, which would otherwise reset the count.
+      practiceEffWpm.onChar(text[i]);
     }
 
     // Also track morse pattern
@@ -183,7 +196,10 @@ void practiceKeyerCallback(bool txOn, int element) {
   if (txOn) {
     // Tone starting
     if (showDecoding && lastToneState == false) {
-      // Send silence duration to decoder (negative)
+      // Send silence duration to decoder (negative). This may flush the
+      // previous character (via addTiming's internal word-gap handling),
+      // so the effective-WPM burst boundary below must be evaluated AFTER
+      // this call, to credit that flushed char to the burst it belongs to.
       if (lastStateChangeTime > 0) {
         float silenceDuration = currentTime - lastStateChangeTime;
         if (silenceDuration > 0) {
@@ -193,6 +209,7 @@ void practiceKeyerCallback(bool txOn, int element) {
       lastStateChangeTime = currentTime;
       lastToneState = true;
     }
+    practiceEffWpm.onToneStart(currentTime);
     startTone(cwTone);
   } else {
     // Tone stopping
@@ -206,6 +223,7 @@ void practiceKeyerCallback(bool txOn, int element) {
       lastStateChangeTime = currentTime;
       lastToneState = false;
     }
+    practiceEffWpm.onToneEnd(currentTime);
     stopTone();
   }
 }
@@ -286,6 +304,7 @@ void practiceHandleEsc() {
     practiceKeyer->reset();
   }
   practiceDecoder->flush();  // Decode any remaining buffered timings
+  practiceEffWpm.reset();
 
   // Save any pending settings before exit
   if (settingSavePending) {
@@ -303,6 +322,7 @@ void practiceHandleClear() {
   decodedMorse = "";
   practiceDecoder->reset();
   practiceDecoder->flush();
+  practiceEffWpm.reset();
   needsUIUpdate = true;  // Signal LVGL to update display
   beep(TONE_MENU_NAV, BEEP_SHORT);
   Serial.println("[Practice] Cleared decoder text");
@@ -387,6 +407,13 @@ void practiceToggleDecoding() {
   showDecoding = !showDecoding;
   beep(TONE_MENU_NAV, BEEP_SHORT);
   Serial.printf("[Practice] Decoding %s\n", showDecoding ? "enabled" : "disabled");
+}
+
+// Get the current "actual" (effective) WPM reading for the CW Practice
+// screen — the current sending burst only (responsive; freezes at its last
+// value during a pause; -1 until there's a valid reading).
+float practiceGetActualWPM() {
+  return practiceEffWpm.burstWpm();
 }
 
 #endif // TRAINING_PRACTICE_H

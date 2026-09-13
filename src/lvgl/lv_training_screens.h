@@ -63,6 +63,7 @@ extern void practiceHandleClear();
 extern void practiceAdjustSpeed(int delta);
 extern void practiceCycleKeyType(int direction);
 extern void practiceToggleDecoding();
+extern float practiceGetActualWPM();
 
 // Key acceleration helper (from lv_init.h)
 extern int getKeyAccelerationStep();
@@ -76,6 +77,7 @@ static lv_obj_t* practice_decoder_box = NULL;
 static lv_obj_t* practice_decoder_text = NULL;
 static lv_obj_t* practice_wpm_label = NULL;
 static lv_obj_t* practice_key_label = NULL;
+static lv_obj_t* practice_actual_label = NULL;
 
 // Key event callback for practice mode keyboard input
 // Note: LV_KEY_PREV/NEXT are consumed by LVGL for group navigation
@@ -239,6 +241,27 @@ lv_obj_t* createPracticeScreen() {
     lv_obj_set_style_text_font(practice_key_label, getThemeFonts()->font_subtitle, 0);
     lv_obj_align(practice_key_label, LV_ALIGN_BOTTOM_MID, 0, 0);
 
+    // Actual (effective) WPM indicator — reflects real throughput including
+    // any Farnsworth-style spacing the operator adds, not the keyer setting.
+    lv_obj_t* actual_box = lv_obj_create(settings_row);
+    lv_obj_set_size(actual_box, 100, 44);
+    lv_obj_clear_flag(actual_box, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_opa(actual_box, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(actual_box, 0, 0);
+    lv_obj_set_style_pad_all(actual_box, 0, 0);
+
+    lv_obj_t* actual_lbl = lv_label_create(actual_box);
+    lv_label_set_text(actual_lbl, "Actual");
+    lv_obj_set_style_text_color(actual_lbl, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_style_text_font(actual_lbl, getThemeFonts()->font_small, 0);
+    lv_obj_align(actual_lbl, LV_ALIGN_TOP_MID, 0, 0);
+
+    practice_actual_label = lv_label_create(actual_box);
+    lv_label_set_text(practice_actual_label, "-- WPM");
+    lv_obj_set_style_text_color(practice_actual_label, LV_COLOR_WARNING, 0);
+    lv_obj_set_style_text_font(practice_actual_label, getThemeFonts()->font_subtitle, 0);
+    lv_obj_align(practice_actual_label, LV_ALIGN_BOTTOM_MID, 0, 0);
+
     // Decoder box - sized for 4 lines of decoded text
     practice_decoder_box = lv_obj_create(screen);
     lv_obj_set_size(practice_decoder_box, SCREEN_WIDTH - 20, 145);  // Taller to fit 4 lines
@@ -365,6 +388,27 @@ void updatePracticeDecoderDisplay(const char* text) {
     if (lv_obj_get_height(practice_decoder_text) > max_height) {
         decodedText = "";
         lv_label_set_text(practice_decoder_text, "_");
+    }
+}
+
+// Update the "Actual" WPM indicator. wpm < 0 means no reading yet ("--").
+// Null-guarded because updatePracticeOscillator()/practiceKeyerCallback() are
+// also used by School Send mode, which never creates this label.
+// Note: LV_SPRINTF_USE_FLOAT is disabled in lv_conf.h, so %f is not usable
+// with lv_label_set_text_fmt() — format with snprintf() into a char buffer.
+void updatePracticeActualWPM(float wpm) {
+    if (practice_actual_label == NULL) return;
+
+    static float last_shown = -2.0f;  // Sentinel distinct from -1 ("--") to force first draw
+    if (fabsf(wpm - last_shown) < 0.05f) return;
+    last_shown = wpm;
+
+    if (wpm < 0) {
+        lv_label_set_text(practice_actual_label, "-- WPM");
+    } else {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%.1f WPM", wpm);
+        lv_label_set_text(practice_actual_label, buf);
     }
 }
 
