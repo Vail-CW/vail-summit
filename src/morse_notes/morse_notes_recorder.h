@@ -101,12 +101,16 @@ bool mnStartRecording() {
     // card would otherwise be misreported as "insufficient space"). Retry init
     // once, matching the QSO Logger's SD-required behavior.
     if (!sdCardAvailable) initSDCard();
+    // Read the free space BEFORE testing the flag: getSDFreeBytes() clears
+    // sdCardAvailable if the card was pulled after an earlier successful mount,
+    // and that case must surface as "no card", not "full".
+    bool hasSpace = mnCheckSpace(MN_MIN_FREE_BYTES);
     if (!sdCardAvailable) {
         Serial.println("[MorseNotes] ERROR: SD card not available");
         mnLastStartError = MN_START_NO_SD;
         return false;
     }
-    if (!mnCheckSpace(MN_MIN_FREE_BYTES)) {
+    if (!hasSpace) {
         Serial.println("[MorseNotes] ERROR: Insufficient SD card space");
         mnLastStartError = MN_START_LOW_SPACE;
         return false;

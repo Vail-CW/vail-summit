@@ -81,6 +81,17 @@ uint64_t getSDFreeBytes() {
 
   uint64_t total = SD.totalBytes();
   uint64_t used = SD.usedBytes();
+
+  // sdCardAvailable is set once at mount and is never cleared, so a card
+  // pulled after a successful mount would otherwise keep looking "available"
+  // while reporting 0 bytes and get reported as "full". A mounted card always
+  // has a nonzero total; the library returns 0 when the filesystem read fails,
+  // so treat that as the card having gone away and drop the flag so callers
+  // can retry the mount and report "no card" instead.
+  if (total == 0) {
+    sdCardAvailable = false;
+    return 0;
+  }
   return (used > total) ? 0 : (total - used);
 }
 

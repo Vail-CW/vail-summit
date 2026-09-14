@@ -927,11 +927,14 @@ lv_obj_t* createMorseNotesRecordScreen() {
     // SD card space indicator. Computed once here (not on a timer) since
     // SD.usedBytes() can be slow on large cards.
     {
-        uint64_t freeB = mnGetFreeSpaceBytes();
+        uint64_t freeB = mnGetFreeSpaceBytes();  // retries the mount, so sdCardAvailable is current after this
         char sz[24];
         char txt[48];
         lv_color_t color;
-        if (freeB == 0) {
+        // Test card presence directly rather than inferring it from freeB == 0:
+        // a mounted card that is completely full also reports 0 free bytes and
+        // must show as "SD full", not "No SD card".
+        if (!sdCardAvailable) {
             snprintf(txt, sizeof(txt), "No SD card");
             color = LV_COLOR_ERROR;
         } else if (freeB < MN_MIN_FREE_BYTES) {
