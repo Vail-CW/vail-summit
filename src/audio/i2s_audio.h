@@ -24,9 +24,69 @@
 // - not amplitude. With proper I2S, this moderate level is clean.
 #define I2S_BASE_AMPLITUDE 8000
 
+// DMA ring depth. 16 buffers x 64 frames at 22050Hz gives roughly 46ms of
+// buffered audio to ride out a Core-1 flash-cache stall, versus ~23ms at the
+// previous depth of 8. This does not add keying latency: stopTone() calls
+// i2s_zero_dma_buffer() on every tone stop (see below), so a deeper ring never
+// plays back stale samples after a key-up - depth only matters while a tone
+// is actively feeding, which is exactly the window a stall can hit.
+#define I2S_DMA_BUF_COUNT 16
+
 // Forward declarations
-void continueTone(int frequency);
+void IRAM_ATTR continueTone(int frequency);
 static void initSineLUT();
+
+// ============================================
+// Audio performance instrumentation
+// ============================================
+// Profiling aid for the Core-0 audio hot path, added to verify the IRAM /
+// DMA-depth changes below actually keep the sidetone fed while Core 1 is
+// hammering the flash cache with display work. Set to 0 to compile it out
+// completely. Mirrors the shape of DISPLAY_PERF_INSTRUMENT in lv_init.h.
+//
+// Reported once per second, from the audio task itself:
+//   iter/s     audio task loop iterations per second
+//   worst      the single slowest loop iteration (processAudioRequests +
+//              processMorsePlayback + samplePaddleInput), in ms
+//   over5ms    count of iterations that took longer than 5ms - these are the
+//              cache-contention stalls we're chasing
+//   write_max  the single slowest i2s_write() call across all call sites, in ms
+//
+// The report itself uses Serial.printf (flash-resident), so it is only ever
+// called once per second, from OUTSIDE the measured region - never from the
+// per-iteration hot path.
+#define AUDIO_PERF_INSTRUMENT 0
+
+#if AUDIO_PERF_INSTRUMENT
+static uint32_t aperf_iterations     = 0;
+static uint32_t aperf_worst_loop_us  = 0;
+static uint32_t aperf_over5ms_count  = 0;
+static uint32_t aperf_worst_write_us = 0;
+static uint32_t aperf_window_start   = 0;
+
+// Called once per second from the audio task loop, after vTaskDelay(1) so
+// this Serial.printf never runs inside the measured region.
+void reportAudioPerf() {
+    uint32_t now = millis();
+    if (aperf_window_start == 0) { aperf_window_start = now; return; }
+    uint32_t elapsed_ms = now - aperf_window_start;
+    if (elapsed_ms < 1000) return;
+
+    Serial.printf("[AudioPerf] iter/s=%lu worst=%.2fms over5ms=%lu write_max=%.2fms\n",
+                  (unsigned long)(aperf_iterations * 1000UL / elapsed_ms),
+                  aperf_worst_loop_us / 1000.0f,
+                  (unsigned long)aperf_over5ms_count,
+                  aperf_worst_write_us / 1000.0f);
+
+    aperf_iterations = 0;
+    aperf_worst_loop_us = 0;
+    aperf_over5ms_count = 0;
+    aperf_worst_write_us = 0;
+    aperf_window_start = now;
+}
+#else
+inline void reportAudioPerf() {}
+#endif
 
 // Boot preset options
 enum BootPreset {
@@ -264,8 +324,11 @@ void initI2SAudio() {
     .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
     .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
     .communication_format = I2S_COMM_FORMAT_STAND_I2S,
-    .intr_alloc_flags = ESP_INTR_FLAG_LEVEL3,  // Highest priority - must beat SPI DMA
-    .dma_buf_count = 8,
+    // Highest priority - must beat SPI DMA. Do NOT add ESP_INTR_FLAG_IRAM here:
+    // the legacy IDF I2S driver bundled with Arduino core 2.0.14 is not
+    // IRAM-safe, and an IRAM-resident ISR request against it crashes.
+    .intr_alloc_flags = ESP_INTR_FLAG_LEVEL3,
+    .dma_buf_count = I2S_DMA_BUF_COUNT,
     .dma_buf_len = 64,  // Smaller buffers for lower latency morse timing
     .use_apll = true,  // Use Audio PLL for cleaner clock (reduces noise)
     .tx_desc_auto_clear = true,
@@ -327,7 +390,7 @@ void initI2SAudio() {
  * change is in the bottom few percent). Squaring the normalized volume gives a
  * usable range where low UI values are genuinely quiet.
  */
-static inline float getVolumeScale() {
+static inline float IRAM_ATTR getVolumeScale() {
   float v = (float)audio_volume * 0.01f;   // 0..1
   return v * v;                            // perceptual curve
 }
@@ -379,7 +442,7 @@ static void IRAM_ATTR fillToneBuffer(int16_t* buf, int frames, float* phaseRef,
 }
 
 // Per-sample amplitude factor: sample = sineLUT[idx] * this == sin * AMP * vol.
-static inline float toneAmp() {
+static inline float IRAM_ATTR toneAmp() {
   return getVolumeScale() * (I2S_BASE_AMPLITUDE / 32767.0f);
 }
 
@@ -413,7 +476,15 @@ void playTone(int frequency, int duration_ms) {
     // feeding even if the flash cache is briefly disabled on the other core.
     fillToneBuffer(sample_buffer, I2S_BUFFER_SIZE / 2, &local_phase, phase_increment, toneAmp());
 
+    // i2s_write() is ESP-IDF code resident in flash - it cannot be moved to
+    // IRAM, so it is left to run from cache like any other flash call here.
+#if AUDIO_PERF_INSTRUMENT
+    uint32_t aperf_w0 = micros();
+#endif
     esp_err_t result = i2s_write(I2S_NUM, sample_buffer, I2S_BUFFER_SIZE * sizeof(int16_t), &bytes_written, portMAX_DELAY);
+#if AUDIO_PERF_INSTRUMENT
+    { uint32_t dt = micros() - aperf_w0; if (dt > aperf_worst_write_us) aperf_worst_write_us = dt; }
+#endif
     if (result != ESP_OK) {
       Serial.printf("I2S write error: %d\n", result);
     }
@@ -425,7 +496,13 @@ void playTone(int frequency, int duration_ms) {
 
   // Silence at end
   memset(sample_buffer, 0, sizeof(sample_buffer));
+#if AUDIO_PERF_INSTRUMENT
+  uint32_t aperf_w1 = micros();
+#endif
   i2s_write(I2S_NUM, sample_buffer, I2S_BUFFER_SIZE * sizeof(int16_t), &bytes_written, portMAX_DELAY);
+#if AUDIO_PERF_INSTRUMENT
+  { uint32_t dt = micros() - aperf_w1; if (dt > aperf_worst_write_us) aperf_worst_write_us = dt; }
+#endif
 
   tone_playing = false;
 }
@@ -459,7 +536,7 @@ void startTone(int frequency) {
  * Continue playing the current tone
  * Call this repeatedly in loop while tone should continue
  */
-void continueTone(int frequency) {
+void IRAM_ATTR continueTone(int frequency) {
   if (!i2s_initialized || !tone_playing) {
     return;
   }
@@ -469,22 +546,35 @@ void continueTone(int frequency) {
     current_frequency = frequency;
   }
 
-  int16_t sample_buffer[I2S_BUFFER_SIZE];
+  int16_t sample_buffer[I2S_BUFFER_SIZE];  // Task-stack local, so DRAM - fine.
   float phase_increment = 2.0 * PI * current_frequency / I2S_SAMPLE_RATE;
 
   // Generate from the DRAM table via the IRAM fill routine (flash-independent),
   // carrying the shared phase accumulator for click-free continuity.
   fillToneBuffer(sample_buffer, I2S_BUFFER_SIZE / 2, &phase, phase_increment, toneAmp());
 
-  // Write samples - MUST block to ensure continuous playback
+  // Write samples - MUST block to ensure continuous playback.
+  // i2s_write() is ESP-IDF code resident in flash and cannot be moved to
+  // IRAM; this is the one flash call this steady-state path cannot avoid.
   size_t bytes_written;
+#if AUDIO_PERF_INSTRUMENT
+  uint32_t aperf_w0 = micros();
+#endif
   i2s_write(I2S_NUM, sample_buffer, I2S_BUFFER_SIZE * sizeof(int16_t), &bytes_written, portMAX_DELAY);
+#if AUDIO_PERF_INSTRUMENT
+  { uint32_t dt = micros() - aperf_w0; if (dt > aperf_worst_write_us) aperf_worst_write_us = dt; }
+#endif
 }
 
 /*
  * Stop the currently playing tone with optional fade-out to prevent clicks
+ *
+ * Marked IRAM_ATTR (beyond the stopToneInternal wrapper that calls it) because
+ * stopToneInternal is a one-line passthrough - all of the actual per-element
+ * work (the fade-out ramp generation below) lives here, and that is exactly
+ * the code that needs to keep running when the flash cache is contended.
  */
-void stopTone() {
+void IRAM_ATTR stopTone() {
   if (!i2s_initialized) {
     return;
   }
@@ -513,7 +603,14 @@ void stopTone() {
     }
 
     size_t bytes_written;
+    // i2s_write() is flash-resident ESP-IDF code and cannot be moved to IRAM.
+#if AUDIO_PERF_INSTRUMENT
+    uint32_t aperf_w0 = micros();
+#endif
     i2s_write(I2S_NUM, ramp_buffer, I2S_BUFFER_SIZE * sizeof(int16_t), &bytes_written, 10);
+#if AUDIO_PERF_INSTRUMENT
+    { uint32_t dt = micros() - aperf_w0; if (dt > aperf_worst_write_us) aperf_worst_write_us = dt; }
+#endif
   }
 
   tone_playing = false;
@@ -524,7 +621,13 @@ void stopTone() {
   // Write silence to clear the buffer
   int16_t silence[I2S_BUFFER_SIZE] = {0};
   size_t bytes_written;
+#if AUDIO_PERF_INSTRUMENT
+  uint32_t aperf_w1 = micros();
+#endif
   i2s_write(I2S_NUM, silence, I2S_BUFFER_SIZE * sizeof(int16_t), &bytes_written, 10);
+#if AUDIO_PERF_INSTRUMENT
+  { uint32_t dt = micros() - aperf_w1; if (dt > aperf_worst_write_us) aperf_worst_write_us = dt; }
+#endif
   i2s_zero_dma_buffer(I2S_NUM);
 }
 
@@ -613,7 +716,7 @@ void playToneInternal(int frequency, int duration_ms) {
  * Internal: Start a continuous tone
  * Called from audio task
  */
-void startToneInternal(int frequency) {
+void IRAM_ATTR startToneInternal(int frequency) {
   if (!i2s_initialized) {
     return;
   }
@@ -630,8 +733,13 @@ void startToneInternal(int frequency) {
 /*
  * Internal: Continue filling the audio buffer
  * Called from audio task when tone is playing
+ *
+ * Marked IRAM_ATTR even though it is a one-line passthrough: this is the
+ * exact call processAudioRequests()/processMorsePlayback() make on every
+ * audio task iteration while a tone is playing, so leaving the passthrough
+ * itself in flash would still cost an instruction fetch on the hot path.
  */
-void continueToneInternal(int frequency) {
+void IRAM_ATTR continueToneInternal(int frequency) {
   continueTone(frequency);
 }
 
@@ -639,7 +747,7 @@ void continueToneInternal(int frequency) {
  * Internal: Stop the current tone
  * Called from audio task
  */
-void stopToneInternal() {
+void IRAM_ATTR stopToneInternal() {
   stopTone();
 }
 

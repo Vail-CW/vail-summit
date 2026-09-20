@@ -8,6 +8,7 @@
 
 #include <lvgl.h>
 #include <LovyanGFX.hpp>
+#include <esp_heap_caps.h>   // heap_caps_malloc, for placing the draw buffer in internal SRAM
 #include "../core/config.h"
 
 // Forward declaration for global hotkey handler (defined in lv_mode_integration.h)
@@ -103,6 +104,72 @@ void updateKeyAcceleration(uint32_t key, uint32_t now) {
 // Display Flush Callback
 // ============================================
 
+// ============================================
+// Display performance instrumentation
+// ============================================
+// Profiling aid so display optimization targets come from measured workload
+// instead of arithmetic. Set to 0 to compile it out completely.
+// See docs/upgrades/display-dma-overlap.md for what this was used to find.
+//
+// Reported once per second, per mode:
+//   KB        bytes actually pushed to the panel in that second
+//   render    average gap between two flushes of the SAME refresh, i.e. how
+//             long LVGL spends drawing one buffer. Gaps longer than
+//             DPERF_IDLE_GAP_US are treated as idle and excluded, otherwise
+//             sitting on a static screen would dominate the average.
+//   flush     average time inside the blocking SPI transfer
+//   max       largest single flush, with its pixel count
+//   bus busy  share of wall-clock time spent transferring. This is the number
+//             that says whether the display is actually costing anything.
+#define DISPLAY_PERF_INSTRUMENT 0
+#define DPERF_IDLE_GAP_US       50000UL
+
+#if DISPLAY_PERF_INSTRUMENT
+static uint32_t dperf_flushes       = 0;
+static uint64_t dperf_bytes         = 0;
+static uint64_t dperf_transfer_us   = 0;
+static uint64_t dperf_render_us     = 0;
+static uint32_t dperf_render_samples= 0;
+static uint32_t dperf_max_flush_us  = 0;
+static uint32_t dperf_max_px        = 0;
+static uint32_t dperf_last_exit_us  = 0;
+static uint32_t dperf_window_start  = 0;
+
+// Call once per loop; prints at most once per second, and only when the
+// display actually did work.
+void reportDisplayPerf(int mode) {
+    uint32_t now = millis();
+    if (dperf_window_start == 0) { dperf_window_start = now; return; }
+    if ((now - dperf_window_start) < 1000) return;
+
+    uint32_t elapsed_ms = now - dperf_window_start;
+    if (dperf_flushes > 0) {
+        float busy   = (float)dperf_transfer_us / ((float)elapsed_ms * 1000.0f) * 100.0f;
+        float avgfl  = (float)dperf_transfer_us / (float)dperf_flushes / 1000.0f;
+        float avgrd  = (dperf_render_samples > 0)
+                     ? (float)dperf_render_us / (float)dperf_render_samples / 1000.0f
+                     : 0.0f;
+        Serial.printf("[DispPerf] mode=%-3d flushes=%-4lu %7.1f KB  render %5.2f ms  flush %5.2f ms  max %5.2f ms (%lu px)  bus busy %5.1f%%\n",
+                      mode, (unsigned long)dperf_flushes,
+                      (float)dperf_bytes / 1024.0f,
+                      avgrd, avgfl,
+                      (float)dperf_max_flush_us / 1000.0f,
+                      (unsigned long)dperf_max_px, busy);
+    }
+
+    dperf_flushes = 0;
+    dperf_bytes = 0;
+    dperf_transfer_us = 0;
+    dperf_render_us = 0;
+    dperf_render_samples = 0;
+    dperf_max_flush_us = 0;
+    dperf_max_px = 0;
+    dperf_window_start = now;
+}
+#else
+inline void reportDisplayPerf(int mode) { (void)mode; }
+#endif
+
 /*
  * Flush display buffer to screen via LovyanGFX
  * Called by LVGL when a portion of the screen needs updating
@@ -119,6 +186,17 @@ void lvgl_disp_flush(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* colo
     uint32_t w = (area->x2 - area->x1 + 1);
     uint32_t h = (area->y2 - area->y1 + 1);
 
+#if DISPLAY_PERF_INSTRUMENT
+    uint32_t t_enter = micros();
+    if (dperf_last_exit_us != 0) {
+        uint32_t gap = t_enter - dperf_last_exit_us;
+        if (gap < DPERF_IDLE_GAP_US) {   // same refresh, so this gap is drawing
+            dperf_render_us += gap;
+            dperf_render_samples++;
+        }
+    }
+#endif
+
     // Blocking flush. NOTE: do NOT hold a persistent SPI transaction or use a
     // DMA-overlapped flush here - the SD card shares SPI2 with the display, so
     // holding the bus lock deadlocks background SD access, and the overlapped
@@ -127,6 +205,19 @@ void lvgl_disp_flush(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* colo
     lvgl_tft->setAddrWindow(area->x1, area->y1, w, h);
     lvgl_tft->pushPixels((uint16_t*)color_p, w * h, true);  // swap565 = true
     lvgl_tft->endWrite();
+
+#if DISPLAY_PERF_INSTRUMENT
+    uint32_t t_exit = micros();
+    uint32_t dt = t_exit - t_enter;
+    dperf_flushes++;
+    dperf_bytes += (uint64_t)w * (uint64_t)h * 2ULL;
+    dperf_transfer_us += dt;
+    if (dt > dperf_max_flush_us) {
+        dperf_max_flush_us = dt;
+        dperf_max_px = w * h;
+    }
+    dperf_last_exit_us = t_exit;
+#endif
 
     lv_disp_flush_ready(drv);
 }
@@ -248,31 +339,53 @@ void lvgl_keypad_read(lv_indev_drv_t* drv, lv_indev_data_t* data) {
 // ============================================
 
 /*
- * Allocate display buffers
- * Tries PSRAM first, falls back to regular RAM
+ * Allocate the display draw buffer
+ *
+ * Single buffer, in internal SRAM.
+ *
+ * Why single: the flush is blocking and calls lv_disp_flush_ready() before it
+ * returns, so LVGL never renders into one buffer while the other is going out.
+ * A second buffer only helps an asynchronous flush, so here it was 38KB doing
+ * nothing.
+ *
+ * Why internal SRAM instead of PSRAM: on the ESP32-S3 flash and PSRAM share
+ * SPI0 and the same cache. With the buffer in PSRAM every flush is core 1
+ * saturating SPI0, and the audio task on core 0 (whose code lives in flash)
+ * stalls fetching instructions through the same path, which comes out as a
+ * crunch at the start of each character. Internal SRAM does not touch SPI0 or
+ * the cache, so the transfer cannot stall core 0 no matter how long it takes.
+ * That also decouples audio from the panel clock rate.
+ *
+ * Falls back to PSRAM if internal SRAM is exhausted: a working display with
+ * rough audio beats no display at all.
  */
 bool allocateDisplayBuffers() {
-    // Buffers live in PSRAM: keeps ~76KB of internal SRAM free for WiFi/heap
-    // and avoids internal-SRAM bus contention with the I2S audio DMA.
-    if (psramFound()) {
-        Serial.println("[LVGL] Allocating display buffers in PSRAM");
-        lvgl_buf1 = (lv_color_t*)ps_malloc(LV_BUF_SIZE * sizeof(lv_color_t));
-        lvgl_buf2 = (lv_color_t*)ps_malloc(LV_BUF_SIZE * sizeof(lv_color_t));
-    } else {
-        Serial.println("[LVGL] Allocating display buffers in regular RAM");
-        lvgl_buf1 = (lv_color_t*)malloc(LV_BUF_SIZE * sizeof(lv_color_t));
-        lvgl_buf2 = (lv_color_t*)malloc(LV_BUF_SIZE * sizeof(lv_color_t));
+    const size_t buf_bytes = LV_BUF_SIZE * sizeof(lv_color_t);
+
+    lvgl_buf1 = (lv_color_t*)heap_caps_malloc(buf_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    lvgl_buf2 = NULL;  // deliberately single buffered, see above
+
+    if (lvgl_buf1 != NULL) {
+        Serial.printf("[LVGL] Draw buffer in internal SRAM: %u bytes (internal free now %lu)\n",
+                      (unsigned)buf_bytes,
+                      (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+        return true;
     }
 
-    if (lvgl_buf1 == NULL || lvgl_buf2 == NULL) {
-        Serial.println("[LVGL] ERROR: Failed to allocate display buffers!");
-        if (lvgl_buf1) free(lvgl_buf1);
-        if (lvgl_buf2) free(lvgl_buf2);
+    Serial.println("[LVGL] WARNING: internal SRAM alloc failed, falling back to PSRAM");
+    Serial.println("[LVGL]          audio may crunch during screen updates");
+    if (psramFound()) {
+        lvgl_buf1 = (lv_color_t*)ps_malloc(buf_bytes);
+    } else {
+        lvgl_buf1 = (lv_color_t*)malloc(buf_bytes);
+    }
+
+    if (lvgl_buf1 == NULL) {
+        Serial.println("[LVGL] ERROR: Failed to allocate display buffer!");
         return false;
     }
 
-    Serial.printf("[LVGL] Display buffers allocated: %d bytes each\n",
-                  LV_BUF_SIZE * sizeof(lv_color_t));
+    Serial.printf("[LVGL] Draw buffer allocated: %u bytes\n", (unsigned)buf_bytes);
     return true;
 }
 
@@ -282,7 +395,8 @@ bool allocateDisplayBuffers() {
 void initLVGLDisplay(LGFX& tft) {
     lvgl_tft = &tft;
 
-    // Initialize draw buffer with double buffering
+    // Single buffered on purpose: the flush is blocking, so a second buffer
+    // would never be rendered into while the first is transferring.
     lv_disp_draw_buf_init(&draw_buf, lvgl_buf1, lvgl_buf2, LV_BUF_SIZE);
 
     // Initialize display driver

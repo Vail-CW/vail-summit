@@ -24,7 +24,14 @@ public:
       auto cfg = _bus_instance.config();
       cfg.spi_host = SPI2_HOST;
       cfg.spi_mode = 0;
-      cfg.freq_write = 80000000;  // 80MHz write speed (ST7796S max; drop to 60MHz if artifacts appear)
+      // 40MHz write speed. Was 80MHz (the ST7796S maximum), but running at the
+      // part's limit left no margin for board-to-board variation: a unit from
+      // one build batch rendered a black screen at 80MHz while displaying
+      // perfectly at 60MHz and below, traced to marginal signal integrity on
+      // SCK/MOSI rather than any open or short. 40MHz keeps real headroom on
+      // every unit. Cost is roughly +30ms on a full-screen redraw, and far
+      // less in practice since LVGL flushes in partial buffers.
+      cfg.freq_write = 40000000;
       cfg.freq_read = 16000000;   // 16MHz read speed
       cfg.spi_3wire = false;
       cfg.use_lock = true;
