@@ -8,6 +8,7 @@
 
 #include <lvgl.h>
 #include <LovyanGFX.hpp>
+#include <esp_heap_caps.h>   // heap_caps_malloc, for placing the draw buffer in internal SRAM
 #include "../core/config.h"
 
 // Forward declaration for global hotkey handler (defined in lv_mode_integration.h)
@@ -338,31 +339,53 @@ void lvgl_keypad_read(lv_indev_drv_t* drv, lv_indev_data_t* data) {
 // ============================================
 
 /*
- * Allocate display buffers
- * Tries PSRAM first, falls back to regular RAM
+ * Allocate the display draw buffer
+ *
+ * Single buffer, in internal SRAM.
+ *
+ * Why single: the flush is blocking and calls lv_disp_flush_ready() before it
+ * returns, so LVGL never renders into one buffer while the other is going out.
+ * A second buffer only helps an asynchronous flush, so here it was 38KB doing
+ * nothing.
+ *
+ * Why internal SRAM instead of PSRAM: on the ESP32-S3 flash and PSRAM share
+ * SPI0 and the same cache. With the buffer in PSRAM every flush is core 1
+ * saturating SPI0, and the audio task on core 0 (whose code lives in flash)
+ * stalls fetching instructions through the same path, which comes out as a
+ * crunch at the start of each character. Internal SRAM does not touch SPI0 or
+ * the cache, so the transfer cannot stall core 0 no matter how long it takes.
+ * That also decouples audio from the panel clock rate.
+ *
+ * Falls back to PSRAM if internal SRAM is exhausted: a working display with
+ * rough audio beats no display at all.
  */
 bool allocateDisplayBuffers() {
-    // Buffers live in PSRAM: keeps ~76KB of internal SRAM free for WiFi/heap
-    // and avoids internal-SRAM bus contention with the I2S audio DMA.
-    if (psramFound()) {
-        Serial.println("[LVGL] Allocating display buffers in PSRAM");
-        lvgl_buf1 = (lv_color_t*)ps_malloc(LV_BUF_SIZE * sizeof(lv_color_t));
-        lvgl_buf2 = (lv_color_t*)ps_malloc(LV_BUF_SIZE * sizeof(lv_color_t));
-    } else {
-        Serial.println("[LVGL] Allocating display buffers in regular RAM");
-        lvgl_buf1 = (lv_color_t*)malloc(LV_BUF_SIZE * sizeof(lv_color_t));
-        lvgl_buf2 = (lv_color_t*)malloc(LV_BUF_SIZE * sizeof(lv_color_t));
+    const size_t buf_bytes = LV_BUF_SIZE * sizeof(lv_color_t);
+
+    lvgl_buf1 = (lv_color_t*)heap_caps_malloc(buf_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    lvgl_buf2 = NULL;  // deliberately single buffered, see above
+
+    if (lvgl_buf1 != NULL) {
+        Serial.printf("[LVGL] Draw buffer in internal SRAM: %u bytes (internal free now %lu)\n",
+                      (unsigned)buf_bytes,
+                      (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+        return true;
     }
 
-    if (lvgl_buf1 == NULL || lvgl_buf2 == NULL) {
-        Serial.println("[LVGL] ERROR: Failed to allocate display buffers!");
-        if (lvgl_buf1) free(lvgl_buf1);
-        if (lvgl_buf2) free(lvgl_buf2);
+    Serial.println("[LVGL] WARNING: internal SRAM alloc failed, falling back to PSRAM");
+    Serial.println("[LVGL]          audio may crunch during screen updates");
+    if (psramFound()) {
+        lvgl_buf1 = (lv_color_t*)ps_malloc(buf_bytes);
+    } else {
+        lvgl_buf1 = (lv_color_t*)malloc(buf_bytes);
+    }
+
+    if (lvgl_buf1 == NULL) {
+        Serial.println("[LVGL] ERROR: Failed to allocate display buffer!");
         return false;
     }
 
-    Serial.printf("[LVGL] Display buffers allocated: %d bytes each\n",
-                  LV_BUF_SIZE * sizeof(lv_color_t));
+    Serial.printf("[LVGL] Draw buffer allocated: %u bytes\n", (unsigned)buf_bytes);
     return true;
 }
 
@@ -372,7 +395,8 @@ bool allocateDisplayBuffers() {
 void initLVGLDisplay(LGFX& tft) {
     lvgl_tft = &tft;
 
-    // Initialize draw buffer with double buffering
+    // Single buffered on purpose: the flush is blocking, so a second buffer
+    // would never be rendered into while the first is transferring.
     lv_disp_draw_buf_init(&draw_buf, lvgl_buf1, lvgl_buf2, LV_BUF_SIZE);
 
     // Initialize display driver

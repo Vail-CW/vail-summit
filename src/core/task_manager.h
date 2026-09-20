@@ -381,16 +381,16 @@ void resetMorsePlayback() {
 
 // Forward declarations for i2s_audio.h functions that will be called internally
 extern void playToneInternal(int frequency, int duration_ms);
-extern void startToneInternal(int frequency);
-extern void continueToneInternal(int frequency);
-extern void stopToneInternal();
+extern void IRAM_ATTR startToneInternal(int frequency);
+extern void IRAM_ATTR continueToneInternal(int frequency);
+extern void IRAM_ATTR stopToneInternal();
 extern bool isTonePlayingInternal();
 
 /*
  * Process audio requests from the queue
  * Called by audio task
  */
-void processAudioRequests() {
+void IRAM_ATTR processAudioRequests() {
     ToneRequestType reqType = TONE_REQ_NONE;
     int reqFreq = 0;
     int reqDuration = 0;
@@ -446,7 +446,7 @@ void processAudioRequests() {
  * Called by audio task for precise timing (~1ms intervals)
  * Includes debounce to prevent double-dits from contact bounce
  */
-void samplePaddleInput() {
+void IRAM_ATTR samplePaddleInput() {
     // Read raw paddle pins
     bool rawDit = (digitalRead(DIT_PIN) == PADDLE_ACTIVE);
     bool rawDah = (digitalRead(DAH_PIN) == PADDLE_ACTIVE);
@@ -510,7 +510,7 @@ void getPaddleState(bool* dit, bool* dah) {
  * Process morse string playback state machine
  * Called by audio task - runs non-blocking state machine for async playback
  */
-void processMorsePlayback() {
+void IRAM_ATTR processMorsePlayback() {
     // Skip if no active playback
     if (!morsePlayback.active) return;
 
@@ -520,7 +520,8 @@ void processMorsePlayback() {
         morsePlayback.active = false;
         morsePlayback.complete = true;
         morsePlayback.cancelled = false;
-        Serial.println("[MorsePlayback] Cancelled");
+        // No Serial here - this runs on the IRAM audio hot path and
+        // Serial.print* is flash-resident. (Was "[MorsePlayback] Cancelled".)
         return;
     }
 
@@ -583,7 +584,7 @@ void processMorsePlayback() {
             morsePlayback.state = MORSE_COMPLETE;
             morsePlayback.complete = true;
             morsePlayback.active = false;
-            Serial.println("[MorsePlayback] Complete");
+            // No Serial here - IRAM hot path. (Was "[MorsePlayback] Complete".)
             break;
         }
 
@@ -622,7 +623,7 @@ void processMorsePlayback() {
                         morsePlayback.state = MORSE_COMPLETE;
                         morsePlayback.complete = true;
                         morsePlayback.active = false;
-                        Serial.println("[MorsePlayback] Complete");
+                        // No Serial here - IRAM hot path. (Was "[MorsePlayback] Complete".)
                     } else if (morsePlayback.text[morsePlayback.charIndex] == ' ') {
                         // Next is space - word gap (already have letter gap implicitly)
                         morsePlayback.charIndex++;
@@ -699,11 +700,14 @@ void processMorsePlayback() {
  * Audio task - runs on Core 0
  * High priority, dedicated to audio processing
  */
-void audioTask(void* parameter) {
-    Serial.println("[AudioTask] Started on Core 0");
+void IRAM_ATTR audioTask(void* parameter) {
+    Serial.println("[AudioTask] Started on Core 0");  // One-time, before the loop - fine.
     audioTaskRunning = true;
 
     while (true) {
+#if AUDIO_PERF_INSTRUMENT
+        uint32_t aperf_iter_start = micros();
+#endif
         // Process any pending audio requests (single tone API)
         processAudioRequests();
 
@@ -713,8 +717,21 @@ void audioTask(void* parameter) {
         // Sample paddle input with precise timing
         samplePaddleInput();
 
+#if AUDIO_PERF_INSTRUMENT
+        {
+            uint32_t dt = micros() - aperf_iter_start;
+            aperf_iterations++;
+            if (dt > aperf_worst_loop_us) aperf_worst_loop_us = dt;
+            if (dt > 5000) aperf_over5ms_count++;
+        }
+#endif
+
         // Yield to allow other tasks, but keep loop tight (~1ms)
         vTaskDelay(1);
+
+        // Outside the measured region - this is the only place the once-per-
+        // second Serial.printf report is allowed to run.
+        reportAudioPerf();
     }
 }
 
