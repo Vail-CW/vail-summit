@@ -52,7 +52,6 @@ extern LGFX tft;
 // Forward declarations for mode start functions (kept for modes with initialization logic)
 extern void startPracticeMode(LGFX& tft);
 extern void startVailRepeater(LGFX& tft);
-extern void startCWAcademy(LGFX& tft);
 extern void startMorseShooter(LGFX& tft);
 extern void loadShooterPrefs();  // Load shooter settings before showing settings screen
 extern void memoryChainStart();  // New Memory Chain implementation
@@ -72,30 +71,18 @@ extern void startBTKeyboardSettings(LGFX& tft);
 extern void startViewLogs(LGFX& tft);
 extern void startStatistics(LGFX& tft);
 extern void startLoggerSettings(LGFX& tft);
-extern void startCWACopyPractice(LGFX& tft);
-extern void startCWASendingPractice(LGFX& tft);
-extern void startCWAQSOPractice(LGFX& tft);
-// CW Academy LVGL init functions (defined in lv_training_screens.h)
-extern void initCWACopyPractice();
-extern void initCWASendingPractice();
-extern void initCWAQSOPractice();
 extern void initWebPracticeMode();
 extern void initWebHearItMode();
 extern void initWebMemoryChainMode();
 extern void cleanupWebPracticeMode();
 extern void cleanupWebHearItMode();
 extern void cleanupWebMemoryChainMode();
-extern void startHearItTypeItMode(LGFX& tft);
 extern void startLicenseQuiz(LGFX& tft, int licenseType);
 extern void startLicenseStats(LGFX& tft);
 extern void updateLicenseQuizDisplay();
-extern void startVailMaster(LGFX& tft);
 // CW Speeder game functions (defined in game_cw_speeder.h)
 extern void cwSpeedSelectStart();
 extern void cwSpeedGameStart();
-// CW Academy state reset functions (defined in training_cwa_core.h)
-extern void resetCWACopyPracticeState();
-extern void resetCWASendingPracticeState();
 
 // Forward declaration for license session
 extern struct LicenseStudySession licenseSession;
@@ -386,54 +373,6 @@ void initializeModeInt(int mode) {
             startPracticeMode(tft);   // sets up keyer/decoder/audio
             schoolSendInit();         // sets pool + first target (screen already built)
             break;
-        case MODE_CW_ACADEMY_TRACK_SELECT:
-            Serial.println("[ModeInit] Starting CW Academy Track Select");
-            loadCWAProgress();  // Load saved progress
-            break;
-        case MODE_CW_ACADEMY_SESSION_SELECT:
-            Serial.println("[ModeInit] CW Academy Session Select");
-            // Session select screen handles its own init
-            break;
-        case MODE_CW_ACADEMY_PRACTICE_TYPE_SELECT:
-            Serial.println("[ModeInit] CW Academy Practice Type Select");
-            // Practice type select screen handles its own init
-            break;
-        case MODE_CW_ACADEMY_MESSAGE_TYPE_SELECT:
-            Serial.println("[ModeInit] CW Academy Message Type Select");
-            // Message type select screen handles its own init
-            break;
-        case MODE_CW_ACADEMY_COPY_PRACTICE:
-            Serial.println("[ModeInit] Starting CW Academy Copy Practice (LVGL)");
-            initCWACopyPractice();  // LVGL version initializes in screen creation
-            break;
-        case MODE_CW_ACADEMY_SENDING_PRACTICE:
-            Serial.println("[ModeInit] Starting CW Academy Sending Practice (LVGL)");
-            initCWASendingPractice();  // LVGL version with dual-core audio
-            break;
-        case MODE_CW_ACADEMY_QSO_PRACTICE:
-            Serial.println("[ModeInit] Starting CW Academy QSO Practice (LVGL)");
-            initCWAQSOPractice();  // LVGL version
-            break;
-        case MODE_HEAR_IT_TYPE_IT:
-        case MODE_HEAR_IT_MENU:
-            Serial.println("[ModeInit] Starting Hear It Type It");
-            startHearItTypeItMode(tft);
-            break;
-        case MODE_VAIL_MASTER:
-            Serial.println("[ModeInit] Starting Vail Master");
-            startVailMaster(tft);
-            break;
-
-        // LICW Training modes
-        case MODE_LICW_CAROUSEL_SELECT:
-            Serial.println("[ModeInit] Starting LICW Carousel Select");
-            initLICWTraining();  // Load saved progress
-            break;
-        case MODE_LICW_COPY_PRACTICE:
-            Serial.println("[ModeInit] Starting LICW Copy Practice");
-            // Session reset handled in screen creation
-            break;
-
         // Game modes
         case MODE_MORSE_SHOOTER:
             // Just load preferences, game starts when user presses START on settings screen
@@ -882,8 +821,6 @@ static const ModeCallbackEntry cleanupTable[] = {
     { MODE_BT_HID,                       stopBTHID },
     { MODE_BT_MIDI,                      stopBTMIDI },
     { MODE_BT_KEYBOARD_SETTINGS,         cleanupBTKeyboardSettingsScreen },
-    { MODE_HEAR_IT_TYPE_IT,              cleanupHearItTypeItScreen },
-    { MODE_HEAR_IT_MENU,                 cleanupHearItTypeItScreen },
     { MODE_POTA_ACTIVE_SPOTS,            cleanupPOTAScreen },
     { MODE_POTA_SPOT_DETAIL,             cleanupPOTAScreen },
     { MODE_POTA_FILTERS,                 cleanupPOTAScreen },
@@ -901,15 +838,6 @@ static const ModeCallbackEntry cleanupTable[] = {
     { MODE_SAT_WINDOW_NOW,               cleanupSatelliteScreens },
     { MODE_SAT_FREQS,                    cleanupSatelliteScreens },
     { MODE_VAIL_REPEATER,                cleanupVailRepeaterMode },
-    // CWA cleanup functions delete timers/widgets and call the core state
-    // resets (resetCWA*PracticeState) internally.
-    { MODE_CW_ACADEMY_COPY_PRACTICE,     cleanupCWACopyPracticeScreen },
-    { MODE_CW_ACADEMY_SENDING_PRACTICE,  cleanupCWASendingPracticeScreen },
-    { MODE_CW_ACADEMY_QSO_PRACTICE,      cleanupCWAQSOPracticeScreen },
-    { MODE_CW_ACADEMY_TRACK_SELECT,      cleanupCWASelectScreens },
-    { MODE_CW_ACADEMY_SESSION_SELECT,    cleanupCWASelectScreens },
-    { MODE_CW_ACADEMY_PRACTICE_TYPE_SELECT, cleanupCWASelectScreens },
-    { MODE_CW_ACADEMY_MESSAGE_TYPE_SELECT,  cleanupCWASelectScreens },
     { MODE_LICENSE_SELECT,               cleanupLicenseSelectScreen },
     { MODE_LICENSE_QUIZ,                 cleanupLicenseQuizScreen },
     { MODE_LICENSE_STATS,                cleanupLicenseStatsScreen },
@@ -926,18 +854,7 @@ static const ModeCallbackEntry cleanupTable[] = {
     { MODE_MORSE_MAILBOX,                cleanupMailboxLinkScreen },
     { MODE_MORSE_NOTES_RECORD,           cleanupMorseNotesRecordScreen },
     { MODE_MORSE_NOTES_PLAYBACK,         cleanupMorseNotesPlaybackScreen },
-    { MODE_VAIL_MASTER_PRACTICE,         cleanupVailMasterPractice },
-    { MODE_VAIL_MASTER_CHARSET,          cleanupVailMasterCharset },
     { MODE_MORSE_SHOOTER,                cleanupMorseShooter },
-    // Timer cleanup entries - prevent zombie timers on back-navigation
-    { MODE_LICW_COPY_PRACTICE,           cleanupLICWPractice },
-    { MODE_LICW_SEND_PRACTICE,           cleanupLICWPractice },
-    { MODE_LICW_TTR_PRACTICE,            cleanupLICWPractice },
-    { MODE_LICW_IFR_PRACTICE,            cleanupLICWPractice },
-    { MODE_LICW_CFP_PRACTICE,            cleanupLICWPractice },
-    { MODE_LICW_WORD_DISCOVERY,          cleanupLICWPractice },
-    { MODE_LICW_QSO_PRACTICE,            cleanupLICWPractice },
-    { MODE_LICW_ADVERSE_COPY,            cleanupLICWPractice },
     { MODE_VAIL_COURSE_LESSON,           cleanupVailCourseLesson },
     { MODE_CWSCHOOL_LINK,                cleanupCWSchoolLinkScreen },
     { MODE_MORSE_MAILBOX_LINK,           cleanupMailboxLinkScreen },
