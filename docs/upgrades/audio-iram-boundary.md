@@ -29,8 +29,11 @@ not a workaround waiting to be replaced.
 whatever is in `paddleCallback`, which is ordinary application code.
 
 Scope is narrow: there is exactly one callback in the tree,
-`composePaddleCallback`, and it is only registered while you are keying a Morse
-Note. Every other mode leaves it null.
+`composePaddleCallback`. It goes in when the Morse Note compose screen is
+built and comes out in `cleanupComposeKeyer`, so it is live for that whole
+screen, not just the moments you are actually keying. It also comes out while
+the text field has focus and goes back in when the field is defocused, since
+you are typing then, not keying. Every other mode leaves it null.
 
 Worth being precise about the consequence. This runs in a task, not an
 interrupt, so a cache stall there stalls, it does not fault. Faulting on flash
