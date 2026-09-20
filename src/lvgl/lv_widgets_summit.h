@@ -1109,4 +1109,303 @@ lv_obj_t* createCharacterGrid(lv_obj_t* parent, const char* characters, bool* un
     return grid;
 }
 
+// ============================================
+// Summit layout system
+// ============================================
+// Shared furniture so every screen is built from the same pieces instead of
+// each one hand-placing labels. The shape is:
+//
+//   SUMMIT_MARGIN  section label (small caps, quiet)
+//   +------------------------------+  +----------+
+//   |                              |  | stat     |
+//   |   hero card                  |  +----------+
+//   |                              |  | stat     |
+//   +------------------------------+  +----------+
+//   +--------------------------------------------+
+//   | hint                          [KEY] label  |   action bar
+//   +--------------------------------------------+
+//
+// The panel is 480x320 landscape. Stacking everything down the middle wastes
+// the width and leaves dead space either side, so content runs main-plus-rail
+// and the key hints live in a real bar rather than floating at the bottom.
+
+#define SUMMIT_MARGIN        20
+#define SUMMIT_GAP           14
+#define SUMMIT_LABEL_Y       16
+#define SUMMIT_CONTENT_Y     46
+#define SUMMIT_BAR_H         52
+#define SUMMIT_RAIL_W        130
+#define SUMMIT_CARD_RADIUS   12
+#define SUMMIT_STAT_H        92
+#define SUMMIT_CONTENT_H     (SCREEN_HEIGHT - SUMMIT_CONTENT_Y - SUMMIT_BAR_H - SUMMIT_MARGIN + 6)
+#define SUMMIT_MAIN_W        (SCREEN_WIDTH - (SUMMIT_MARGIN * 2) - SUMMIT_RAIL_W - SUMMIT_GAP)
+
+// Quiet section label, top left. Letterspaced small caps reads as a label
+// rather than competing with the content.
+lv_obj_t* summitScreenLabel(lv_obj_t* parent, const char* text) {
+    lv_obj_t* lbl = lv_label_create(parent);
+    lv_label_set_text(lbl, text);
+    lv_obj_set_style_text_font(lbl, getThemeFonts()->font_body, 0);
+    lv_obj_set_style_text_color(lbl, LV_COLOR_TEXT_TERTIARY, 0);
+    lv_obj_set_style_text_letter_space(lbl, 2, 0);
+    lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, SUMMIT_MARGIN, SUMMIT_LABEL_Y);
+    return lbl;
+}
+
+// Main content card. Pass accent=true while the screen is asking for input, so
+// the card itself carries the focus rather than needing a separate cue.
+lv_obj_t* summitHeroCard(lv_obj_t* parent, bool accent) {
+    lv_obj_t* card = lv_obj_create(parent);
+    lv_obj_set_size(card, SUMMIT_MAIN_W, SUMMIT_CONTENT_H);
+    lv_obj_set_pos(card, SUMMIT_MARGIN, SUMMIT_CONTENT_Y);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(card, LV_COLOR_BG_CARD, 0);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(card, SUMMIT_CARD_RADIUS, 0);
+    lv_obj_set_style_border_width(card, 2, 0);
+    lv_obj_set_style_border_color(card, accent ? LV_COLOR_ACCENT_PRIMARY : LV_COLOR_BORDER_SUBTLE, 0);
+    lv_obj_set_style_pad_all(card, 0, 0);
+    return card;
+}
+
+// The one element that should dominate. 120px, so it reads across a desk.
+lv_obj_t* summitHeroValue(lv_obj_t* card, const char* text) {
+    lv_obj_t* lbl = lv_label_create(card);
+    lv_label_set_text(lbl, text);
+    lv_obj_set_style_text_font(lbl, getThemeFonts()->font_hero, 0);
+    lv_obj_set_style_text_color(lbl, LV_COLOR_ACCENT_PRIMARY, 0);
+    lv_obj_center(lbl);
+    return lbl;
+}
+
+// Stat card in the right rail. index 0 is the top one. Returns the value
+// label so the caller can update it; the caption is set once and left alone.
+lv_obj_t* summitStatCard(lv_obj_t* parent, int index, const char* caption, lv_color_t value_color) {
+    int x = SCREEN_WIDTH - SUMMIT_MARGIN - SUMMIT_RAIL_W;
+    int y = SUMMIT_CONTENT_Y + index * (SUMMIT_STAT_H + SUMMIT_GAP);
+
+    lv_obj_t* card = lv_obj_create(parent);
+    lv_obj_set_size(card, SUMMIT_RAIL_W, SUMMIT_STAT_H);
+    lv_obj_set_pos(card, x, y);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(card, LV_COLOR_BG_CARD, 0);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(card, SUMMIT_CARD_RADIUS, 0);
+    lv_obj_set_style_border_width(card, 0, 0);
+    lv_obj_set_style_pad_all(card, 0, 0);
+
+    lv_obj_t* cap = lv_label_create(card);
+    lv_label_set_text(cap, caption);
+    lv_obj_set_style_text_font(cap, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(cap, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_style_text_letter_space(cap, 1, 0);
+    lv_obj_align(cap, LV_ALIGN_TOP_MID, 0, 12);
+
+    lv_obj_t* val = lv_label_create(card);
+    lv_label_set_text(val, "-");
+    lv_obj_set_style_text_font(val, getThemeFonts()->font_display, 0);
+    lv_obj_set_style_text_color(val, value_color, 0);
+    lv_obj_align(val, LV_ALIGN_BOTTOM_MID, 0, -10);
+    return val;
+}
+
+// Bottom action bar. Key hints belong in here, not floating over the wallpaper.
+lv_obj_t* summitActionBar(lv_obj_t* parent) {
+    lv_obj_t* bar = lv_obj_create(parent);
+    lv_obj_set_size(bar, SCREEN_WIDTH, SUMMIT_BAR_H);
+    lv_obj_set_pos(bar, 0, SCREEN_HEIGHT - SUMMIT_BAR_H);
+    lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(bar, LV_COLOR_BG_CARD, 0);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(bar, 0, 0);
+    lv_obj_set_style_border_width(bar, 0, 0);
+    lv_obj_set_style_border_side(bar, LV_BORDER_SIDE_TOP, 0);
+    lv_obj_set_style_border_width(bar, 1, 0);
+    lv_obj_set_style_border_color(bar, LV_COLOR_BORDER_SUBTLE, 0);
+    lv_obj_set_style_pad_all(bar, 0, 0);
+    return bar;
+}
+
+// Left hand prompt inside the action bar.
+lv_obj_t* summitBarHint(lv_obj_t* bar, const char* text) {
+    lv_obj_t* lbl = lv_label_create(bar);
+    lv_label_set_text(lbl, text);
+    lv_obj_set_style_text_font(lbl, getThemeFonts()->font_input, 0);
+    lv_obj_set_style_text_color(lbl, LV_COLOR_TEXT_PRIMARY, 0);
+    lv_obj_align(lbl, LV_ALIGN_LEFT_MID, SUMMIT_MARGIN, 0);
+    return lbl;
+}
+
+// Keycap plus its meaning, laid out right to left inside the action bar so
+// callers can add them in reading order without measuring anything.
+// slot 0 is the rightmost pair.
+void summitKeycap(lv_obj_t* bar, int slot, const char* key, const char* meaning) {
+    int right = SUMMIT_MARGIN + slot * 108;
+
+    lv_obj_t* lbl = lv_label_create(bar);
+    lv_label_set_text(lbl, meaning);
+    lv_obj_set_style_text_font(lbl, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(lbl, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_align(lbl, LV_ALIGN_RIGHT_MID, -right, 0);
+
+    lv_coord_t meaning_w = lv_txt_get_width(meaning, strlen(meaning),
+                                            getThemeFonts()->font_small, 0, 0);
+
+    lv_obj_t* cap = lv_obj_create(bar);
+    lv_obj_set_size(cap, LV_SIZE_CONTENT, 24);
+    lv_obj_clear_flag(cap, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(cap, LV_COLOR_BG_CARD_ALT, 0);
+    lv_obj_set_style_bg_opa(cap, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(cap, 5, 0);
+    lv_obj_set_style_border_width(cap, 1, 0);
+    lv_obj_set_style_border_color(cap, LV_COLOR_BORDER_LIGHT, 0);
+    lv_obj_set_style_pad_hor(cap, 8, 0);
+    lv_obj_set_style_pad_ver(cap, 0, 0);
+    lv_obj_align(cap, LV_ALIGN_RIGHT_MID, -(right + meaning_w + 8), 0);
+
+    lv_obj_t* klbl = lv_label_create(cap);
+    lv_label_set_text(klbl, key);
+    lv_obj_set_style_text_font(klbl, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(klbl, LV_COLOR_TEXT_PRIMARY, 0);
+    lv_obj_center(klbl);
+}
+
+// --------------------------------------------
+// Archetype: selection / settings list
+// --------------------------------------------
+// Rows of label plus optional value. Used for picking a lesson or track, and
+// for settings. The row helper wires the navigation in the required order
+// (click handler, then linear_nav_handler, then addNavigableWidget last) so
+// callers cannot get that wrong per screen.
+
+#define SUMMIT_ROW_H     44
+#define SUMMIT_ROW_GAP   8
+
+lv_obj_t* summitListContainer(lv_obj_t* parent) {
+    lv_obj_t* box = lv_obj_create(parent);
+    lv_obj_set_size(box, SCREEN_WIDTH - (SUMMIT_MARGIN * 2), SUMMIT_CONTENT_H);
+    lv_obj_set_pos(box, SUMMIT_MARGIN, SUMMIT_CONTENT_Y);
+    lv_obj_set_style_bg_opa(box, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(box, 0, 0);
+    lv_obj_set_style_pad_all(box, 0, 0);
+    lv_obj_set_style_pad_row(box, SUMMIT_ROW_GAP, 0);
+    lv_obj_set_layout(box, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_scroll_dir(box, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_AUTO);
+    return box;
+}
+
+// detail may be NULL. Returns the row so the caller can keep a handle on it;
+// pass value_out to get the detail label back for later updates.
+lv_obj_t* summitListRow(lv_obj_t* box, const char* text, const char* detail,
+                        lv_event_cb_t click_cb, void* user_data,
+                        lv_obj_t** value_out) {
+    lv_obj_t* row = lv_btn_create(box);
+    lv_obj_set_size(row, lv_pct(100), SUMMIT_ROW_H);
+    lv_obj_set_style_bg_color(row, LV_COLOR_BG_CARD, 0);
+    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(row, SUMMIT_CARD_RADIUS, 0);
+    lv_obj_set_style_border_width(row, 2, 0);
+    lv_obj_set_style_border_color(row, LV_COLOR_BORDER_SUBTLE, 0);
+    lv_obj_set_style_border_color(row, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
+    lv_obj_set_style_pad_hor(row, 16, 0);
+    lv_obj_set_style_pad_ver(row, 0, 0);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* lbl = lv_label_create(row);
+    lv_label_set_text(lbl, text);
+    lv_obj_set_style_text_font(lbl, getThemeFonts()->font_input, 0);
+    lv_obj_set_style_text_color(lbl, LV_COLOR_TEXT_PRIMARY, 0);
+    lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 0, 0);
+
+    if (value_out) *value_out = NULL;
+    if (detail != NULL) {
+        lv_obj_t* val = lv_label_create(row);
+        lv_label_set_text(val, detail);
+        lv_obj_set_style_text_font(val, getThemeFonts()->font_input, 0);
+        lv_obj_set_style_text_color(val, LV_COLOR_ACCENT_PRIMARY, 0);
+        lv_obj_align(val, LV_ALIGN_RIGHT_MID, 0, 0);
+        if (value_out) *value_out = val;
+    }
+
+    if (click_cb) lv_obj_add_event_cb(row, click_cb, LV_EVENT_CLICKED, user_data);
+    lv_obj_add_event_cb(row, linear_nav_handler, LV_EVENT_KEY, NULL);
+    addNavigableWidget(row);   // always last
+    return row;
+}
+
+// --------------------------------------------
+// Archetype: stat grid
+// --------------------------------------------
+// Free placement version of the rail card, for screens that are mostly
+// numbers (progress, history, quiz results) rather than one hero value.
+
+lv_obj_t* summitStatCardAt(lv_obj_t* parent, int x, int y, int w, int h,
+                           const char* caption, lv_color_t value_color) {
+    lv_obj_t* card = lv_obj_create(parent);
+    lv_obj_set_size(card, w, h);
+    lv_obj_set_pos(card, x, y);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(card, LV_COLOR_BG_CARD, 0);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(card, SUMMIT_CARD_RADIUS, 0);
+    lv_obj_set_style_border_width(card, 0, 0);
+    lv_obj_set_style_pad_all(card, 0, 0);
+
+    lv_obj_t* cap = lv_label_create(card);
+    lv_label_set_text(cap, caption);
+    lv_obj_set_style_text_font(cap, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(cap, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_style_text_letter_space(cap, 1, 0);
+    lv_obj_align(cap, LV_ALIGN_TOP_MID, 0, 10);
+
+    lv_obj_t* val = lv_label_create(card);
+    lv_label_set_text(val, "-");
+    lv_obj_set_style_text_font(val, (h >= 80) ? getThemeFonts()->font_display
+                                              : getThemeFonts()->font_title, 0);
+    lv_obj_set_style_text_color(val, value_color, 0);
+    lv_obj_align(val, LV_ALIGN_BOTTOM_MID, 0, -8);
+    return val;
+}
+
+// Evenly spaced row of n stat cards across the content width.
+void summitStatRow(lv_obj_t* parent, int n, const char** captions,
+                   lv_color_t* colors, lv_obj_t** value_out, int y, int h) {
+    if (n < 1) return;
+    int total = SCREEN_WIDTH - (SUMMIT_MARGIN * 2);
+    int w = (total - (n - 1) * SUMMIT_GAP) / n;
+    for (int i = 0; i < n; i++) {
+        int x = SUMMIT_MARGIN + i * (w + SUMMIT_GAP);
+        value_out[i] = summitStatCardAt(parent, x, y, w, h, captions[i], colors[i]);
+    }
+}
+
+// --------------------------------------------
+// Archetype: message / status screen
+// --------------------------------------------
+// For "WiFi required", "SD card required", "downloading", placeholders. One
+// headline, one line of explanation, and the action bar. Centered, because
+// there is nothing else competing for attention.
+
+lv_obj_t* summitMessage(lv_obj_t* parent, const char* headline, const char* body,
+                        lv_color_t headline_color) {
+    lv_obj_t* h = lv_label_create(parent);
+    lv_label_set_text(h, headline);
+    lv_obj_set_style_text_font(h, getThemeFonts()->font_title, 0);
+    lv_obj_set_style_text_color(h, headline_color, 0);
+    lv_obj_align(h, LV_ALIGN_TOP_MID, 0, SUMMIT_CONTENT_Y + 40);
+
+    lv_obj_t* b = lv_label_create(parent);
+    lv_label_set_text(b, body);
+    lv_label_set_long_mode(b, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(b, SCREEN_WIDTH - 120);
+    lv_obj_set_style_text_align(b, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(b, getThemeFonts()->font_input, 0);
+    lv_obj_set_style_text_color(b, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_align(h, LV_ALIGN_TOP_MID, 0, SUMMIT_CONTENT_Y + 30);
+    lv_obj_align_to(b, h, LV_ALIGN_OUT_BOTTOM_MID, 0, 16);
+    return b;
+}
+
 #endif // LV_WIDGETS_SUMMIT_H
