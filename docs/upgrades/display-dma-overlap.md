@@ -70,3 +70,42 @@ Why the panel runs at 40MHz and not 80 is in the commit that changed it. Short
 version: 80MHz is the ST7796S ceiling and one board out of a build of three
 could not do it. There is nothing to fall back to in between either, ESP32-S3
 divides the 80MHz APB by an integer, so asking for 60MHz quietly gives you 40.
+
+## Tried it. Made things worse. Reverted.
+
+Built it and put it on hardware. Menu nav and selecting got noticeably slower,
+so it came back out.
+
+What I did: two 20 line buffers instead of one 40 line buffer, same 38KB total,
+DMA flush that returns before the transfer finishes, with the wait deferred to
+LVGL's wait_cb. The last chunk of each refresh still closed synchronously so an
+idle screen could not leave the SPI transaction open on the SD card.
+
+Why it was slower: halving the buffer doubles the number of chunks any redraw
+needs, and every chunk pays startWrite, setAddrWindow, DMA setup and a wait_cb
+round trip. Overlap only pays off when a refresh has a lot of chunks, which
+means a full screen redraw. A menu focus change is one or two chunks, so
+lv_disp_flush_is_last is true right away, it blocks anyway, and all you get is
+the extra per chunk overhead.
+
+So it speeds up the rare case and slows down the case that happens on every
+keypress. Bad trade for a menu driven UI.
+
+If anyone retries this: keep the 40 line geometry and allocate two of them
+(76.8KB of internal SRAM) so small redraws do not pay for extra chunks. But
+bear in mind the bus is only 12.8% busy at its worst and 0.8% sitting on a
+screen, so there is not much to win here either way.
+
+## What did help
+
+The real fix was nothing to do with the display. Moving the audio hot path into
+IRAM stopped flash cache stalls from starving the sidetone, and the whole device
+got snappier, not just the audio. Both cores had been paying for those stalls.
+
+Turning on LV_SHADOW_CACHE_SIZE (0 to 32) helped menu nav. The focus styles
+carry 12 to 20px shadows and LVGL was re-rendering them on every keypress.
+Costs 1KB of RAM.
+
+Note lv_conf.h exists in more than one place. The repo root copy is what CI
+uses, and C:\acli\user\libraries\lv_conf.h is what local builds read. Change
+both or the local build will quietly ignore you.
