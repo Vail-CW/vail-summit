@@ -52,6 +52,8 @@ static lv_obj_t* practice_decoder_text = NULL;
 static lv_obj_t* practice_wpm_label = NULL;
 static lv_obj_t* practice_key_label = NULL;
 static lv_obj_t* practice_actual_label = NULL;
+static lv_coord_t practice_text_w = 0;   // decoded-text wrap width
+static lv_coord_t practice_text_h = 0;   // decoded-text height budget
 
 // Key event callback for practice mode keyboard input
 // Note: LV_KEY_PREV/NEXT are consumed by LVGL for group navigation
@@ -88,7 +90,7 @@ static void practice_key_event_cb(lv_event_t* e) {
                 practiceAdjustSpeed(step);
                 // Update display
                 if (practice_wpm_label != NULL) {
-                    lv_label_set_text_fmt(practice_wpm_label, "%d WPM", cwSpeed);
+                    lv_label_set_text_fmt(practice_wpm_label, "%d", cwSpeed);
                 }
             }
             break;
@@ -99,7 +101,7 @@ static void practice_key_event_cb(lv_event_t* e) {
                 practiceAdjustSpeed(-step);
                 // Update display
                 if (practice_wpm_label != NULL) {
-                    lv_label_set_text_fmt(practice_wpm_label, "%d WPM", cwSpeed);
+                    lv_label_set_text_fmt(practice_wpm_label, "%d", cwSpeed);
                 }
             }
             break;
@@ -128,152 +130,71 @@ lv_obj_t* createPracticeScreen() {
     lv_obj_t* screen = createScreen();
     applyScreenStyle(screen);
 
-    // Title bar
-    lv_obj_t* title_bar = lv_obj_create(screen);
-    lv_obj_set_size(title_bar, SCREEN_WIDTH, HEADER_HEIGHT);
-    lv_obj_set_pos(title_bar, 0, 0);
-    lv_obj_add_style(title_bar, getStyleStatusBar(), 0);
-    lv_obj_clear_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
+    summitScreenLabel(screen, "PRACTICE");
 
-    lv_obj_t* title = lv_label_create(title_bar);
-    lv_label_set_text(title, "PRACTICE");
-    lv_obj_add_style(title, getStyleLabelTitle(), 0);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 15, 0);
-
-    // Status bar (WiFi + battery) on the right side
-    createCompactStatusBar(screen);
-
-    // Settings display row - disable scrolling and move content up
-    lv_obj_t* settings_row = lv_obj_create(screen);
-    lv_obj_set_size(settings_row, SCREEN_WIDTH - 40, 50);
-    lv_obj_set_pos(settings_row, 20, HEADER_HEIGHT + 10);
-    lv_obj_set_layout(settings_row, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(settings_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(settings_row, LV_FLEX_ALIGN_SPACE_AROUND, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_clear_flag(settings_row, LV_OBJ_FLAG_SCROLLABLE);  // Remove scroll indicators
-    applyCardStyle(settings_row);
-
-    // Speed indicator - move content up slightly
-    lv_obj_t* speed_box = lv_obj_create(settings_row);
-    lv_obj_set_size(speed_box, 100, 44);
-    lv_obj_clear_flag(speed_box, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_opa(speed_box, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(speed_box, 0, 0);
-    lv_obj_set_style_pad_all(speed_box, 0, 0);
-
-    lv_obj_t* speed_lbl = lv_label_create(speed_box);
-    lv_label_set_text(speed_lbl, "Speed");
-    lv_obj_set_style_text_color(speed_lbl, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(speed_lbl, getThemeFonts()->font_small, 0);
-    lv_obj_align(speed_lbl, LV_ALIGN_TOP_MID, 0, 0);
-
-    practice_wpm_label = lv_label_create(speed_box);
-    lv_label_set_text_fmt(practice_wpm_label, "%d WPM", cwSpeed);
-    lv_obj_set_style_text_color(practice_wpm_label, LV_COLOR_ACCENT_PRIMARY, 0);
-    lv_obj_set_style_text_font(practice_wpm_label, getThemeFonts()->font_subtitle, 0);
-    lv_obj_align(practice_wpm_label, LV_ALIGN_BOTTOM_MID, 0, 0);
-
-    // Tone indicator
-    lv_obj_t* tone_box = lv_obj_create(settings_row);
-    lv_obj_set_size(tone_box, 100, 44);
-    lv_obj_clear_flag(tone_box, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_opa(tone_box, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(tone_box, 0, 0);
-    lv_obj_set_style_pad_all(tone_box, 0, 0);
-
-    lv_obj_t* tone_lbl = lv_label_create(tone_box);
-    lv_label_set_text(tone_lbl, "Tone");
-    lv_obj_set_style_text_color(tone_lbl, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(tone_lbl, getThemeFonts()->font_small, 0);
-    lv_obj_align(tone_lbl, LV_ALIGN_TOP_MID, 0, 0);
-
-    lv_obj_t* tone_val = lv_label_create(tone_box);
+    // Tone is not adjustable from this screen, so it reads as quiet context up
+    // top rather than taking a rail card away from the numbers that move.
+    lv_obj_t* tone_val = lv_label_create(screen);
     lv_label_set_text_fmt(tone_val, "%d Hz", cwTone);
-    lv_obj_set_style_text_color(tone_val, LV_COLOR_ACCENT_PRIMARY, 0);
-    lv_obj_set_style_text_font(tone_val, getThemeFonts()->font_subtitle, 0);
-    lv_obj_align(tone_val, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_text_font(tone_val, getThemeFonts()->font_body, 0);
+    lv_obj_set_style_text_color(tone_val, LV_COLOR_TEXT_TERTIARY, 0);
+    lv_obj_align(tone_val, LV_ALIGN_TOP_RIGHT, -SUMMIT_MARGIN, SUMMIT_LABEL_Y);
 
-    // Key type indicator
-    lv_obj_t* key_box = lv_obj_create(settings_row);
-    lv_obj_set_size(key_box, 120, 44);
-    lv_obj_clear_flag(key_box, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_opa(key_box, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(key_box, 0, 0);
-    lv_obj_set_style_pad_all(key_box, 0, 0);
-
-    lv_obj_t* key_lbl = lv_label_create(key_box);
-    lv_label_set_text(key_lbl, "Key");
-    lv_obj_set_style_text_color(key_lbl, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(key_lbl, getThemeFonts()->font_small, 0);
-    lv_obj_align(key_lbl, LV_ALIGN_TOP_MID, 0, 0);
-
-    practice_key_label = lv_label_create(key_box);
-    int keyType = getCwKeyTypeAsInt();
-    const char* key_type_str = (keyType == 0) ? "Straight" : ((keyType == 1) ? "Iambic A" : ((keyType == 2) ? "Iambic B" : "Ultimatic"));
-    lv_label_set_text(practice_key_label, key_type_str);
-    lv_obj_set_style_text_color(practice_key_label, LV_COLOR_ACCENT_PRIMARY, 0);
-    lv_obj_set_style_text_font(practice_key_label, getThemeFonts()->font_subtitle, 0);
-    lv_obj_align(practice_key_label, LV_ALIGN_BOTTOM_MID, 0, 0);
-
-    // Actual (effective) WPM indicator - reflects real throughput including
-    // any Farnsworth-style spacing the operator adds, not the keyer setting.
-    lv_obj_t* actual_box = lv_obj_create(settings_row);
-    lv_obj_set_size(actual_box, 100, 44);
-    lv_obj_clear_flag(actual_box, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_opa(actual_box, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(actual_box, 0, 0);
-    lv_obj_set_style_pad_all(actual_box, 0, 0);
-
-    lv_obj_t* actual_lbl = lv_label_create(actual_box);
-    lv_label_set_text(actual_lbl, "Actual");
-    lv_obj_set_style_text_color(actual_lbl, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(actual_lbl, getThemeFonts()->font_small, 0);
-    lv_obj_align(actual_lbl, LV_ALIGN_TOP_MID, 0, 0);
-
-    practice_actual_label = lv_label_create(actual_box);
-    lv_label_set_text(practice_actual_label, "-- WPM");
-    lv_obj_set_style_text_color(practice_actual_label, LV_COLOR_WARNING, 0);
-    lv_obj_set_style_text_font(practice_actual_label, getThemeFonts()->font_subtitle, 0);
-    lv_obj_align(practice_actual_label, LV_ALIGN_BOTTOM_MID, 0, 0);
-
-    // Decoder box - sized for 4 lines of decoded text
-    practice_decoder_box = lv_obj_create(screen);
-    lv_obj_set_size(practice_decoder_box, SCREEN_WIDTH - 20, 145);  // Taller to fit 4 lines
-    lv_obj_set_pos(practice_decoder_box, 10, HEADER_HEIGHT + 70);
-    lv_obj_set_style_bg_color(practice_decoder_box, LV_COLOR_BG_LAYER2, 0);
-    lv_obj_set_style_border_color(practice_decoder_box, LV_COLOR_BORDER_SUBTLE, 0);
-    lv_obj_set_style_border_width(practice_decoder_box, 1, 0);
-    lv_obj_set_style_radius(practice_decoder_box, 8, 0);
-    lv_obj_set_style_pad_all(practice_decoder_box, 10, 0);  // Reduced padding
-    lv_obj_clear_flag(practice_decoder_box, LV_OBJ_FLAG_SCROLLABLE);
+    // Decoded text is the whole point of this screen, so it gets the main card.
+    practice_decoder_box = summitHeroCard(screen, false);
 
     lv_obj_t* decoder_title = lv_label_create(practice_decoder_box);
-    lv_label_set_text(decoder_title, "Decoded:");
-    lv_obj_set_style_text_color(decoder_title, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_label_set_text(decoder_title, "DECODED");
     lv_obj_set_style_text_font(decoder_title, getThemeFonts()->font_small, 0);
-    lv_obj_align(decoder_title, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_text_color(decoder_title, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_style_text_letter_space(decoder_title, 1, 0);
+    lv_obj_align(decoder_title, LV_ALIGN_TOP_LEFT, 18, 14);
 
     practice_decoder_text = lv_label_create(practice_decoder_box);
     lv_label_set_text(practice_decoder_text, "_");
     lv_obj_set_style_text_color(practice_decoder_text, LV_COLOR_SUCCESS, 0);
     lv_obj_set_style_text_font(practice_decoder_text, getThemeFonts()->font_title, 0);
     lv_label_set_long_mode(practice_decoder_text, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(practice_decoder_text, SCREEN_WIDTH - 40);  // Box width minus horizontal padding
-    lv_obj_align(practice_decoder_text, LV_ALIGN_TOP_LEFT, 0, 18);  // Below "Decoded:" label
 
-    // Footer with keyboard shortcuts
-    lv_obj_t* footer = lv_obj_create(screen);
-    lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
-    lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
-    lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
+    // Wrap width and line budget come from the card, so moving the card never
+    // leaves updatePracticeDecoderDisplay() wrapping to the old geometry.
+    practice_text_w = SUMMIT_MAIN_W - 36;
+    practice_text_h = SUMMIT_CONTENT_H - 56;
+    lv_obj_set_width(practice_decoder_text, practice_text_w);
+    lv_obj_align(practice_decoder_text, LV_ALIGN_TOP_LEFT, 18, 42);
 
-    lv_obj_t* help = lv_label_create(footer);
-    lv_label_set_text(help, LV_SYMBOL_UP LV_SYMBOL_DOWN " Speed   " LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " Key   C Clear   ESC Exit");
-    lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
-    lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
-    lv_obj_center(help);
+    // Rail: the two speeds sit together because comparing them is the point,
+    // and key type is under them because LEFT/RIGHT changes it from here.
+    const int rail_x = SCREEN_WIDTH - SUMMIT_MARGIN - SUMMIT_RAIL_W;
+    const int rail_h = 62;
+    const int rail_gap = 11;
+
+    practice_wpm_label = summitStatCardAt(screen, rail_x, SUMMIT_CONTENT_Y,
+                                          SUMMIT_RAIL_W, rail_h,
+                                          "KEYER WPM", LV_COLOR_ACCENT_PRIMARY);
+    lv_label_set_text_fmt(practice_wpm_label, "%d", cwSpeed);
+
+    practice_actual_label = summitStatCardAt(screen, rail_x,
+                                             SUMMIT_CONTENT_Y + rail_h + rail_gap,
+                                             SUMMIT_RAIL_W, rail_h,
+                                             "ACTUAL WPM", LV_COLOR_WARNING);
+    lv_label_set_text(practice_actual_label, "--");
+
+    practice_key_label = summitStatCardAt(screen, rail_x,
+                                          SUMMIT_CONTENT_Y + 2 * (rail_h + rail_gap),
+                                          SUMMIT_RAIL_W, rail_h,
+                                          "KEY", LV_COLOR_ACCENT_PRIMARY);
+    // "Ultimatic" does not fit the rail at title size, so this one steps down.
+    lv_obj_set_style_text_font(practice_key_label, getThemeFonts()->font_input, 0);
+    int keyType = getCwKeyTypeAsInt();
+    const char* key_type_str = (keyType == 0) ? "Straight" : ((keyType == 1) ? "Iambic A" : ((keyType == 2) ? "Iambic B" : "Ultimatic"));
+    lv_label_set_text(practice_key_label, key_type_str);
+
+    lv_obj_t* bar = summitActionBar(screen);
+    summitKeycap(bar, 0, "ESC", "Exit");
+    summitKeycap(bar, 1, "C", "Clear");
+    summitKeycap(bar, 2, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, "Key");
+    summitKeycap(bar, 3, LV_SYMBOL_UP LV_SYMBOL_DOWN, "Speed");
 
     // Invisible focus container for keyboard input
     // This widget receives all keyboard input and routes it through practice_key_event_cb
@@ -351,21 +272,20 @@ void updatePracticeDecoderDisplay(const char* text) {
     const lv_font_t* font = lv_obj_get_style_text_font(practice_decoder_text, 0);
     lv_coord_t letter_space = lv_obj_get_style_text_letter_space(practice_decoder_text, 0);
 
-    // Pre-wrap so long unbroken streams wrap instead of overflowing the box.
-    // Width matches the label width set in createPracticeScreen().
+    // Pre-wrap so long unbroken streams wrap instead of overflowing the card.
+    // Width and height budget are whatever createPracticeScreen() measured out.
     String wrapped;
-    buildWrappedDecode(text, SCREEN_WIDTH - 40, font, letter_space, wrapped);
+    buildWrappedDecode(text, practice_text_w, font, letter_space, wrapped);
     lv_label_set_text(practice_decoder_text, wrapped.c_str());
     lv_obj_update_layout(practice_decoder_text);
 
-    lv_coord_t max_height = lv_font_get_line_height(font) * 4;
-    if (lv_obj_get_height(practice_decoder_text) > max_height) {
+    if (lv_obj_get_height(practice_decoder_text) > practice_text_h) {
         decodedText = "";
         lv_label_set_text(practice_decoder_text, "_");
     }
 }
 
-// Update the "Actual" WPM indicator. wpm < 0 means no reading yet ("--").
+// Update the ACTUAL WPM rail card. wpm < 0 means no reading yet ("--").
 // Null-guarded because updatePracticeOscillator()/practiceKeyerCallback() are
 // also used by School Send mode, which never creates this label.
 // Note: LV_SPRINTF_USE_FLOAT is disabled in lv_conf.h, so %f is not usable
@@ -375,14 +295,14 @@ void updatePracticeActualWPM(float wpm) {
 
     char buf[16];
     if (wpm < 0) {
-        snprintf(buf, sizeof(buf), "-- WPM");
+        snprintf(buf, sizeof(buf), "--");
     } else {
-        snprintf(buf, sizeof(buf), "%.1f WPM", wpm);
+        snprintf(buf, sizeof(buf), "%.1f", wpm);
     }
 
     // Skip no-op redraws by comparing against the label's own current text
     // rather than a cached value. A cache would outlive the label (it is
-    // recreated with "-- WPM" on every screen entry) and could suppress the
+    // recreated with "--" on every screen entry) and could suppress the
     // first real reading of a new session if it happened to match the old one.
     if (strcmp(lv_label_get_text(practice_actual_label), buf) == 0) return;
     lv_label_set_text(practice_actual_label, buf);
