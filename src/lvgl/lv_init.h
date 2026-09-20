@@ -110,6 +110,71 @@ void updateKeyAcceleration(uint32_t key, uint32_t now) {
  * Uses swap565 = true to handle byte swapping for SPI displays.
  * This works with LV_COLOR_16_SWAP = 0 in lv_conf.h.
  */
+// ============================================
+// Display performance instrumentation
+// ============================================
+// Temporary profiling aid so display optimisation targets come from measured
+// workload instead of arithmetic. Set to 0 to compile it out completely.
+//
+// Reported once per second, per mode:
+//   KB        bytes actually pushed to the panel in that second
+//   render    average gap between two flushes of the SAME refresh, i.e. how
+//             long LVGL spends drawing one buffer. Gaps longer than
+//             DPERF_IDLE_GAP_US are treated as idle and excluded, otherwise
+//             sitting on a static screen would dominate the average.
+//   flush     average time inside the blocking SPI transfer
+//   max       largest single flush, with its pixel count
+//   bus busy  share of wall-clock time spent transferring. This is the number
+//             that says whether the display is actually costing anything.
+#define DISPLAY_PERF_INSTRUMENT 1
+#define DPERF_IDLE_GAP_US       50000UL
+
+#if DISPLAY_PERF_INSTRUMENT
+static uint32_t dperf_flushes       = 0;
+static uint64_t dperf_bytes         = 0;
+static uint64_t dperf_transfer_us   = 0;
+static uint64_t dperf_render_us     = 0;
+static uint32_t dperf_render_samples= 0;
+static uint32_t dperf_max_flush_us  = 0;
+static uint32_t dperf_max_px        = 0;
+static uint32_t dperf_last_exit_us  = 0;
+static uint32_t dperf_window_start  = 0;
+
+// Call once per loop; prints at most once per second, and only when the
+// display actually did work.
+void reportDisplayPerf(int mode) {
+    uint32_t now = millis();
+    if (dperf_window_start == 0) { dperf_window_start = now; return; }
+    if ((now - dperf_window_start) < 1000) return;
+
+    uint32_t elapsed_ms = now - dperf_window_start;
+    if (dperf_flushes > 0) {
+        float busy   = (float)dperf_transfer_us / ((float)elapsed_ms * 1000.0f) * 100.0f;
+        float avgfl  = (float)dperf_transfer_us / (float)dperf_flushes / 1000.0f;
+        float avgrd  = (dperf_render_samples > 0)
+                     ? (float)dperf_render_us / (float)dperf_render_samples / 1000.0f
+                     : 0.0f;
+        Serial.printf("[DispPerf] mode=%-3d flushes=%-4lu %7.1f KB  render %5.2f ms  flush %5.2f ms  max %5.2f ms (%lu px)  bus busy %5.1f%%\n",
+                      mode, (unsigned long)dperf_flushes,
+                      (float)dperf_bytes / 1024.0f,
+                      avgrd, avgfl,
+                      (float)dperf_max_flush_us / 1000.0f,
+                      (unsigned long)dperf_max_px, busy);
+    }
+
+    dperf_flushes = 0;
+    dperf_bytes = 0;
+    dperf_transfer_us = 0;
+    dperf_render_us = 0;
+    dperf_render_samples = 0;
+    dperf_max_flush_us = 0;
+    dperf_max_px = 0;
+    dperf_window_start = now;
+}
+#else
+inline void reportDisplayPerf(int mode) { (void)mode; }
+#endif
+
 void lvgl_disp_flush(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* color_p) {
     if (lvgl_tft == NULL) {
         lv_disp_flush_ready(drv);
@@ -119,6 +184,17 @@ void lvgl_disp_flush(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* colo
     uint32_t w = (area->x2 - area->x1 + 1);
     uint32_t h = (area->y2 - area->y1 + 1);
 
+#if DISPLAY_PERF_INSTRUMENT
+    uint32_t t_enter = micros();
+    if (dperf_last_exit_us != 0) {
+        uint32_t gap = t_enter - dperf_last_exit_us;
+        if (gap < DPERF_IDLE_GAP_US) {   // same refresh, so this gap is drawing
+            dperf_render_us += gap;
+            dperf_render_samples++;
+        }
+    }
+#endif
+
     // Blocking flush. NOTE: do NOT hold a persistent SPI transaction or use a
     // DMA-overlapped flush here - the SD card shares SPI2 with the display, so
     // holding the bus lock deadlocks background SD access, and the overlapped
@@ -127,6 +203,19 @@ void lvgl_disp_flush(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* colo
     lvgl_tft->setAddrWindow(area->x1, area->y1, w, h);
     lvgl_tft->pushPixels((uint16_t*)color_p, w * h, true);  // swap565 = true
     lvgl_tft->endWrite();
+
+#if DISPLAY_PERF_INSTRUMENT
+    uint32_t t_exit = micros();
+    uint32_t dt = t_exit - t_enter;
+    dperf_flushes++;
+    dperf_bytes += (uint64_t)w * (uint64_t)h * 2ULL;
+    dperf_transfer_us += dt;
+    if (dt > dperf_max_flush_us) {
+        dperf_max_flush_us = dt;
+        dperf_max_px = w * h;
+    }
+    dperf_last_exit_us = t_exit;
+#endif
 
     lv_disp_flush_ready(drv);
 }

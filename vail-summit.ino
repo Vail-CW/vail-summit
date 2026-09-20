@@ -834,6 +834,9 @@ void loop() {
   // LVGL reads CardKB directly via its input driver
   lv_timer_handler();
 
+  // Display workload profiling (compiled out when DISPLAY_PERF_INSTRUMENT is 0)
+  reportDisplayPerf((int)currentMode);
+
   // Process any pending deferred screen operations
   // (screen creation is deferred from event callbacks to avoid stack overflow)
   processQSOViewLogsPending();
