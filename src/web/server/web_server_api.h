@@ -79,14 +79,6 @@ String getDeviceStatusJSON() {
     case MODE_WEB_MEMORY_CHAIN: modeStr = "Web Memory Chain"; break;
     case MODE_WEB_HEAR_IT: modeStr = "Web Hear It Type It"; break;
     case MODE_PRACTICE: modeStr = "Practice"; break;
-    case MODE_HEAR_IT_TYPE_IT: modeStr = "Hear It Type It"; break;
-    case MODE_CW_ACADEMY_TRACK_SELECT: modeStr = "CW Academy"; break;
-    case MODE_CW_ACADEMY_SESSION_SELECT: modeStr = "CW Academy"; break;
-    case MODE_CW_ACADEMY_PRACTICE_TYPE_SELECT: modeStr = "CW Academy"; break;
-    case MODE_CW_ACADEMY_MESSAGE_TYPE_SELECT: modeStr = "CW Academy"; break;
-    case MODE_CW_ACADEMY_COPY_PRACTICE: modeStr = "CW Academy"; break;
-    case MODE_CW_ACADEMY_SENDING_PRACTICE: modeStr = "CW Academy"; break;
-    case MODE_CW_ACADEMY_QSO_PRACTICE: modeStr = "CW Academy"; break;
     case MODE_MORSE_SHOOTER: modeStr = "Morse Shooter"; break;
     case MODE_MORSE_MEMORY: modeStr = "Memory Chain"; break;
     case MODE_GAMES_MENU: modeStr = "Games Menu"; break;

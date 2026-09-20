@@ -64,12 +64,9 @@ using namespace lgfx::v1::fonts;
 #include "src/ui/menu_ui.h"
 
 // Training modes
-#include "src/training/training_hear_it_type_it.h"
 #include "src/training/training_practice.h"
-#include "src/training/training_cwa.h"
 #include "src/training/training_license_ui.h"
 #include "src/training/training_license_input.h"
-#include "src/training/training_vail_master.h"
 
 // Games
 #include "src/games/game_morse_shooter.h"
@@ -725,22 +722,6 @@ void pollPracticeMode() {
     }
 }
 
-void pollHearIt() { updateHearItTypeIt(); }
-void pollCWACopy() { updateCWACopyPractice(); }
-void pollCWAQSO() { updateCWAQSOPractice(); }
-
-void pollCWASending() {
-    if (cwaUseLVGL) {
-        updateCWASendingPracticeLVGL();
-    } else {
-        updateCWASendingPractice();
-        if (cwaSendNeedsUIUpdate && !isTonePlaying()) {
-            drawCWASendDecodedOnly(tft);
-            cwaSendNeedsUIUpdate = false;
-        }
-    }
-}
-
 void pollVailRepeater() {
     updateVailRepeater(tft);
     updateVailScreenLVGL();
@@ -765,7 +746,6 @@ void pollCWSpeeder() {
     cwSpeedHandlePaddle(ditPressed, dahPressed);
 }
 
-void pollVailMasterPractice() { vmUpdateKeyer(); }
 void pollRadioOutput() { updateRadioOutput(); }
 void pollPOTARecorder() { updatePOTARecorder(); }
 
@@ -789,7 +769,6 @@ void pollWebHearIt() {
 
 void pollBTHID() { updateBTHID(); }
 void pollBTMIDI() { updateBTMIDI(); }
-void pollLICWSending() { updateLICWSendingPractice(); }
 
 // ============================================
 // Mode Poll Dispatch Table
@@ -800,15 +779,10 @@ void pollSchoolSend() { schoolSendPoll(); }
 static const ModeCallbackEntry pollTable[] = {
     { MODE_PRACTICE,                     pollPracticeMode },
     { MODE_SCHOOL_SEND,                  pollSchoolSend },
-    { MODE_HEAR_IT_TYPE_IT,              pollHearIt },
-    { MODE_CW_ACADEMY_COPY_PRACTICE,     pollCWACopy },
-    { MODE_CW_ACADEMY_QSO_PRACTICE,      pollCWAQSO },
-    { MODE_CW_ACADEMY_SENDING_PRACTICE,  pollCWASending },
     { MODE_VAIL_REPEATER,                pollVailRepeater },
     { MODE_MORSE_SHOOTER,                pollMorseShooter },
     { MODE_MORSE_MEMORY,                 pollMemoryChain },
     { MODE_CW_SPEEDER,                   pollCWSpeeder },
-    { MODE_VAIL_MASTER_PRACTICE,         pollVailMasterPractice },
     { MODE_RADIO_OUTPUT,                 pollRadioOutput },
     { MODE_POTA_RECORDER,                pollPOTARecorder },
     { MODE_WEB_PRACTICE,                 pollWebPractice },
@@ -816,7 +790,6 @@ static const ModeCallbackEntry pollTable[] = {
     { MODE_WEB_HEAR_IT,                  pollWebHearIt },
     { MODE_BT_HID,                       pollBTHID },
     { MODE_BT_MIDI,                      pollBTMIDI },
-    { MODE_LICW_SEND_PRACTICE,           pollLICWSending },
 };
 static const int pollTableSize = sizeof(pollTable) / sizeof(pollTable[0]);
 

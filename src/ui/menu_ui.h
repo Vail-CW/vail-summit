@@ -26,16 +26,7 @@ void drawStatusIcons();
 
 // Forward declarations for mode-specific UI functions
 // These are needed by files included before the function definitions
-void drawHearItTypeItUI(LGFX& tft);
-void drawHearItConfigureUI(LGFX& tft);
 void drawPracticeUI(LGFX& tft);
-void drawCWATrackSelectUI(LGFX& tft);
-void drawCWASessionSelectUI(LGFX& tft);
-void drawCWAPracticeTypeSelectUI(LGFX& tft);
-void drawCWAMessageTypeSelectUI(LGFX& tft);
-void drawCWACopyPracticeUI(LGFX& tft);
-void drawCWASendingPracticeUI(LGFX& tft);
-void drawCWAQSOPracticeUI(LGFX& tft);
 void drawMemoryUI(LGFX& tft);
 void drawWiFiUI(LGFX& tft);
 void drawCWSettingsUI(LGFX& tft);
@@ -76,24 +67,8 @@ void drawHeader() {
 
   if (currentMode == MODE_TRAINING_MENU) {
     title = "TRAINING";
-  } else if (currentMode == MODE_HEAR_IT_TYPE_IT) {
-    title = "TRAINING";
   } else if (currentMode == MODE_PRACTICE) {
     title = "PRACTICE";
-  } else if (currentMode == MODE_CW_ACADEMY_TRACK_SELECT) {
-    title = "CW ACADEMY";
-  } else if (currentMode == MODE_CW_ACADEMY_SESSION_SELECT) {
-    title = "CW ACADEMY";
-  } else if (currentMode == MODE_CW_ACADEMY_PRACTICE_TYPE_SELECT) {
-    title = "CW ACADEMY";
-  } else if (currentMode == MODE_CW_ACADEMY_MESSAGE_TYPE_SELECT) {
-    title = "CW ACADEMY";
-  } else if (currentMode == MODE_CW_ACADEMY_COPY_PRACTICE) {
-    title = "CW ACADEMY";
-  } else if (currentMode == MODE_CW_ACADEMY_SENDING_PRACTICE) {
-    title = "CW ACADEMY";
-  } else if (currentMode == MODE_CW_ACADEMY_QSO_PRACTICE) {
-    title = "CW ACADEMY";
   } else if (currentMode == MODE_GAMES_MENU) {
     title = "GAMES";
   } else if (currentMode == MODE_MORSE_SHOOTER) {
