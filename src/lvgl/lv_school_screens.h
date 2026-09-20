@@ -254,37 +254,12 @@ void cleanupSchoolPractice() {
 // ============================================
 
 // One hub row: title + description, routes via the menu callback.
-static lv_obj_t* schoolHubTile(lv_obj_t* parent, const char* title, const char* desc, int target_mode) {
-    lv_obj_t* card = lv_obj_create(parent);
-    lv_obj_set_size(card, 440, 54);
-    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-    applyMenuCardStyle(card);
-    lv_obj_set_style_pad_all(card, 8, 0);
-
-    lv_obj_t* t = lv_label_create(card);
-    lv_label_set_text(t, title);
-    lv_obj_set_style_text_font(t, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(t, LV_COLOR_TEXT_PRIMARY, 0);
-    lv_obj_align(t, LV_ALIGN_LEFT_MID, 4, -10);
-
-    lv_obj_t* d = lv_label_create(card);
-    lv_label_set_text(d, desc);
-    lv_obj_set_style_text_font(d, getThemeFonts()->font_small, 0);
-    lv_obj_set_style_text_color(d, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_align(d, LV_ALIGN_LEFT_MID, 4, 12);
-
-    lv_obj_t* arrow = lv_label_create(card);
-    lv_label_set_text(arrow, LV_SYMBOL_RIGHT);
-    lv_obj_set_style_text_color(arrow, LV_COLOR_TEXT_TERTIARY, 0);
-    lv_obj_set_style_text_font(arrow, &lv_font_montserrat_18, 0);
-    lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -4, 0);
-
-    lv_obj_set_user_data(card, (void*)(intptr_t)target_mode);
-    lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(card, menu_item_click_handler, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(card, linear_nav_handler, LV_EVENT_KEY, NULL);
-    addNavigableWidget(card);
-    return card;
+static lv_obj_t* schoolHubTile(lv_obj_t* parent, const char* icon, const char* title,
+                               const char* desc, int target_mode) {
+    lv_obj_t* row = summitNavRow(parent, icon, LV_COLOR_ACCENT_PRIMARY, title, desc,
+                                 false, menu_item_click_handler, NULL);
+    lv_obj_set_user_data(row, (void*)(intptr_t)target_mode);
+    return row;
 }
 
 lv_obj_t* createSchoolHubScreen() {
@@ -293,12 +268,7 @@ lv_obj_t* createSchoolHubScreen() {
 
     lv_obj_t* screen = createScreen();
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t* hdr = lv_label_create(screen);
-    lv_label_set_text(hdr, "LEARN CW");
-    lv_obj_set_style_text_font(hdr, getThemeFonts()->font_title, 0);
-    lv_obj_set_style_text_color(hdr, LV_COLOR_TEXT_PRIMARY, 0);
-    lv_obj_align(hdr, LV_ALIGN_TOP_LEFT, 16, 12);
+    createHeader(screen, "LEARN CW");
 
     // Learn: show resume position if there is progress
     char learnDesc[48];
@@ -312,14 +282,13 @@ lv_obj_t* createSchoolHubScreen() {
     else
         snprintf(learnDesc, sizeof(learnDesc), "Structured lessons from zero");
 
-    lv_obj_t* first = schoolHubTile(screen, "Learn",          learnDesc,                    MODE_VAIL_COURSE_MODULE_SELECT);
-    lv_obj_set_pos(first, 16, 52);
-    lv_obj_t* t2 = schoolHubTile(screen, "Daily Practice", "Mixed review - builds streak",  MODE_SCHOOL_DAILY);
-    lv_obj_set_pos(t2, 16, 112);
-    lv_obj_t* t3 = schoolHubTile(screen, "Copy Practice",  "Listen & type, open-ended",     MODE_SCHOOL_COPY);
-    lv_obj_set_pos(t3, 16, 172);
-    lv_obj_t* t4 = schoolHubTile(screen, "Send Practice",  "Key it - live decode",          MODE_SCHOOL_SEND);
-    lv_obj_set_pos(t4, 16, 232);
+    lv_obj_t* list = summitNavList(screen, MENU_HEADER_HEIGHT + 6);
+
+    lv_obj_t* first = schoolHubTile(list, LV_SYMBOL_FILE, "Learn", learnDesc,
+                                    MODE_VAIL_COURSE_MODULE_SELECT);
+    schoolHubTile(list, LV_SYMBOL_LOOP,   "Daily Practice", "Mixed review, builds your streak", MODE_SCHOOL_DAILY);
+    schoolHubTile(list, LV_SYMBOL_AUDIO,  "Copy Practice",  "Listen and type, open ended",      MODE_SCHOOL_COPY);
+    schoolHubTile(list, LV_SYMBOL_UPLOAD, "Send Practice",  "Key it, live decode",              MODE_SCHOOL_SEND);
 
     focusWidget(first);
     return screen;

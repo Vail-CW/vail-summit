@@ -52,66 +52,42 @@ lv_obj_t* createVailCourseModuleSelectScreen() {
     clearNavigationGroup();
     lv_obj_t* screen = createScreen();
     applyScreenStyle(screen);
+    createHeader(screen, "MODULES");
 
-    // Header
-    lv_obj_t* header = lv_obj_create(screen);
-    lv_obj_set_size(header, LV_PCT(100), 46);
-    lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_set_style_bg_color(header, LV_COLOR_BG_LAYER2, 0);
-    lv_obj_set_style_border_width(header, 0, 0);
-    lv_obj_set_style_radius(header, 0, 0);
-    lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
-    createSplitTitleLabel(header, "LEARN CW", "MODULES");
-
-    // Scrollable list container
-    lv_obj_t* list = lv_obj_create(screen);
-    lv_obj_set_size(list, LV_PCT(100), 246);
-    lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 48);
-    lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(list, 0, 0);
-    lv_obj_set_style_pad_all(list, 8, 0);
-    lv_obj_set_style_pad_row(list, 6, 0);
-    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_scroll_dir(list, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_t* list = summitNavList(screen, MENU_HEADER_HEIGHT + 6);
 
     lv_obj_t* firstRow = NULL;
     lv_obj_t* currentRow = NULL;
     for (int i = 0; i < MODULE_COUNT; i++) {
-        bool unlocked = isVailCourseModuleUnlocked((VailCourseModule)i);
+        bool unlocked  = isVailCourseModuleUnlocked((VailCourseModule)i);
         bool completed = isVailCourseModuleCompleted((VailCourseModule)i);
 
-        lv_obj_t* row = lv_obj_create(list);
-        lv_obj_set_size(row, LV_PCT(100), 40);
-        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-        applyMenuCardStyle(row);
-        lv_obj_set_style_pad_all(row, 8, 0);
+        // The description does the work the old check/cross prefix did, and it
+        // has room to say what the module actually teaches.
+        char desc[64];
+        int done = getVailCourseLessonsCompleted((VailCourseModule)i);
+        int total = vailCourseLessonCounts[i];
+        if (!unlocked) {
+            snprintf(desc, sizeof(desc), "Locked, finish the module before it");
+        } else if (strlen(vailCourseModuleChars[i]) == 0) {
+            snprintf(desc, sizeof(desc), "Review   %d of %d lessons", done, total);
+        } else {
+            snprintf(desc, sizeof(desc), "%s   %d of %d lessons",
+                     vailCourseModuleChars[i], done, total);
+        }
 
-        lv_obj_t* lbl = lv_label_create(row);
-        char text[64];
-        if (completed)      snprintf(text, sizeof(text), LV_SYMBOL_OK " %s", vailCourseModuleNames[i]);
-        else if (!unlocked) snprintf(text, sizeof(text), LV_SYMBOL_CLOSE " %s", vailCourseModuleNames[i]);
-        else                snprintf(text, sizeof(text), "%s", vailCourseModuleNames[i]);
-        lv_label_set_text(lbl, text);
-        lv_obj_set_style_text_font(lbl, getThemeFonts()->font_subtitle, 0);
-        lv_obj_set_style_text_color(lbl, unlocked ? LV_COLOR_TEXT_PRIMARY : LV_COLOR_TEXT_DISABLED, 0);
-        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
+        const char* icon = completed ? LV_SYMBOL_OK
+                         : (!unlocked ? LV_SYMBOL_CLOSE : LV_SYMBOL_PLAY);
+        lv_color_t icon_col = completed ? LV_COLOR_SUCCESS : LV_COLOR_ACCENT_PRIMARY;
 
-        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(row, vail_course_module_click_handler, LV_EVENT_CLICKED, (void*)(intptr_t)i);
-        lv_obj_add_event_cb(row, linear_nav_handler, LV_EVENT_KEY, NULL);
-        addNavigableWidget(row);
+        lv_obj_t* row = summitNavRow(list, icon, icon_col, vailCourseModuleNames[i],
+                                     desc, !unlocked,
+                                     vail_course_module_click_handler,
+                                     (void*)(intptr_t)i);
 
         if (!firstRow) firstRow = row;
         if (i == (int)vailCourseProgress.currentModule) currentRow = row;
     }
-
-    // Footer
-    lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, "UP/DN Navigate   ENTER Select   ESC Back");
-    lv_obj_set_style_text_font(footer, getThemeFonts()->font_small, 0);
-    lv_obj_set_style_text_color(footer, LV_COLOR_TEXT_TERTIARY, 0);
-    lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -6);
 
     focusWidget(currentRow ? currentRow : firstRow);
     return screen;
@@ -132,82 +108,52 @@ static void vail_course_lesson_click_handler(lv_event_t* e) {
 }
 
 lv_obj_t* createVailCourseLessonSelectScreen() {
+    clearNavigationGroup();
     lv_obj_t* screen = createScreen();
     applyScreenStyle(screen);
 
     VailCourseModule module = vailCourseProgress.currentModule;
+    createHeader(screen, vailCourseModuleNames[module]);
 
-    // Header
-    lv_obj_t* header = lv_obj_create(screen);
-    lv_obj_set_size(header, LV_PCT(100), 50);
-    lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_set_style_bg_color(header, LV_COLOR_BG_LAYER2, 0);
-    lv_obj_set_style_border_width(header, 0, 0);
-    lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
-
-    createSplitTitleLabel(header, vailCourseModuleNames[module], "LESSONS");
-
-    // Characters info
-    lv_obj_t* chars_label = lv_label_create(header);
-    char charsText[64];
-    if (strlen(vailCourseModuleChars[module]) == 0) {
-        strcpy(charsText, "Review");
-    } else {
-        snprintf(charsText, sizeof(charsText), "Chars: %s", vailCourseModuleChars[module]);
-    }
-    lv_label_set_text(chars_label, charsText);
-    lv_obj_set_style_text_font(chars_label, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(chars_label, LV_COLOR_ACCENT_PRIMARY, 0);
-    lv_obj_align(chars_label, LV_ALIGN_RIGHT_MID, -15, 0);
-
-    // Lesson list
-    lv_obj_t* list = lv_obj_create(screen);
-    lv_obj_set_size(list, 400, 180);
-    lv_obj_align(list, LV_ALIGN_CENTER, 0, 10);
-    lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(list, 0, 0);
-    lv_obj_set_style_pad_all(list, 10, 0);
-    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(list, 10, 0);
-
-    int lessonCount = vailCourseLessonCounts[module];
+    int lessonCount     = vailCourseLessonCounts[module];
     int lessonsCompleted = getVailCourseLessonsCompleted(module);
+
+    lv_obj_t* list = summitNavList(screen, MENU_HEADER_HEIGHT + 6);
     lv_obj_t* currentBtn = NULL;  // default-focus the lesson the user is on
+
+    // The characters this module covers used to sit in the header. It belongs
+    // with the lessons, where there is room to read it.
+    const char* moduleChars = vailCourseModuleChars[module];
 
     for (int i = 1; i <= lessonCount; i++) {
         bool completed = (i <= lessonsCompleted);
-        bool current = (i == lessonsCompleted + 1 || (lessonsCompleted == 0 && i == 1));
+        bool current   = (i == lessonsCompleted + 1 || (lessonsCompleted == 0 && i == 1));
 
-        lv_obj_t* btn = lv_btn_create(list);
-        lv_obj_set_size(btn, 350, 50);
-        applyMenuCardStyle(btn);  // shared readable outline focus
+        char title[32];
+        snprintf(title, sizeof(title), "Lesson %d", i);
 
-        lv_obj_t* lbl = lv_label_create(btn);
-        char lessonText[64];
-        if (completed) snprintf(lessonText, sizeof(lessonText), LV_SYMBOL_OK " Lesson %d", i);
-        else if (current) snprintf(lessonText, sizeof(lessonText), "Lesson %d (Current)", i);
-        else snprintf(lessonText, sizeof(lessonText), "Lesson %d", i);
-        lv_label_set_text(lbl, lessonText);
-        lv_obj_set_style_text_font(lbl, getThemeFonts()->font_input, 0);
-        lv_obj_center(lbl);
+        char desc[64];
+        if (completed) {
+            snprintf(desc, sizeof(desc), "Done, play it again any time");
+        } else if (strlen(moduleChars) == 0) {
+            snprintf(desc, sizeof(desc), current ? "Start here, review" : "Review");
+        } else if (current) {
+            snprintf(desc, sizeof(desc), "Start here   %s", moduleChars);
+        } else {
+            snprintf(desc, sizeof(desc), "%s", moduleChars);
+        }
 
-        lv_obj_add_event_cb(btn, vail_course_lesson_click_handler, LV_EVENT_CLICKED, (void*)(intptr_t)i);
-        lv_obj_add_event_cb(btn, linear_nav_handler, LV_EVENT_KEY, NULL);
-        addNavigableWidget(btn);
+        const char* icon = completed ? LV_SYMBOL_OK : LV_SYMBOL_PLAY;
+        lv_color_t icon_col = completed ? LV_COLOR_SUCCESS : LV_COLOR_ACCENT_PRIMARY;
 
-        if (current) currentBtn = btn;
+        lv_obj_t* row = summitNavRow(list, icon, icon_col, title, desc, false,
+                                     vail_course_lesson_click_handler,
+                                     (void*)(intptr_t)i);
+        if (current) currentBtn = row;
     }
 
     // Land focus on the current lesson so ENTER resumes where the user left off.
     if (currentBtn) focusWidget(currentBtn);
-
-    // Footer
-    lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, "ENTER Start Lesson   ESC Back");
-    lv_obj_set_style_text_font(footer, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
-    lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);
 
     return screen;
 }
@@ -895,13 +841,17 @@ void updateVailCourseLessonUI() {
 
     // Update progress label
     if (lessonState.progress_label) {
+        char buf[32];
         if (phase != PHASE_RESULT) {
-            char buf[32];
             snprintf(buf, sizeof(buf), "%d/%d", lessonState.phaseItemIndex + 1, lessonState.phaseItemCount);
-            lv_label_set_text(lessonState.progress_label, buf);
         } else {
-            lv_label_set_text(lessonState.progress_label, "");
+            // The rail card is too narrow for a sentence, so the result phase
+            // shows the percentage here and the raw count on the CORRECT card.
+            int totalTotal = vailCourseProgress.sessionTotal;
+            int pct = (totalTotal > 0) ? (vailCourseProgress.sessionCorrect * 100 / totalTotal) : 0;
+            snprintf(buf, sizeof(buf), "%d%%", pct);
         }
+        lv_label_set_text(lessonState.progress_label, buf);
     }
 
     // Update main display based on phase
@@ -1028,20 +978,16 @@ void updateVailCourseLessonUI() {
 
     // Update score label
     if (lessonState.score_label) {
+        char buf[32];
         if (phase == PHASE_RESULT) {
-            int totalCorrect = vailCourseProgress.sessionCorrect;
-            int totalTotal = vailCourseProgress.sessionTotal;
-            int percentage = (totalTotal > 0) ? (totalCorrect * 100 / totalTotal) : 0;
-            char buf[64];
-            snprintf(buf, sizeof(buf), "%d/%d correct (%d%%)", totalCorrect, totalTotal, percentage);
-            lv_label_set_text(lessonState.score_label, buf);
+            snprintf(buf, sizeof(buf), "%d/%d",
+                     vailCourseProgress.sessionCorrect, vailCourseProgress.sessionTotal);
         } else if (lessonState.phaseTotal > 0) {
-            char buf[32];
             snprintf(buf, sizeof(buf), "%d/%d", lessonState.phaseCorrect, lessonState.phaseTotal);
-            lv_label_set_text(lessonState.score_label, buf);
         } else {
-            lv_label_set_text(lessonState.score_label, "");
+            snprintf(buf, sizeof(buf), "-");
         }
+        lv_label_set_text(lessonState.score_label, buf);
     }
 
     // Update prompt label
@@ -1108,75 +1054,64 @@ lv_obj_t* createVailCourseLessonScreen() {
     applyScreenStyle(screen);
     lessonState.screen = screen;
 
-    // Header
-    lv_obj_t* header = lv_obj_create(screen);
-    lv_obj_set_size(header, LV_PCT(100), 50);
-    lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_set_style_bg_color(header, LV_COLOR_BG_LAYER2, 0);
-    lv_obj_set_style_border_width(header, 0, 0);
-    lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
+    char screenLabel[40];
+    snprintf(screenLabel, sizeof(screenLabel), "%s   LESSON %d",
+             vailCourseModuleNames[vailCourseProgress.currentModule],
+             vailCourseProgress.currentLesson);
+    summitScreenLabel(screen, screenLabel);
 
-    char lessonSubtitle[16];
-    snprintf(lessonSubtitle, sizeof(lessonSubtitle), "LESSON %d", vailCourseProgress.currentLesson);
-    createSplitTitleLabel(header, vailCourseModuleNames[vailCourseProgress.currentModule], lessonSubtitle);
-
-    // Phase indicator
-    lessonState.phase_label = lv_label_create(header);
+    // Phase reads top right, opposite the lesson it belongs to.
+    lessonState.phase_label = lv_label_create(screen);
     lv_label_set_text(lessonState.phase_label, vailCoursePhaseNames[vailCourseProgress.currentPhase]);
     lv_obj_set_style_text_font(lessonState.phase_label, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(lessonState.phase_label, LV_COLOR_ACCENT_PRIMARY, 0);
-    lv_obj_align(lessonState.phase_label, LV_ALIGN_RIGHT_MID, -15, 0);
+    lv_obj_align(lessonState.phase_label, LV_ALIGN_TOP_RIGHT, -SUMMIT_MARGIN, SUMMIT_LABEL_Y);
 
-    // Main content area
-    lv_obj_t* content = lv_obj_create(screen);
-    lv_obj_set_size(content, 420, 180);
-    lv_obj_center(content);
-    applyCardStyle(content);
-    lv_obj_set_style_pad_all(content, 15, 0);
-    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t* content = summitHeroCard(screen, false);
 
-    // Progress indicator (top right of content)
-    lessonState.progress_label = lv_label_create(content);
-    lv_label_set_text(lessonState.progress_label, "1/5");
-    lv_obj_set_style_text_font(lessonState.progress_label, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(lessonState.progress_label, LV_COLOR_TEXT_TERTIARY, 0);
-    lv_obj_align(lessonState.progress_label, LV_ALIGN_TOP_RIGHT, 0, 0);
-
-    // Main character display (large, centered)
+    // Main character display. Display size, not title size: at arm's length a
+    // single character is the whole screen, and "TRY AGAIN" still fits the card.
     lessonState.main_label = lv_label_create(content);
     lv_label_set_text(lessonState.main_label, "...");
-    lv_obj_set_style_text_font(lessonState.main_label, getThemeFonts()->font_title, 0);
+    lv_obj_set_style_text_font(lessonState.main_label, getThemeFonts()->font_display, 0);
     lv_obj_set_style_text_color(lessonState.main_label, LV_COLOR_TEXT_PRIMARY, 0);
-    lv_obj_align(lessonState.main_label, LV_ALIGN_CENTER, 0, -15);
-
-    // Feedback label (below main)
-    lessonState.feedback_label = lv_label_create(content);
-    lv_label_set_text(lessonState.feedback_label, "");
-    lv_obj_set_style_text_font(lessonState.feedback_label, getThemeFonts()->font_input, 0);
-    lv_obj_align_to(lessonState.feedback_label, lessonState.main_label, LV_ALIGN_OUT_BOTTOM_MID, 0, 18);
-    lv_obj_add_flag(lessonState.feedback_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_align(lessonState.main_label, LV_ALIGN_CENTER, 0, -28);
 
     // Group input display (for PHASE_GROUPS, below main label)
     lessonState.group_input_label = lv_label_create(content);
     lv_label_set_text(lessonState.group_input_label, "");
     lv_obj_set_style_text_font(lessonState.group_input_label, getThemeFonts()->font_input, 0);
     lv_obj_set_style_text_color(lessonState.group_input_label, LV_COLOR_ACCENT_PRIMARY, 0);
-    lv_obj_align(lessonState.group_input_label, LV_ALIGN_CENTER, 0, 15);
+    lv_obj_align(lessonState.group_input_label, LV_ALIGN_CENTER, 0, 16);
     lv_obj_add_flag(lessonState.group_input_label, LV_OBJ_FLAG_HIDDEN);
 
-    // Score label (bottom left)
-    lessonState.score_label = lv_label_create(content);
-    lv_label_set_text(lessonState.score_label, "");
-    lv_obj_set_style_text_font(lessonState.score_label, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(lessonState.score_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_align(lessonState.score_label, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    // Feedback label. Realigned under whichever of the two is showing, so it
+    // is created after both of them.
+    lessonState.feedback_label = lv_label_create(content);
+    lv_label_set_text(lessonState.feedback_label, "");
+    lv_obj_set_style_text_font(lessonState.feedback_label, getThemeFonts()->font_input, 0);
+    lv_obj_align_to(lessonState.feedback_label, lessonState.main_label, LV_ALIGN_OUT_BOTTOM_MID, 0, 18);
+    lv_obj_add_flag(lessonState.feedback_label, LV_OBJ_FLAG_HIDDEN);
 
-    // Prompt label (bottom center)
+    // Prompt sits with the content it is talking about, not down in the bar.
     lessonState.prompt_label = lv_label_create(content);
     lv_label_set_text(lessonState.prompt_label, "Press SPACE to start");
-    lv_obj_set_style_text_font(lessonState.prompt_label, getThemeFonts()->font_body, 0);
+    lv_obj_set_style_text_font(lessonState.prompt_label, getThemeFonts()->font_small, 0);
     lv_obj_set_style_text_color(lessonState.prompt_label, LV_COLOR_WARNING, 0);
-    lv_obj_align(lessonState.prompt_label, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_align(lessonState.prompt_label, LV_ALIGN_BOTTOM_MID, 0, -12);
+
+    // Rail: where you are in the phase, and how you are doing.
+    const int rail_x = SCREEN_WIDTH - SUMMIT_MARGIN - SUMMIT_RAIL_W;
+    lessonState.progress_label = summitStatCardAt(screen, rail_x, SUMMIT_CONTENT_Y,
+                                                  SUMMIT_RAIL_W, SUMMIT_STAT_H,
+                                                  "PROGRESS", LV_COLOR_TEXT_PRIMARY);
+    lv_label_set_text(lessonState.progress_label, "-");
+
+    lessonState.score_label = summitStatCardAt(screen, rail_x,
+                                               SUMMIT_CONTENT_Y + SUMMIT_STAT_H + SUMMIT_GAP,
+                                               SUMMIT_RAIL_W, SUMMIT_STAT_H,
+                                               "CORRECT", LV_COLOR_SUCCESS);
+    lv_label_set_text(lessonState.score_label, "-");
 
     // Invisible focus container for keyboard input
     lv_obj_t* focus = lv_obj_create(screen);
@@ -1191,12 +1126,12 @@ lv_obj_t* createVailCourseLessonScreen() {
     addNavigableWidget(focus);
     focusWidget(focus);
 
-    // Footer
-    lessonState.footer_label = lv_label_create(screen);
-    lv_label_set_text(lessonState.footer_label, FOOTER_TRAINING_AUTOPLAY);
+    // Key hints own the action bar. The text changes per phase, which is why
+    // this is a plain label the phase code rewrites rather than keycaps.
+    lv_obj_t* bar = summitActionBar(screen);
+    lessonState.footer_label = summitBarHint(bar, FOOTER_TRAINING_AUTOPLAY);
     lv_obj_set_style_text_font(lessonState.footer_label, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(lessonState.footer_label, LV_COLOR_WARNING, 0);
-    lv_obj_align(lessonState.footer_label, LV_ALIGN_BOTTOM_MID, 0, -5);
+    lv_obj_set_style_text_color(lessonState.footer_label, LV_COLOR_TEXT_SECONDARY, 0);
 
     // Initialize lesson state and start first phase
     startVailCourseSession();
@@ -1214,67 +1149,56 @@ lv_obj_t* createVailCourseProgressScreen() {
     lv_obj_t* screen = createScreen();
     applyScreenStyle(screen);
 
-    // Header
-    lv_obj_t* header = lv_obj_create(screen);
-    lv_obj_set_size(header, LV_PCT(100), 50);
-    lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_set_style_bg_color(header, LV_COLOR_BG_LAYER2, 0);
-    lv_obj_set_style_border_width(header, 0, 0);
-    lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
+    summitScreenLabel(screen, "COURSE PROGRESS");
 
-    createSplitTitleLabel(header, "LEARN CW", "PROGRESS");
-
-    // Stats container
-    lv_obj_t* stats = lv_obj_create(screen);
-    lv_obj_set_size(stats, 400, 180);
-    lv_obj_center(stats);
-    lv_obj_set_style_bg_color(stats, LV_COLOR_BG_LAYER2, 0);
-    lv_obj_set_style_border_width(stats, 1, 0);
-    lv_obj_set_style_border_color(stats, LV_COLOR_BORDER_SUBTLE, 0);
-    lv_obj_set_style_radius(stats, 10, 0);
-    lv_obj_set_style_pad_all(stats, 20, 0);
-    lv_obj_clear_flag(stats, LV_OBJ_FLAG_SCROLLABLE);
-
-    // Count completed modules
     int modulesComplete = 0;
     for (int i = 0; i < MODULE_COUNT; i++) {
         if (isVailCourseModuleCompleted((VailCourseModule)i)) modulesComplete++;
     }
 
-    // Stats text
-    char statsBuf[256];
-    snprintf(statsBuf, sizeof(statsBuf),
-             "Modules Completed: %d / %d\n\n"
-             "Current Module: %s\n"
-             "Current Lesson: %d\n\n"
-             "Practice Time Today: %s\n"
-             "Total Practice Time: %s",
-             modulesComplete, MODULE_COUNT,
-             vailCourseModuleNames[vailCourseProgress.currentModule],
-             vailCourseProgress.currentLesson,
-             formatPracticeTime(getTodayPracticeSeconds()).c_str(),
-             formatPracticeTime(getTotalPracticeSeconds()).c_str());
+    // The old screen was one block of label text. These are four numbers, so
+    // they read as four numbers.
+    const char* captions[3] = { "MODULES", "TODAY", "TOTAL" };
+    lv_color_t  colors[3]   = { LV_COLOR_ACCENT_PRIMARY, LV_COLOR_SUCCESS, LV_COLOR_TEXT_PRIMARY };
+    lv_obj_t*   values[3]   = { NULL, NULL, NULL };
+    summitStatRow(screen, 3, captions, colors, values, SUMMIT_CONTENT_Y, SUMMIT_STAT_H);
 
-    lv_obj_t* stats_label = lv_label_create(stats);
-    lv_label_set_text(stats_label, statsBuf);
-    lv_obj_set_style_text_font(stats_label, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(stats_label, LV_COLOR_TEXT_PRIMARY, 0);
-    lv_obj_center(stats_label);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%d/%d", modulesComplete, MODULE_COUNT);
+    lv_label_set_text(values[0], buf);
+    lv_label_set_text(values[1], formatPracticeTime(getTodayPracticeSeconds()).c_str());
+    lv_label_set_text(values[2], formatPracticeTime(getTotalPracticeSeconds()).c_str());
+
+    // Practice time strings run long ("2h 14m"), so those two step down a size.
+    lv_obj_set_style_text_font(values[1], getThemeFonts()->font_title, 0);
+    lv_obj_set_style_text_font(values[2], getThemeFonts()->font_title, 0);
+
+    lv_obj_t* current = summitStatCardAt(screen, SUMMIT_MARGIN,
+                                         SUMMIT_CONTENT_Y + SUMMIT_STAT_H + SUMMIT_GAP,
+                                         SCREEN_WIDTH - (SUMMIT_MARGIN * 2), SUMMIT_STAT_H,
+                                         "PICKING UP AT", LV_COLOR_ACCENT_PRIMARY);
+    // Module names are words, not a number, so title size rather than display.
+    lv_obj_set_style_text_font(current, getThemeFonts()->font_title, 0);
+    char currentBuf[64];
+    snprintf(currentBuf, sizeof(currentBuf), "%s   Lesson %d",
+             vailCourseModuleNames[vailCourseProgress.currentModule],
+             vailCourseProgress.currentLesson);
+    lv_label_set_text(current, currentBuf);
 
     // Invisible focusable for ESC
     lv_obj_t* focus = lv_obj_create(screen);
     lv_obj_set_size(focus, 1, 1);
+    lv_obj_set_pos(focus, -10, -10);
     lv_obj_set_style_bg_opa(focus, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(focus, 0, 0);
+    lv_obj_set_style_outline_width(focus, 0, 0);
+    lv_obj_set_style_outline_width(focus, 0, LV_STATE_FOCUSED);
     lv_obj_add_flag(focus, LV_OBJ_FLAG_CLICKABLE);
     addNavigableWidget(focus);
+    focusWidget(focus);
 
-    // Footer
-    lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, "ESC Back");
-    lv_obj_set_style_text_font(footer, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);
-    lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);
+    lv_obj_t* bar = summitActionBar(screen);
+    summitKeycap(bar, 0, "ESC", "Back");
 
     return screen;
 }

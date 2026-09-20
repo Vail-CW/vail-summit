@@ -1407,4 +1407,96 @@ lv_obj_t* summitMessage(lv_obj_t* parent, const char* headline, const char* body
     return b;
 }
 
+/*
+ * Navigation row: icon chip, title, optional description, chevron. This is the
+ * same shape the menus use, so a list of destinations looks identical whether
+ * it came from the menu table or from a screen that builds its own list.
+ *
+ * Pass dim=true for a row that is visible but not enterable (a locked module).
+ * The row still takes focus so the user can see it and read why.
+ */
+lv_obj_t* summitNavRow(lv_obj_t* parent, const char* icon, lv_color_t icon_color,
+                       const char* title, const char* desc, bool dim,
+                       lv_event_cb_t click_cb, void* user_data) {
+    lv_obj_t* row = lv_obj_create(parent);
+    lv_obj_set_size(row, LV_PCT(100), 54);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(row, LV_COLOR_BG_CARD, 0);
+    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(row, SUMMIT_CARD_RADIUS, 0);
+    lv_obj_set_style_border_width(row, 2, 0);
+    lv_obj_set_style_border_color(row, LV_COLOR_BORDER_SUBTLE, 0);
+    lv_obj_set_style_border_color(row, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
+    lv_obj_set_style_shadow_width(row, 0, 0);
+    lv_obj_set_style_pad_hor(row, 14, 0);
+    lv_obj_set_style_pad_ver(row, 0, 0);
+
+    lv_obj_t* chip = lv_obj_create(row);
+    lv_obj_set_size(chip, 34, 34);
+    lv_obj_set_style_radius(chip, 9, 0);
+    lv_obj_set_style_bg_color(chip, LV_COLOR_BG_CARD_ALT, 0);
+    lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(chip, 0, 0);
+    lv_obj_set_style_pad_all(chip, 0, 0);
+    lv_obj_clear_flag(chip, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(chip, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(chip, LV_ALIGN_LEFT_MID, 0, 0);
+
+    lv_obj_t* ic = lv_label_create(chip);
+    lv_label_set_text(ic, icon);
+    lv_obj_set_style_text_font(ic, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(ic, dim ? LV_COLOR_TEXT_DISABLED : icon_color, 0);
+    lv_obj_center(ic);
+
+    bool has_desc = (desc != NULL && desc[0] != 0);
+
+    lv_obj_t* t = lv_label_create(row);
+    lv_label_set_text(t, title);
+    lv_obj_set_style_text_font(t, getThemeFonts()->font_input, 0);
+    lv_obj_set_style_text_color(t, dim ? LV_COLOR_TEXT_DISABLED : LV_COLOR_TEXT_PRIMARY, 0);
+    lv_obj_align(t, LV_ALIGN_LEFT_MID, 46, has_desc ? -9 : 0);
+
+    if (has_desc) {
+        lv_obj_t* d = lv_label_create(row);
+        lv_label_set_text(d, desc);
+        lv_obj_set_style_text_font(d, getThemeFonts()->font_small, 0);
+        lv_obj_set_style_text_color(d, dim ? LV_COLOR_TEXT_DISABLED : LV_COLOR_TEXT_SECONDARY, 0);
+        lv_obj_align(d, LV_ALIGN_LEFT_MID, 46, 10);
+    }
+
+    lv_obj_t* arrow = lv_label_create(row);
+    lv_label_set_text(arrow, LV_SYMBOL_RIGHT);
+    lv_obj_set_style_text_font(arrow, getThemeFonts()->font_body, 0);
+    lv_obj_set_style_text_color(arrow, dim ? LV_COLOR_TEXT_DISABLED : LV_COLOR_TEXT_TERTIARY, 0);
+    if (!dim) lv_obj_set_style_text_color(arrow, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
+    lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, 0, 0);
+
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    if (click_cb) lv_obj_add_event_cb(row, click_cb, LV_EVENT_CLICKED, user_data);
+    lv_obj_add_event_cb(row, linear_nav_handler, LV_EVENT_KEY, NULL);
+    addNavigableWidget(row);   // always last
+    return row;
+}
+
+/*
+ * Scrolling column sized to sit under the menu header bar. Rows added to it are
+ * full width and scroll into view as focus moves.
+ */
+lv_obj_t* summitNavList(lv_obj_t* parent, int top_y) {
+    lv_obj_t* list = lv_obj_create(parent);
+    lv_obj_set_size(list, LV_PCT(100), SCREEN_HEIGHT - top_y - 12);
+    lv_obj_set_pos(list, 0, top_y);
+    lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(list, 0, 0);
+    lv_obj_set_style_pad_hor(list, SUMMIT_MARGIN, 0);
+    lv_obj_set_style_pad_ver(list, 0, 0);
+    lv_obj_set_style_pad_row(list, 7, 0);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_add_style(list, getStyleScrollbar(), LV_PART_SCROLLBAR);
+    return list;
+}
+
 #endif // LV_WIDGETS_SUMMIT_H
