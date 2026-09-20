@@ -28,11 +28,15 @@ struct LVMenuItem {
     const char* title;
     int target_mode;           // MenuMode enum value to switch to
     const lv_font_t* icon_font;  // NULL: Montserrat 24 + LV_SYMBOL_*; else UTF-8 + that font (e.g. ExtraFontAwesomeIcons)
+    const char* desc;            // one line under the title on row menus; NULL renders title only
 };
 
 // Montserrat symbol row / Font Awesome UTF-8 row (LVGL 8 font + label pattern; extra_font_awesome_icons.h)
 #define MENU_ITEM_LV(sym, title, mode)  { (sym), (title), (mode), NULL }
 #define MENU_ITEM_FA(utf8, title, mode) { (utf8), (title), (mode), &ExtraFontAwesomeIcons }
+// _D variants carry the description shown on row menus.
+#define MENU_ITEM_LV_D(sym, title, mode, d)  { (sym), (title), (mode), NULL, (d) }
+#define MENU_ITEM_FA_D(utf8, title, mode, d) { (utf8), (title), (mode), &ExtraFontAwesomeIcons, (d) }
 
 // ============================================
 // Menu Data
@@ -41,23 +45,22 @@ struct LVMenuItem {
 
 // Main menu items - using LVGL symbols for modern look
 static const LVMenuItem mainMenuItems[] = {
-    MENU_ITEM_LV(LV_SYMBOL_AUDIO, "CW", MODE_CW_MENU),
-    MENU_ITEM_FA(FA_EXTRA_GAMEPAD, "Games", MODE_GAMES_MENU),
-    MENU_ITEM_FA(FA_EXTRA_TOOLS, "Ham Tools", MODE_HAM_TOOLS_MENU),
-    MENU_ITEM_LV(LV_SYMBOL_SETTINGS, "Settings", MODE_SETTINGS_MENU)
+    MENU_ITEM_LV_D(LV_SYMBOL_AUDIO, "CW", MODE_CW_MENU, "Learn, practice, get on air"),
+    MENU_ITEM_FA_D(FA_EXTRA_TOOLS, "Ham Tools", MODE_HAM_TOOLS_MENU, "Log, POTA, bands, satellites"),
+    MENU_ITEM_LV_D(LV_SYMBOL_SETTINGS, "Settings", MODE_SETTINGS_MENU, "WiFi, audio, device")
 };
-#define MAIN_MENU_COUNT 4
+#define MAIN_MENU_COUNT 3
 
 // CW submenu items
 static const LVMenuItem cwMenuItems[] = {
-    MENU_ITEM_FA(FA_EXTRA_DUMBBELL, "Training", MODE_TRAINING_MENU),
-    MENU_ITEM_FA(FA_EXTRA_BOOK_OPEN, "Practice", MODE_PRACTICE),
-    MENU_ITEM_FA(FA_EXTRA_COMMENTS, "Vail Repeater", MODE_VAIL_REPEATER),
-    MENU_ITEM_LV(LV_SYMBOL_ENVELOPE, "Morse Mailbox", MODE_MORSE_MAILBOX),
-    MENU_ITEM_FA(FA_EXTRA_STICKY_NOTE, "Morse Notes", MODE_MORSE_NOTES_LIBRARY),
-    MENU_ITEM_LV(LV_SYMBOL_BLUETOOTH, "Bluetooth", MODE_BLUETOOTH_MENU),
-    MENU_ITEM_LV(LV_SYMBOL_POWER, "Radio Output", MODE_RADIO_OUTPUT),
-    MENU_ITEM_LV(LV_SYMBOL_SAVE, "CW Memories", MODE_CW_MEMORIES)
+    MENU_ITEM_FA_D(FA_EXTRA_DUMBBELL, "Training", MODE_TRAINING_MENU, "Structured lessons"),
+    MENU_ITEM_FA_D(FA_EXTRA_BOOK_OPEN, "Practice", MODE_PRACTICE, "Oscillator and decoder"),
+    MENU_ITEM_FA_D(FA_EXTRA_COMMENTS, "Vail Repeater", MODE_VAIL_REPEATER, "CW over the internet"),
+    MENU_ITEM_LV_D(LV_SYMBOL_ENVELOPE, "Morse Mailbox", MODE_MORSE_MAILBOX, "Send and receive notes"),
+    MENU_ITEM_FA_D(FA_EXTRA_STICKY_NOTE, "Morse Notes", MODE_MORSE_NOTES_LIBRARY, "Record and play back"),
+    MENU_ITEM_LV_D(LV_SYMBOL_BLUETOOTH, "Bluetooth", MODE_BLUETOOTH_MENU, "Keyer, MIDI, keyboard"),
+    MENU_ITEM_LV_D(LV_SYMBOL_POWER, "Radio Output", MODE_RADIO_OUTPUT, "Key an external rig"),
+    MENU_ITEM_LV_D(LV_SYMBOL_SAVE, "CW Memories", MODE_CW_MEMORIES, "Stored messages")
 };
 #define CW_MENU_COUNT 8
 
@@ -65,87 +68,87 @@ static const LVMenuItem cwMenuItems[] = {
 // curricula (Vail Master, Hear It Type It, CW Academy, LICW) remain in the
 // codebase but are no longer listed; the school hub is the one learning path.
 static const LVMenuItem trainingMenuItems[] = {
-    MENU_ITEM_FA(FA_EXTRA_SCHOOL, "Learn CW", MODE_SCHOOL_HUB)
+    MENU_ITEM_FA_D(FA_EXTRA_SCHOOL, "Learn CW", MODE_SCHOOL_HUB, "Your course, start to finish")
 };
 #define TRAINING_MENU_COUNT 1
 
 // Games submenu items
 static const LVMenuItem gamesMenuItems[] = {
-    MENU_ITEM_LV(LV_SYMBOL_PLAY, "Morse Shooter", MODE_MORSE_SHOOTER),
-    MENU_ITEM_LV(LV_SYMBOL_LOOP, "Memory Chain", MODE_MORSE_MEMORY),
-    MENU_ITEM_LV(LV_SYMBOL_AUDIO, "Spark Watch", MODE_SPARK_WATCH),
-    MENU_ITEM_LV(LV_SYMBOL_FILE, "Story Time", MODE_STORY_TIME),
-    MENU_ITEM_LV(LV_SYMBOL_CHARGE, "CW Speeder", MODE_CW_SPEEDER_SELECT)
+    MENU_ITEM_LV_D(LV_SYMBOL_PLAY, "Morse Shooter", MODE_MORSE_SHOOTER, "Shoot falling characters"),
+    MENU_ITEM_LV_D(LV_SYMBOL_LOOP, "Memory Chain", MODE_MORSE_MEMORY, "Repeat a growing sequence"),
+    MENU_ITEM_LV_D(LV_SYMBOL_AUDIO, "Spark Watch", MODE_SPARK_WATCH, "Maritime signal drama"),
+    MENU_ITEM_LV_D(LV_SYMBOL_FILE, "Story Time", MODE_STORY_TIME, "Copy along with a story"),
+    MENU_ITEM_LV_D(LV_SYMBOL_CHARGE, "CW Speeder", MODE_CW_SPEEDER_SELECT, "Push your top speed")
 };
 #define GAMES_MENU_COUNT 5
 
 // Settings submenu items
 static const LVMenuItem settingsMenuItems[] = {
-    MENU_ITEM_LV(LV_SYMBOL_HOME, "Device Settings", MODE_DEVICE_SETTINGS_MENU),
-    MENU_ITEM_LV(LV_SYMBOL_AUDIO, "CW Settings", MODE_CW_SETTINGS)
+    MENU_ITEM_LV_D(LV_SYMBOL_HOME, "Device Settings", MODE_DEVICE_SETTINGS_MENU, "WiFi, audio, system"),
+    MENU_ITEM_LV_D(LV_SYMBOL_AUDIO, "CW Settings", MODE_CW_SETTINGS, "Speed, tone, key type")
 };
 #define SETTINGS_MENU_COUNT 2
 
 // Device settings submenu items
 static const LVMenuItem deviceSettingsMenuItems[] = {
-    MENU_ITEM_LV(LV_SYMBOL_WIFI, "WiFi", MODE_WIFI_SUBMENU),
-    MENU_ITEM_LV(LV_SYMBOL_SETTINGS, "General", MODE_GENERAL_SUBMENU),
-    MENU_ITEM_LV(LV_SYMBOL_BLUETOOTH, "Bluetooth", MODE_DEVICE_BT_SUBMENU),
-    MENU_ITEM_LV(LV_SYMBOL_HOME, "System Info", MODE_SYSTEM_INFO),
-    MENU_ITEM_LV(LV_SYMBOL_TRASH, "Factory Reset", MODE_FACTORY_RESET)
+    MENU_ITEM_LV_D(LV_SYMBOL_WIFI, "WiFi", MODE_WIFI_SUBMENU, "Join a network"),
+    MENU_ITEM_LV_D(LV_SYMBOL_SETTINGS, "General", MODE_GENERAL_SUBMENU, "Volume, brightness, theme"),
+    MENU_ITEM_LV_D(LV_SYMBOL_BLUETOOTH, "Bluetooth", MODE_DEVICE_BT_SUBMENU, "Keyer, MIDI, keyboard"),
+    MENU_ITEM_LV_D(LV_SYMBOL_HOME, "System Info", MODE_SYSTEM_INFO, "Version, storage, battery"),
+    MENU_ITEM_LV_D(LV_SYMBOL_TRASH, "Factory Reset", MODE_FACTORY_RESET, "Erase everything")
 };
 #define DEVICE_SETTINGS_COUNT 5
 
 // WiFi submenu items
 static const LVMenuItem wifiSubmenuItems[] = {
-    MENU_ITEM_LV(LV_SYMBOL_WIFI, "WiFi Setup", MODE_WIFI_SETTINGS),
-    MENU_ITEM_LV(LV_SYMBOL_EYE_CLOSE, "Web Password", MODE_WEB_PASSWORD_SETTINGS),
-    MENU_ITEM_LV(LV_SYMBOL_DOWNLOAD, "Web Files", MODE_WEB_FILES_UPDATE)
+    MENU_ITEM_LV_D(LV_SYMBOL_WIFI, "WiFi Setup", MODE_WIFI_SETTINGS, "Join a network"),
+    MENU_ITEM_LV_D(LV_SYMBOL_EYE_CLOSE, "Web Password", MODE_WEB_PASSWORD_SETTINGS, "Protect the web interface"),
+    MENU_ITEM_LV_D(LV_SYMBOL_DOWNLOAD, "Web Files", MODE_WEB_FILES_UPDATE, "Update the browser pages")
 };
 #define WIFI_SUBMENU_COUNT 3
 
 // General submenu items
 static const LVMenuItem generalSubmenuItems[] = {
-    MENU_ITEM_LV(LV_SYMBOL_HOME, "Device Tour", MODE_ONBOARDING),
-    MENU_ITEM_LV(LV_SYMBOL_CALL, "Callsign", MODE_CALLSIGN_SETTINGS),
-    MENU_ITEM_LV(LV_SYMBOL_VOLUME_MAX, "Volume", MODE_VOLUME_SETTINGS),
-    MENU_ITEM_LV(LV_SYMBOL_IMAGE, "Brightness", MODE_BRIGHTNESS_SETTINGS),
-    MENU_ITEM_LV(LV_SYMBOL_EYE_OPEN, "UI Theme", MODE_THEME_SETTINGS)
+    MENU_ITEM_LV_D(LV_SYMBOL_HOME, "Device Tour", MODE_ONBOARDING, "Walk through the basics"),
+    MENU_ITEM_LV_D(LV_SYMBOL_CALL, "Callsign", MODE_CALLSIGN_SETTINGS, "Your call, used everywhere"),
+    MENU_ITEM_LV_D(LV_SYMBOL_VOLUME_MAX, "Volume", MODE_VOLUME_SETTINGS, "Speaker and headphone levels"),
+    MENU_ITEM_LV_D(LV_SYMBOL_IMAGE, "Brightness", MODE_BRIGHTNESS_SETTINGS, "Screen backlight"),
+    MENU_ITEM_LV_D(LV_SYMBOL_EYE_OPEN, "UI Theme", MODE_THEME_SETTINGS, "Summit or Enigma look")
 };
 #define GENERAL_SUBMENU_COUNT 5
 
 // Ham Tools submenu items
 static const LVMenuItem hamToolsMenuItems[] = {
-    MENU_ITEM_LV(LV_SYMBOL_SAVE, "QSO Logger", MODE_QSO_LOGGER_MENU),
-    MENU_ITEM_FA(FA_EXTRA_TREE, "POTA", MODE_POTA_MENU),
-    MENU_ITEM_LV(LV_SYMBOL_LIST, "Band Plans", MODE_BAND_PLANS),
-    MENU_ITEM_FA(FA_EXTRA_CLOUD_SUN_RAIN, "Band Conditions", MODE_PROPAGATION),
-    MENU_ITEM_FA(FA_EXTRA_SATELLITE_DISH, "Satellites", MODE_SAT_MENU),
-    MENU_ITEM_LV(LV_SYMBOL_CHARGE, "Antennas", MODE_ANTENNAS),
-    MENU_ITEM_FA(FA_EXTRA_EDIT, "License Study", MODE_LICENSE_SELECT),
-    MENU_ITEM_LV(LV_SYMBOL_ENVELOPE, "Summit Chat", MODE_SUMMIT_CHAT)
+    MENU_ITEM_LV_D(LV_SYMBOL_SAVE, "QSO Logger", MODE_QSO_LOGGER_MENU, "Record your contacts"),
+    MENU_ITEM_FA_D(FA_EXTRA_TREE, "POTA", MODE_POTA_MENU, "Parks on the air"),
+    MENU_ITEM_LV_D(LV_SYMBOL_LIST, "Band Plans", MODE_BAND_PLANS, "Frequencies by licence class"),
+    MENU_ITEM_FA_D(FA_EXTRA_CLOUD_SUN_RAIN, "Band Conditions", MODE_PROPAGATION, "Solar and propagation now"),
+    MENU_ITEM_FA_D(FA_EXTRA_SATELLITE_DISH, "Satellites", MODE_SAT_MENU, "Passes and tracking"),
+    MENU_ITEM_LV_D(LV_SYMBOL_CHARGE, "Antennas", MODE_ANTENNAS, "Reference and calculators"),
+    MENU_ITEM_FA_D(FA_EXTRA_EDIT, "License Study", MODE_LICENSE_SELECT, "Practice exam questions"),
+    MENU_ITEM_LV_D(LV_SYMBOL_ENVELOPE, "Summit Chat", MODE_SUMMIT_CHAT, "Message other Summits")
 };
 #define HAM_TOOLS_COUNT 8
 
 // Bluetooth submenu items
 static const LVMenuItem bluetoothMenuItems[] = {
-    MENU_ITEM_LV(LV_SYMBOL_KEYBOARD, "HID (Keyboard)", MODE_BT_HID),
-    MENU_ITEM_LV(LV_SYMBOL_AUDIO, "MIDI", MODE_BT_MIDI)
+    MENU_ITEM_LV_D(LV_SYMBOL_KEYBOARD, "HID (Keyboard)", MODE_BT_HID, "Key software as a keyboard"),
+    MENU_ITEM_LV_D(LV_SYMBOL_AUDIO, "MIDI", MODE_BT_MIDI, "Send CW as BLE MIDI")
 };
 #define BLUETOOTH_MENU_COUNT 2
 
 // Device settings Bluetooth submenu items
 static const LVMenuItem deviceBTSubmenuItems[] = {
-    MENU_ITEM_LV(LV_SYMBOL_KEYBOARD, "External Keyboard", MODE_BT_KEYBOARD_SETTINGS)
+    MENU_ITEM_LV_D(LV_SYMBOL_KEYBOARD, "External Keyboard", MODE_BT_KEYBOARD_SETTINGS, "Pair a Bluetooth keyboard")
 };
 #define DEVICE_BT_SUBMENU_COUNT 1
 
 // QSO Logger submenu items
 static const LVMenuItem qsoLoggerMenuItems[] = {
-    MENU_ITEM_LV(LV_SYMBOL_PLUS, "New Log Entry", MODE_QSO_LOG_ENTRY),
-    MENU_ITEM_LV(LV_SYMBOL_LIST, "View Logs", MODE_QSO_VIEW_LOGS),
-    MENU_ITEM_LV(LV_SYMBOL_IMAGE, "Statistics", MODE_QSO_STATISTICS),
-    MENU_ITEM_LV(LV_SYMBOL_SETTINGS, "Logger Settings", MODE_QSO_LOGGER_SETTINGS)
+    MENU_ITEM_LV_D(LV_SYMBOL_PLUS, "New Log Entry", MODE_QSO_LOG_ENTRY, "Log a contact now"),
+    MENU_ITEM_LV_D(LV_SYMBOL_LIST, "View Logs", MODE_QSO_VIEW_LOGS, "Browse and export"),
+    MENU_ITEM_LV_D(LV_SYMBOL_IMAGE, "Statistics", MODE_QSO_STATISTICS, "Totals, bands, modes"),
+    MENU_ITEM_LV_D(LV_SYMBOL_SETTINGS, "Logger Settings", MODE_QSO_LOGGER_SETTINGS, "Operator and defaults")
 };
 #define QSO_LOGGER_COUNT 4
 
@@ -187,6 +190,7 @@ static int menu_button_count = 0;
 
 // Navigation context for menu grid (2 columns)
 static NavGridContext menu_nav_ctx = { menu_buttons, &menu_button_count, 2 };
+static NavGridContext menu_row_nav_ctx = { menu_buttons, &menu_button_count, 1 };
 
 // ============================================
 // Focus Memory
@@ -326,109 +330,111 @@ void updateMailboxStatusIcon() {
  * Create a generic menu screen with modern LVGL layout
  * Uses lv_btn for menu items with proper focus handling
  */
+// Row menu. Everything one level or more below the top menu uses this: same
+// header bar, but full width rows with an icon chip, the title, an optional
+// description and a chevron. Four rows fit per screen, so the longest menus
+// (CW and Ham Tools, 8 items) are two pages.
+//
+// The old three part footer hint is gone on purpose. Arrows, ENTER and ESC are
+// learned in seconds and do not need permanent space on every menu; that
+// guidance lives in onboarding and in help instead.
 lv_obj_t* createMenuScreen(const char* title, const LVMenuItem* items, int item_count) {
-    // Clear menu button tracking array for 2D navigation
-    for (int i = 0; i < MAX_MENU_BUTTONS; i++) {
-        menu_buttons[i] = NULL;
-    }
+    for (int i = 0; i < MAX_MENU_BUTTONS; i++) menu_buttons[i] = NULL;
     menu_button_count = 0;
 
-    // Create screen with dark background
     lv_obj_t* screen = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(screen, LV_COLOR_BG_DEEP, 0);
 
-    // Header
     createHeader(screen, title);
 
-    // Content area - positioned below header with proper spacing
     lv_obj_t* content = lv_obj_create(screen);
-    lv_obj_set_size(content, LV_PCT(100), SCREEN_HEIGHT - MENU_HEADER_HEIGHT - FOOTER_HEIGHT - 10);
-    lv_obj_set_pos(content, 0, MENU_HEADER_HEIGHT + 5);
+    lv_obj_set_size(content, LV_PCT(100), SCREEN_HEIGHT - MENU_HEADER_HEIGHT - 12);
+    lv_obj_set_pos(content, 0, MENU_HEADER_HEIGHT + 6);
     lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(content, 0, 0);
-    lv_obj_set_style_pad_all(content, 10, 0);
-    lv_obj_set_style_pad_row(content, 10, 0);  // Gap between rows
-    lv_obj_set_style_pad_column(content, 20, 0);  // Gap between columns
-    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_ROW_WRAP);
-    // Use START for main axis to prevent items being pushed above container
-    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-
-    // Enable vertical scrolling for menus with many items
+    lv_obj_set_style_pad_hor(content, 20, 0);
+    lv_obj_set_style_pad_ver(content, 0, 0);
+    lv_obj_set_style_pad_row(content, 7, 0);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
     lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(content, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_add_style(content, getStyleScrollbar(), LV_PART_SCROLLBAR);
 
-    // Create menu buttons
     for (int i = 0; i < item_count && i < MAX_MENU_BUTTONS; i++) {
-        // Create button with proper styling
-        // Size: 200x80 to fit more items on screen (3 rows visible at once)
-        lv_obj_t* btn = lv_btn_create(content);
-        lv_obj_set_size(btn, 200, 80);
+        lv_obj_t* row = lv_btn_create(content);
+        lv_obj_set_size(row, LV_PCT(100), 54);
+        lv_obj_set_style_bg_color(row, LV_COLOR_BG_CARD, 0);
+        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(row, 12, 0);
+        lv_obj_set_style_border_width(row, 2, 0);
+        lv_obj_set_style_border_color(row, LV_COLOR_BORDER_SUBTLE, 0);
+        lv_obj_set_style_border_color(row, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
+        lv_obj_set_style_shadow_width(row, 0, 0);
+        lv_obj_set_style_pad_hor(row, 14, 0);
+        lv_obj_set_style_pad_ver(row, 0, 0);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
-        // Apply styles (normal, focused, pressed)
-        applyMenuCardStyle(btn);
+        lv_obj_t* chip = lv_obj_create(row);
+        lv_obj_set_size(chip, 34, 34);
+        lv_obj_set_style_radius(chip, 9, 0);
+        lv_obj_set_style_bg_color(chip, LV_COLOR_BG_CARD_ALT, 0);
+        lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(chip, 0, 0);
+        lv_obj_set_style_pad_all(chip, 0, 0);
+        lv_obj_clear_flag(chip, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(chip, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_align(chip, LV_ALIGN_LEFT_MID, 0, 0);
 
-        // Container for icon and text
-        lv_obj_t* col = lv_obj_create(btn);
-        lv_obj_set_size(col, LV_PCT(100), LV_PCT(100));
-        lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(col, 0, 0);
-        lv_obj_set_style_pad_all(col, 0, 0);
-        lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        lv_obj_clear_flag(col, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_clear_flag(col, LV_OBJ_FLAG_SCROLLABLE);
-
-        // Icon: Montserrat 24 for LV_SYMBOL_*; ExtraFontAwesomeIcons for MENU_ITEM_FA UTF-8 glyphs
-        lv_obj_t* icon = lv_label_create(col);
+        lv_obj_t* icon = lv_label_create(chip);
         lv_label_set_text(icon, items[i].icon);
-        const lv_font_t* icon_font = items[i].icon_font ? items[i].icon_font : &lv_font_montserrat_24;
-        lv_obj_set_style_text_font(icon, icon_font, 0);
-        lv_obj_set_style_text_color(icon, LV_COLOR_TEXT_PRIMARY, 0);
+        lv_obj_set_style_text_font(icon,
+            items[i].icon_font ? items[i].icon_font : &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_color(icon, LV_COLOR_ACCENT_PRIMARY, 0);
+        lv_obj_center(icon);
 
-        // Text - use theme font for menu labels
-        lv_obj_t* lbl = lv_label_create(col);
+        bool has_desc = (items[i].desc != NULL && items[i].desc[0] != '\0');
+
+        lv_obj_t* lbl = lv_label_create(row);
         lv_label_set_text(lbl, items[i].title);
-        lv_obj_set_style_text_font(lbl, getThemeFonts()->font_input, 0);  // Theme font
+        lv_obj_set_style_text_font(lbl, getThemeFonts()->font_input, 0);
         lv_obj_set_style_text_color(lbl, LV_COLOR_TEXT_PRIMARY, 0);
+        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 46, has_desc ? -9 : 0);
 
-        // Store target mode and add click handler
-        lv_obj_set_user_data(btn, (void*)(intptr_t)items[i].target_mode);
-        lv_obj_add_event_cb(btn, menu_item_click_handler, LV_EVENT_CLICKED, (void*)(intptr_t)items[i].target_mode);
+        if (has_desc) {
+            lv_obj_t* sub = lv_label_create(row);
+            lv_label_set_text(sub, items[i].desc);
+            lv_obj_set_style_text_font(sub, getThemeFonts()->font_small, 0);
+            lv_obj_set_style_text_color(sub, LV_COLOR_TEXT_SECONDARY, 0);
+            lv_obj_align(sub, LV_ALIGN_LEFT_MID, 46, 10);
+        }
 
-        // Add 2D grid navigation handler for all arrow keys
-        lv_obj_add_event_cb(btn, grid_nav_handler, LV_EVENT_KEY, &menu_nav_ctx);
+        lv_obj_t* chev = lv_label_create(row);
+        lv_label_set_text(chev, LV_SYMBOL_RIGHT);
+        lv_obj_set_style_text_font(chev, getThemeFonts()->font_body, 0);
+        lv_obj_set_style_text_color(chev, LV_COLOR_TEXT_TERTIARY, 0);
+        lv_obj_set_style_text_color(chev, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
+        lv_obj_align(chev, LV_ALIGN_RIGHT_MID, 0, 0);
 
-        // Store button reference for 2D navigation
-        menu_buttons[i] = btn;
+        lv_obj_set_user_data(row, (void*)(intptr_t)items[i].target_mode);
+        lv_obj_add_event_cb(row, menu_item_click_handler, LV_EVENT_CLICKED,
+                            (void*)(intptr_t)items[i].target_mode);
+        lv_obj_add_event_cb(row, grid_nav_handler, LV_EVENT_KEY, &menu_row_nav_ctx);
+        menu_buttons[i] = row;
         menu_button_count++;
-
-        // Add to navigation group
-        addNavigableWidget(btn);
+        addNavigableWidget(row);   // always last
     }
 
-    // Restore focus to the item the user previously selected (focus memory),
-    // otherwise default focus stays on the first item with scroll at top.
     if (menu_focus_restore_index > 0 && menu_focus_restore_index < menu_button_count &&
         menu_buttons[menu_focus_restore_index] != NULL) {
         lv_group_focus_obj(menu_buttons[menu_focus_restore_index]);
         lv_obj_scroll_to_view(menu_buttons[menu_focus_restore_index], LV_ANIM_OFF);
     } else {
-        // Ensure content scroll starts at top (fixes items appearing above screen)
         lv_obj_scroll_to_y(content, 0, LV_ANIM_OFF);
     }
     menu_focus_restore_index = -1;
 
-    // Footer hint - use menu footer with volume shortcut hint
-    lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, FOOTER_MENU_WITH_VOLUME);
-    lv_obj_set_style_text_font(footer, getThemeFonts()->font_body, 0);  // Theme font
-    lv_obj_set_style_text_color(footer, LV_COLOR_WARNING, 0);  // Orange for visibility
-    lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -5);
-
     current_menu_item_count = item_count;
-
     return screen;
 }
 
@@ -440,7 +446,7 @@ lv_obj_t* createMenuScreen(const char* title, const LVMenuItem* items, int item_
  * Create main menu screen
  */
 lv_obj_t* createMainMenuScreen() {
-    return createMenuScreen("VAIL SUMMIT", mainMenuItems, MAIN_MENU_COUNT);
+    return createMenuScreen("MORE", mainMenuItems, MAIN_MENU_COUNT);
 }
 
 /*

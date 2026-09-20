@@ -21,6 +21,14 @@ LV_FONT_DECLARE(font_special_elite_18);
 LV_FONT_DECLARE(font_special_elite_24);
 LV_FONT_DECLARE(font_special_elite_28);
 
+// Hero face. Montserrat-Medium at 120px, cut down to just the glyphs a
+// practice screen ever shows (space, comma, hyphen, period, slash, 0-9,
+// equals, question mark, A-Z) so it costs about 47KB rather than the ~300KB
+// a full ASCII cut would. Montserrat-Medium.ttf is the same face LVGL builds
+// its own fonts from, so this matches the rest of the UI instead of looking
+// bolted on. Regenerate with lv_font_conv, see docs/upgrades/ui-design-system.md
+LV_FONT_DECLARE(font_summit_hero_120);
+
 // ============================================
 // Theme Types
 // ============================================
@@ -79,6 +87,12 @@ typedef struct {
     const lv_font_t* font_subtitle;   // 18pt - section headers
     const lv_font_t* font_title;      // 24pt - titles
     const lv_font_t* font_large;      // 28pt - large display values
+    const lv_font_t* font_display;    // 48pt - stat card values
+    const lv_font_t* font_hero;       // 120px - the one element that should
+                                      // dominate a screen, eg the character
+                                      // being practiced. Additive on purpose:
+                                      // font_large stays 28 so nothing that
+                                      // already uses it shifts underneath.
 } ThemeFonts;
 
 // ============================================
@@ -254,6 +268,8 @@ void initSummitFonts(ThemeFonts* fonts) {
     fonts->font_subtitle = &lv_font_montserrat_18;
     fonts->font_title = &lv_font_montserrat_24;
     fonts->font_large = &lv_font_montserrat_28;
+    fonts->font_display = &lv_font_montserrat_48;
+    fonts->font_hero = &font_summit_hero_120;
 }
 
 /*
@@ -266,6 +282,11 @@ void initEnigmaFonts(ThemeFonts* fonts) {
     fonts->font_subtitle = &font_special_elite_18;
     fonts->font_title = &font_special_elite_24;
     fonts->font_large = &font_special_elite_28;
+    // Special Elite is only cut up to 28. Until a bigger cut exists, Enigma
+    // borrows Montserrat for the two large tiers: readable beats on-theme, and
+    // these are single glyphs and numbers rather than body copy.
+    fonts->font_display = &lv_font_montserrat_48;
+    fonts->font_hero = &font_summit_hero_120;
 }
 
 /*

@@ -50,19 +50,21 @@ static int         s_drill_ready_ms  = 0;       // get-ready countdown (ms)
 // widgets
 static lv_obj_t* s_drill_char   = NULL;  // big character / "?"
 static lv_obj_t* s_drill_prompt = NULL;
-static lv_obj_t* s_drill_score  = NULL;
+static lv_obj_t* s_drill_score  = NULL;  // GOAL/CORRECT stat value
+static lv_obj_t* s_drill_accuracy = NULL;  // ACCURACY stat value
 
 // ============================================
 // Drill logic
 // ============================================
 
 static void schoolDrillUpdateScore() {
-    if (!s_drill_score) return;
     int pct = (s_drill_total > 0) ? (s_drill_correct * 100 / s_drill_total) : 0;
-    if (s_drill_goal > 0)
-        lv_label_set_text_fmt(s_drill_score, "%d/%d   %d%%", s_drill_total, s_drill_goal, pct);
-    else
-        lv_label_set_text_fmt(s_drill_score, "%d/%d   %d%%", s_drill_correct, s_drill_total, pct);
+    if (s_drill_accuracy) lv_label_set_text_fmt(s_drill_accuracy, "%d%%", pct);
+    if (!s_drill_score) return;
+    // Goal lives in the caption so the value stays short enough to sit at
+    // display size inside the rail card.
+    if (s_drill_goal > 0) lv_label_set_text_fmt(s_drill_score, "%d", s_drill_total);
+    else                  lv_label_set_text_fmt(s_drill_score, "%d", s_drill_correct);
 }
 
 static void schoolDrillPlayTarget() {
@@ -172,7 +174,7 @@ static void schoolScreenDeleteCb(lv_event_t* e) {
     (void)e;
     if (s_school_tick) { lv_timer_del(s_school_tick); s_school_tick = NULL; }
     s_school_screen = NULL;
-    s_drill_char = s_drill_prompt = s_drill_score = NULL;
+    s_drill_char = s_drill_prompt = s_drill_score = s_drill_accuracy = NULL;
 }
 
 static lv_obj_t* schoolBuildDrillScreen(const char* title, int goal) {
@@ -194,39 +196,32 @@ static lv_obj_t* schoolBuildDrillScreen(const char* title, int goal) {
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(screen, schoolScreenDeleteCb, LV_EVENT_DELETE, NULL);
 
-    // Title (top-left) + score (top-right)
-    lv_obj_t* ttl = lv_label_create(screen);
-    lv_label_set_text(ttl, title);
-    lv_obj_set_style_text_font(ttl, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(ttl, LV_COLOR_ACCENT_PRIMARY, 0);
-    lv_obj_align(ttl, LV_ALIGN_TOP_LEFT, 14, 10);
+    summitScreenLabel(screen, title);
 
-    s_drill_score = lv_label_create(screen);
-    lv_obj_set_style_text_font(s_drill_score, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(s_drill_score, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_align(s_drill_score, LV_ALIGN_TOP_RIGHT, -14, 12);
+    lv_obj_t* card = summitHeroCard(screen, true);
+    s_drill_char = summitHeroValue(card, "3");
+
+    // Prompt under the character: countdown hint, then correct/incorrect.
+    s_drill_prompt = lv_label_create(card);
+    lv_label_set_text(s_drill_prompt, "Get ready...");
+    lv_obj_set_style_text_font(s_drill_prompt, getThemeFonts()->font_small, 0);
+    lv_obj_set_style_text_color(s_drill_prompt, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_align(s_drill_prompt, LV_ALIGN_BOTTOM_MID, 0, -8);
+
+    s_drill_accuracy = summitStatCard(screen, 0, "ACCURACY", LV_COLOR_SUCCESS);
+    if (goal > 0) {
+        char cap[16];
+        snprintf(cap, sizeof(cap), "OF %d", goal);
+        s_drill_score = summitStatCard(screen, 1, cap, LV_COLOR_TEXT_PRIMARY);
+    } else {
+        s_drill_score = summitStatCard(screen, 1, "CORRECT", LV_COLOR_TEXT_PRIMARY);
+    }
     schoolDrillUpdateScore();
 
-    // Big character (center) - shows the 3-2-1 countdown first
-    s_drill_char = lv_label_create(screen);
-    lv_label_set_text(s_drill_char, "3");
-    lv_obj_set_style_text_font(s_drill_char, getThemeFonts()->font_large, 0);
-    lv_obj_set_style_text_color(s_drill_char, LV_COLOR_ACCENT_PRIMARY, 0);
-    lv_obj_align(s_drill_char, LV_ALIGN_CENTER, 0, -16);
-
-    // Prompt (below center)
-    s_drill_prompt = lv_label_create(screen);
-    lv_label_set_text(s_drill_prompt, "Get ready...  SPACE to start now");
-    lv_obj_set_style_text_font(s_drill_prompt, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(s_drill_prompt, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_align(s_drill_prompt, LV_ALIGN_CENTER, 0, 30);
-
-    // Footer
-    lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, "SPACE Replay    ESC Exit");
-    lv_obj_set_style_text_font(footer, getThemeFonts()->font_small, 0);
-    lv_obj_set_style_text_color(footer, LV_COLOR_TEXT_TERTIARY, 0);
-    lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_t* bar = summitActionBar(screen);
+    summitBarHint(bar, "Type what you hear");
+    summitKeycap(bar, 0, "ESC", "Exit");
+    summitKeycap(bar, 1, "SPACE", "Replay");
 
     // Invisible focusable input catcher (receives typed answers + ESC)
     lv_obj_t* catcher = lv_obj_create(screen);
@@ -346,8 +341,8 @@ enum SchoolSendPhase { SSP_READY, SSP_WAIT, SSP_FEEDBACK };
 static lv_obj_t* s_send_screen  = NULL;
 static lv_obj_t* s_send_target  = NULL;  // big target character
 static lv_obj_t* s_send_prompt  = NULL;
-static lv_obj_t* s_send_result  = NULL;  // "You sent: X"
-static lv_obj_t* s_send_score   = NULL;
+static lv_obj_t* s_send_accuracy  = NULL;  // ACCURACY stat value
+static lv_obj_t* s_send_count   = NULL;  // SENT stat value
 static String    s_send_pool    = "";
 static char      s_send_target_ch = '?';
 static int       s_send_correct = 0;
@@ -358,9 +353,9 @@ static unsigned long   s_send_ready_until = 0;  // get-ready countdown deadline
 static bool      s_send_active  = false;
 
 static void schoolSendUpdateScore() {
-    if (!s_send_score) return;
     int pct = (s_send_total > 0) ? (s_send_correct * 100 / s_send_total) : 0;
-    lv_label_set_text_fmt(s_send_score, "%d/%d   %d%%", s_send_correct, s_send_total, pct);
+    if (s_send_accuracy) lv_label_set_text_fmt(s_send_accuracy, "%d%%", pct);
+    if (s_send_count)    lv_label_set_text_fmt(s_send_count, "%d", s_send_total);
 }
 
 static void schoolSendNewTarget() {
@@ -376,7 +371,6 @@ static void schoolSendNewTarget() {
         lv_label_set_text(s_send_prompt, "Send this character");
         lv_obj_set_style_text_color(s_send_prompt, LV_COLOR_TEXT_SECONDARY, 0);
     }
-    if (s_send_result) lv_label_set_text(s_send_result, "");
 }
 
 // Called from initializeModeInt AFTER startPracticeMode(tft) has set up the
@@ -441,10 +435,10 @@ void schoolSendPoll() {
             s_send_fb_until = millis() + (correct ? 700 : 1300);
             if (s_send_target)
                 lv_obj_set_style_text_color(s_send_target, correct ? LV_COLOR_SUCCESS : LV_COLOR_ERROR, 0);
-            if (s_send_result) {
+            if (s_send_prompt) {
                 char str[2] = { (char)toupper(sent), '\0' };
-                lv_label_set_text_fmt(s_send_result, "You sent  %s", str);
-                lv_obj_set_style_text_color(s_send_result, correct ? LV_COLOR_SUCCESS : LV_COLOR_ERROR, 0);
+                lv_label_set_text_fmt(s_send_prompt, "You sent  %s", str);
+                lv_obj_set_style_text_color(s_send_prompt, correct ? LV_COLOR_SUCCESS : LV_COLOR_ERROR, 0);
             }
             if (s_send_prompt) {
                 lv_label_set_text(s_send_prompt, correct ? "Correct!" : "Try the next one");
@@ -484,7 +478,7 @@ static void schoolSendDeleteCb(lv_event_t* e) {
     (void)e;
     s_send_active = false;
     s_send_screen = NULL;
-    s_send_target = s_send_prompt = s_send_result = s_send_score = NULL;
+    s_send_target = s_send_prompt = s_send_accuracy = s_send_count = NULL;
 }
 
 lv_obj_t* createSchoolSendScreen() {
@@ -496,40 +490,26 @@ lv_obj_t* createSchoolSendScreen() {
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(screen, schoolSendDeleteCb, LV_EVENT_DELETE, NULL);
 
-    lv_obj_t* ttl = lv_label_create(screen);
-    lv_label_set_text(ttl, "SEND PRACTICE");
-    lv_obj_set_style_text_font(ttl, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(ttl, LV_COLOR_ACCENT_PRIMARY, 0);
-    lv_obj_align(ttl, LV_ALIGN_TOP_LEFT, 14, 10);
+    summitScreenLabel(screen, "SEND PRACTICE");
 
-    s_send_score = lv_label_create(screen);
-    lv_obj_set_style_text_font(s_send_score, getThemeFonts()->font_body, 0);
-    lv_obj_set_style_text_color(s_send_score, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_align(s_send_score, LV_ALIGN_TOP_RIGHT, -14, 12);
+    lv_obj_t* card = summitHeroCard(screen, true);
+    s_send_target = summitHeroValue(card, "?");
 
-    s_send_target = lv_label_create(screen);
-    lv_label_set_text(s_send_target, "?");
-    lv_obj_set_style_text_font(s_send_target, getThemeFonts()->font_large, 0);
-    lv_obj_set_style_text_color(s_send_target, LV_COLOR_ACCENT_PRIMARY, 0);
-    lv_obj_align(s_send_target, LV_ALIGN_CENTER, 0, -22);
-
-    s_send_prompt = lv_label_create(screen);
-    lv_label_set_text(s_send_prompt, "Send this character");
-    lv_obj_set_style_text_font(s_send_prompt, getThemeFonts()->font_body, 0);
+    // Prompt sits inside the card, under the character.
+    s_send_prompt = lv_label_create(card);
+    lv_label_set_text(s_send_prompt, "");
+    lv_obj_set_style_text_font(s_send_prompt, getThemeFonts()->font_small, 0);
     lv_obj_set_style_text_color(s_send_prompt, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_align(s_send_prompt, LV_ALIGN_CENTER, 0, 24);
+    lv_obj_align(s_send_prompt, LV_ALIGN_BOTTOM_MID, 0, -8);
 
-    s_send_result = lv_label_create(screen);
-    lv_label_set_text(s_send_result, "");
-    lv_obj_set_style_text_font(s_send_result, getThemeFonts()->font_subtitle, 0);
-    lv_obj_set_style_text_color(s_send_result, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_align(s_send_result, LV_ALIGN_CENTER, 0, 56);
+    // Right rail: accuracy on top, count under it.
+    s_send_accuracy = summitStatCard(screen, 0, "ACCURACY", LV_COLOR_SUCCESS);
+    s_send_count  = summitStatCard(screen, 1, "SENT", LV_COLOR_TEXT_PRIMARY);
 
-    lv_obj_t* footer = lv_label_create(screen);
-    lv_label_set_text(footer, "Key it on your paddle    SPACE Hear    ESC Exit");
-    lv_obj_set_style_text_font(footer, getThemeFonts()->font_small, 0);
-    lv_obj_set_style_text_color(footer, LV_COLOR_TEXT_TERTIARY, 0);
-    lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_t* bar = summitActionBar(screen);
+    summitBarHint(bar, "Key it on your paddle");
+    summitKeycap(bar, 0, "ESC", "Exit");
+    summitKeycap(bar, 1, "SPACE", "Hear");
 
     // Focusable catcher: SPACE (reference) + ESC (global back handler).
     lv_obj_t* catcher = lv_obj_create(screen);
