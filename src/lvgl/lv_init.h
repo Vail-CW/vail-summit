@@ -103,18 +103,12 @@ void updateKeyAcceleration(uint32_t key, uint32_t now) {
 // Display Flush Callback
 // ============================================
 
-/*
- * Flush display buffer to screen via LovyanGFX
- * Called by LVGL when a portion of the screen needs updating
- *
- * Uses swap565 = true to handle byte swapping for SPI displays.
- * This works with LV_COLOR_16_SWAP = 0 in lv_conf.h.
- */
 // ============================================
 // Display performance instrumentation
 // ============================================
-// Temporary profiling aid so display optimisation targets come from measured
-// workload instead of arithmetic. Set to 0 to compile it out completely.
+// Profiling aid so display optimization targets come from measured workload
+// instead of arithmetic. Set to 0 to compile it out completely.
+// See docs/upgrades/display-dma-overlap.md for what this was used to find.
 //
 // Reported once per second, per mode:
 //   KB        bytes actually pushed to the panel in that second
@@ -126,7 +120,7 @@ void updateKeyAcceleration(uint32_t key, uint32_t now) {
 //   max       largest single flush, with its pixel count
 //   bus busy  share of wall-clock time spent transferring. This is the number
 //             that says whether the display is actually costing anything.
-#define DISPLAY_PERF_INSTRUMENT 1
+#define DISPLAY_PERF_INSTRUMENT 0
 #define DPERF_IDLE_GAP_US       50000UL
 
 #if DISPLAY_PERF_INSTRUMENT
@@ -175,6 +169,13 @@ void reportDisplayPerf(int mode) {
 inline void reportDisplayPerf(int mode) { (void)mode; }
 #endif
 
+/*
+ * Flush display buffer to screen via LovyanGFX
+ * Called by LVGL when a portion of the screen needs updating
+ *
+ * Uses swap565 = true to handle byte swapping for SPI displays.
+ * This works with LV_COLOR_16_SWAP = 0 in lv_conf.h.
+ */
 void lvgl_disp_flush(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* color_p) {
     if (lvgl_tft == NULL) {
         lv_disp_flush_ready(drv);
