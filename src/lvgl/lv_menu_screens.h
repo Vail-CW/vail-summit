@@ -65,8 +65,8 @@ static const LVMenuItem cwMenuItems[] = {
 #define CW_MENU_COUNT 8
 
 // Training submenu — collapsed to the single Vail CW School path. The other
-// curricula (Vail Master, Hear It Type It, CW Academy, LICW) remain in the
-// codebase but are no longer listed; the school hub is the one learning path.
+// curricula (Vail Master, Hear It Type It, CW Academy, LICW) have been
+// removed from the codebase; the school hub is the one learning path.
 static const LVMenuItem trainingMenuItems[] = {
     MENU_ITEM_FA_D(FA_EXTRA_SCHOOL, "Learn CW", MODE_SCHOOL_HUB, "Your course, start to finish")
 };
