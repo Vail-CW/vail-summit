@@ -1394,7 +1394,6 @@ lv_obj_t* summitMessage(lv_obj_t* parent, const char* headline, const char* body
     lv_label_set_text(h, headline);
     lv_obj_set_style_text_font(h, getThemeFonts()->font_title, 0);
     lv_obj_set_style_text_color(h, headline_color, 0);
-    lv_obj_align(h, LV_ALIGN_TOP_MID, 0, SUMMIT_CONTENT_Y + 40);
 
     lv_obj_t* b = lv_label_create(parent);
     lv_label_set_text(b, body);
