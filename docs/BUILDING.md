@@ -165,6 +165,7 @@ The repository includes a GitHub Actions workflow that builds the firmware AND p
      - `none` — build only, attach artifacts to the workflow run, no release
    - **`release_title`** (optional) — custom title; defaults to `vX.YZ - Test Release` / `Release`
    - **`release_notes`** (optional) — body markdown; defaults to a minimal template
+   - **`psram`** (default: `enabled`) - leave it enabled for normal builds. `disabled` makes a build that acts like the 8MB no-PSRAM Feather (#5323), which runs on either board, so testers can try it on what they already have. A no-PSRAM build gets "(no PSRAM)" on the default title, a PSRAM line in the default notes, and a `-no-psram` suffix on the workflow artifact. The `.bin` names do not change, because the flasher looks for them by name.
 5. Click the green **"Run workflow"** button
 
 The workflow:
