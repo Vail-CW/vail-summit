@@ -34,6 +34,14 @@ on:
         description: "Release body markdown. If empty, a minimal template is used. For full notes, edit the release after it's created."
         required: false
         type: string
+      psram:
+        description: 'PSRAM. Leave enabled for normal builds. disabled makes a build that acts like the 8MB no-PSRAM Feather (#5323), for testing that board.'
+        required: true
+        default: 'enabled'
+        type: choice
+        options:
+          - enabled
+          - disabled
 
 # Pinned to match the local C:\acli build environment. Update versions here AND
 # in the local arduino-cli/user/libraries/ together so CI and local stay in sync.
@@ -106,8 +114,10 @@ jobs:
           # 'l32r: literal target out of range' link error from ArduinoJson.
           # --clean: matches the new-update local skill which warns about
           # cached object files carrying stale version strings.
+          # PSRAM comes from the dispatch input. FlashSize stays 4M either way so
+          # the same binary fits the 4MB board and the 8MB no-PSRAM board.
           arduino-cli compile \
-            --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M,USBMode=hwcdc" \
+            --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=${{ inputs.psram }},FlashSize=4M,USBMode=hwcdc" \
             --build-property "compiler.cpp.extra_flags=-mtext-section-literals" \
             --output-dir build \
             --export-binaries \
@@ -144,7 +154,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: vail-summit-${{ steps.ver.outputs.version }}-${{ steps.ver.outputs.short_sha }}
+          name: vail-summit-${{ steps.ver.outputs.version }}-${{ steps.ver.outputs.short_sha }}${{ inputs.psram == 'disabled' && '-no-psram' || '' }}
           path: |
             build/bootloader.bin
             build/partitions.bin
@@ -173,6 +183,7 @@ jobs:
           ## Build provenance
           - Source: \`${{ github.repository }}\` @ \`${{ steps.ver.outputs.sha }}\`
           - Firmware date: ${{ steps.ver.outputs.date }}
+          - PSRAM: ${{ inputs.psram }}
           - Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
           ## Assets
@@ -194,7 +205,7 @@ jobs:
           if [ -n "$RELEASE_TITLE" ]; then
             echo "title=$RELEASE_TITLE" >> "$GITHUB_OUTPUT"
           else
-            echo "title=v${{ steps.ver.outputs.version }} - ${{ inputs.release_type == 'prerelease' && 'Test Release' || 'Release' }}" >> "$GITHUB_OUTPUT"
+            echo "title=v${{ steps.ver.outputs.version }} - ${{ inputs.release_type == 'prerelease' && 'Test Release' || 'Release' }}${{ inputs.psram == 'disabled' && ' (no PSRAM)' || '' }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Check if tag already exists
@@ -233,6 +244,9 @@ jobs:
             gh release delete "${{ steps.ver.outputs.tag }}" --repo ${{ github.repository }} --yes --cleanup-tag
           fi
 
+          # Asset names stay fixed even for a no-PSRAM build. The web flasher
+          # looks for these exact filenames. The title and notes carry the PSRAM
+          # setting instead.
           gh release create "${{ steps.ver.outputs.tag }}" \
             --repo ${{ github.repository }} \
             $PRERELEASE_FLAG \
