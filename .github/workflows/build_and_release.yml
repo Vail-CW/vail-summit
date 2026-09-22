@@ -154,7 +154,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: vail-summit-${{ steps.ver.outputs.version }}-${{ steps.ver.outputs.short_sha }}
+          name: vail-summit-${{ steps.ver.outputs.version }}-${{ steps.ver.outputs.short_sha }}${{ inputs.psram == 'disabled' && '-no-psram' || '' }}
           path: |
             build/bootloader.bin
             build/partitions.bin
@@ -183,6 +183,7 @@ jobs:
           ## Build provenance
           - Source: \`${{ github.repository }}\` @ \`${{ steps.ver.outputs.sha }}\`
           - Firmware date: ${{ steps.ver.outputs.date }}
+          - PSRAM: ${{ inputs.psram }}
           - Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
           ## Assets
@@ -204,7 +205,7 @@ jobs:
           if [ -n "$RELEASE_TITLE" ]; then
             echo "title=$RELEASE_TITLE" >> "$GITHUB_OUTPUT"
           else
-            echo "title=v${{ steps.ver.outputs.version }} - ${{ inputs.release_type == 'prerelease' && 'Test Release' || 'Release' }}" >> "$GITHUB_OUTPUT"
+            echo "title=v${{ steps.ver.outputs.version }} - ${{ inputs.release_type == 'prerelease' && 'Test Release' || 'Release' }}${{ inputs.psram == 'disabled' && ' (no PSRAM)' || '' }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Check if tag already exists
@@ -243,6 +244,9 @@ jobs:
             gh release delete "${{ steps.ver.outputs.tag }}" --repo ${{ github.repository }} --yes --cleanup-tag
           fi
 
+          # Asset names stay fixed even for a no-PSRAM build. The web flasher
+          # looks for these exact filenames. The title and notes carry the PSRAM
+          # setting instead.
           gh release create "${{ steps.ver.outputs.tag }}" \
             --repo ${{ github.repository }} \
             $PRERELEASE_FLAG \
