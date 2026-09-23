@@ -209,19 +209,25 @@ lv_obj_t* createMorseShooterScreen() {
     shooter_canvas = lv_canvas_create(screen);
     lv_obj_set_pos(shooter_canvas, 0, 40);
 
-    // Allocate canvas buffer in PSRAM if available
-    if (shooter_canvas_buf == NULL) {
+    // The canvas is scenery only. Buildings and trees are drawn into it once;
+    // the falling letters are labels and do not touch it. At 480x240x2 it is
+    // 230KB, which is fine in PSRAM and impossible without it, so on a board
+    // with no PSRAM the game runs without the backdrop.
+    if (shooter_canvas_buf == NULL && psramFound()) {
         size_t buf_size = SCREEN_WIDTH * (SCREEN_HEIGHT - 80) * sizeof(lv_color_t);
-        if (psramFound()) {
-            shooter_canvas_buf = (lv_color_t*)ps_malloc(buf_size);
-        } else {
-            shooter_canvas_buf = (lv_color_t*)malloc(buf_size);
-        }
+        shooter_canvas_buf = (lv_color_t*)ps_malloc(buf_size);
     }
 
     if (shooter_canvas_buf != NULL) {
         lv_canvas_set_buffer(shooter_canvas, shooter_canvas_buf, SCREEN_WIDTH, SCREEN_HEIGHT - 80, LV_IMG_CF_TRUE_COLOR);
         lv_canvas_fill_bg(shooter_canvas, LV_COLOR_BG_DEEP, LV_OPA_COVER);
+    } else {
+        // Drop the object entirely rather than leave a canvas with no buffer
+        // behind. The scenery drawing checks shooter_canvas for null, so with
+        // it gone those calls turn into no-ops instead of writing into nothing.
+        lv_obj_del(shooter_canvas);
+        shooter_canvas = NULL;
+        Serial.println("[Shooter] No PSRAM, running without the scenery backdrop");
     }
 
     // Create falling letter labels (object pool - supports up to 8)
