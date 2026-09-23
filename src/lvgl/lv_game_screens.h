@@ -61,6 +61,25 @@ static lv_obj_t* shooter_letter_labels[8] = {NULL};  // Pool of falling letter o
 // Canvas buffer for game graphics
 static lv_color_t* shooter_canvas_buf = NULL;
 
+// Without PSRAM the full 480x240 canvas is 230KB and simply cannot be had. But
+// the artwork only occupies the bottom ~72 pixels, and the sky above it is a
+// flat fill, so most of that 230KB was storing empty sky.
+//
+// The small-memory path draws one 160px slice of village into a 23KB canvas and
+// shows it three times across the screen, with a plain rectangle behind for the
+// sky. The turret gets its own 5KB canvas because it sits at centre screen and
+// must not repeat with the tiles.
+#define SHOOTER_TILE_W      160
+#define SHOOTER_TILE_H      72
+#define SHOOTER_TURRET_W    44
+#define SHOOTER_TURRET_H    56
+
+static lv_obj_t*   shooter_bg_tiles[2]   = {NULL, NULL};   // the two repeats
+static lv_obj_t*   shooter_turret_canvas = NULL;
+static lv_color_t* shooter_tile_buf      = NULL;
+static lv_color_t* shooter_turret_buf    = NULL;
+static bool        shooter_tiled_bg      = false;
+
 // Forward declarations for cleanup and effects
 static void cleanupShooterScreenPointers();
 
@@ -101,7 +120,18 @@ static void cleanupShooterScreenPointers() {
     for (int i = 0; i < 8; i++) {
         shooter_letter_labels[i] = NULL;
     }
-    // Note: Don't free shooter_canvas_buf here - it's reused across screen recreations
+    shooter_bg_tiles[0] = NULL;
+    shooter_bg_tiles[1] = NULL;
+    shooter_turret_canvas = NULL;
+
+    // The PSRAM buffer is kept and reused across screen recreations. The
+    // small-memory buffers are handed back, because on that board 28KB of heap
+    // is worth more than saving a redraw.
+    if (!psramFound()) {
+        if (shooter_tile_buf)   { free(shooter_tile_buf);   shooter_tile_buf = NULL; }
+        if (shooter_turret_buf) { free(shooter_turret_buf); shooter_turret_buf = NULL; }
+        shooter_tiled_bg = false;
+    }
 
     // Effect pointers
     shooter_laser_line = NULL;
@@ -205,29 +235,79 @@ lv_obj_t* createMorseShooterScreen() {
         lv_obj_set_style_text_font(heart, getThemeFonts()->font_body, 0);  // Smaller font for 5 hearts
     }
 
-    // Game canvas area (for scenery)
-    shooter_canvas = lv_canvas_create(screen);
-    lv_obj_set_pos(shooter_canvas, 0, 40);
+    // Scenery backdrop. With PSRAM this is one full-screen canvas, as before.
+    // Without, it is a repeated 160px tile plus a separate turret, which buys
+    // back roughly 200KB for the same picture.
+    shooter_tiled_bg = !psramFound();
 
-    // The canvas is scenery only. Buildings and trees are drawn into it once;
-    // the falling letters are labels and do not touch it. At 480x240x2 it is
-    // 230KB, which is fine in PSRAM and impossible without it, so on a board
-    // with no PSRAM the game runs without the backdrop.
-    if (shooter_canvas_buf == NULL && psramFound()) {
-        size_t buf_size = SCREEN_WIDTH * (SCREEN_HEIGHT - 80) * sizeof(lv_color_t);
-        shooter_canvas_buf = (lv_color_t*)ps_malloc(buf_size);
+    if (!shooter_tiled_bg) {
+        shooter_canvas = lv_canvas_create(screen);
+        lv_obj_set_pos(shooter_canvas, 0, 40);
+
+        if (shooter_canvas_buf == NULL) {
+            size_t buf_size = SCREEN_WIDTH * (SCREEN_HEIGHT - 80) * sizeof(lv_color_t);
+            shooter_canvas_buf = (lv_color_t*)ps_malloc(buf_size);
+        }
+
+        if (shooter_canvas_buf != NULL) {
+            lv_canvas_set_buffer(shooter_canvas, shooter_canvas_buf, SCREEN_WIDTH, SCREEN_HEIGHT - 80, LV_IMG_CF_TRUE_COLOR);
+            lv_canvas_fill_bg(shooter_canvas, LV_COLOR_BG_DEEP, LV_OPA_COVER);
+        } else {
+            // Never leave a canvas without a buffer behind: the scenery code
+            // only checks that the object exists before drawing into it.
+            lv_obj_del(shooter_canvas);
+            shooter_canvas = NULL;
+            shooter_tiled_bg = true;
+        }
     }
 
-    if (shooter_canvas_buf != NULL) {
-        lv_canvas_set_buffer(shooter_canvas, shooter_canvas_buf, SCREEN_WIDTH, SCREEN_HEIGHT - 80, LV_IMG_CF_TRUE_COLOR);
-        lv_canvas_fill_bg(shooter_canvas, LV_COLOR_BG_DEEP, LV_OPA_COVER);
-    } else {
-        // Drop the object entirely rather than leave a canvas with no buffer
-        // behind. The scenery drawing checks shooter_canvas for null, so with
-        // it gone those calls turn into no-ops instead of writing into nothing.
-        lv_obj_del(shooter_canvas);
-        shooter_canvas = NULL;
-        Serial.println("[Shooter] No PSRAM, running without the scenery backdrop");
+    if (shooter_tiled_bg) {
+        // Flat sky behind everything, which is all the big canvas was storing
+        // for the top two thirds of the screen.
+        lv_obj_t* sky = lv_obj_create(screen);
+        lv_obj_set_size(sky, SCREEN_WIDTH, SCREEN_HEIGHT - 80);
+        lv_obj_set_pos(sky, 0, 40);
+        lv_obj_set_style_bg_color(sky, lv_color_hex(0x0a0a20), 0);
+        lv_obj_set_style_bg_opa(sky, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(sky, 0, 0);
+        lv_obj_set_style_radius(sky, 0, 0);
+        lv_obj_set_style_pad_all(sky, 0, 0);
+        lv_obj_clear_flag(sky, LV_OBJ_FLAG_SCROLLABLE);
+
+        int stripY = 40 + (SCREEN_HEIGHT - 80) - SHOOTER_TILE_H;
+
+        if (shooter_tile_buf == NULL) {
+            shooter_tile_buf = (lv_color_t*)malloc(SHOOTER_TILE_W * SHOOTER_TILE_H * sizeof(lv_color_t));
+        }
+        if (shooter_turret_buf == NULL) {
+            shooter_turret_buf = (lv_color_t*)malloc(SHOOTER_TURRET_W * SHOOTER_TURRET_H * sizeof(lv_color_t));
+        }
+
+        if (shooter_tile_buf != NULL) {
+            shooter_canvas = lv_canvas_create(screen);
+            lv_obj_set_pos(shooter_canvas, 0, stripY);
+            lv_canvas_set_buffer(shooter_canvas, shooter_tile_buf, SHOOTER_TILE_W, SHOOTER_TILE_H, LV_IMG_CF_TRUE_COLOR);
+
+            // Two more views of the same pixels. One buffer, three villages.
+            for (int i = 0; i < 2; i++) {
+                shooter_bg_tiles[i] = lv_img_create(screen);
+                lv_img_set_src(shooter_bg_tiles[i], lv_canvas_get_img(shooter_canvas));
+                lv_obj_set_pos(shooter_bg_tiles[i], SHOOTER_TILE_W * (i + 1), stripY);
+            }
+        }
+
+        if (shooter_turret_buf != NULL) {
+            shooter_turret_canvas = lv_canvas_create(screen);
+            lv_obj_set_pos(shooter_turret_canvas,
+                           SCREEN_WIDTH / 2 - SHOOTER_TURRET_W / 2,
+                           40 + (SCREEN_HEIGHT - 80) - SHOOTER_TURRET_H);
+            lv_canvas_set_buffer(shooter_turret_canvas, shooter_turret_buf,
+                                 SHOOTER_TURRET_W, SHOOTER_TURRET_H, LV_IMG_CF_TRUE_COLOR);
+        }
+
+        if (shooter_tile_buf == NULL && shooter_turret_buf == NULL) {
+            Serial.println("[Shooter] No memory for the backdrop, playing without it");
+        }
     }
 
     // Create falling letter labels (object pool - supports up to 8)
@@ -526,7 +606,128 @@ static void drawBush(int x, int baseY, int size, lv_color_t color) {
 }
 
 // Draw scenery on canvas (called once at game start)
+/*
+ * The turret, drawn wherever it is told to go.
+ *
+ * It used to be written straight into the one big canvas at screen centre. The
+ * small-memory path repeats a village tile across the screen, and the turret
+ * must not repeat with it, so it now takes its target and its own origin and
+ * gets a separate little canvas on that path.
+ */
+static void drawShooterTurret(lv_obj_t* target, int centerX, int groundY) {
+    if (target == NULL) return;
+
+    lv_draw_rect_dsc_t rect_dsc;
+    lv_draw_rect_dsc_init(&rect_dsc);
+    rect_dsc.bg_opa = LV_OPA_COVER;
+
+    int turretCenterX = centerX;
+
+    // Turret base platform (metallic gray)
+    rect_dsc.bg_color = lv_color_hex(0x708090);  // Slate gray
+    lv_canvas_draw_rect(target, turretCenterX - 20, groundY - 8, 40, 8, &rect_dsc);
+
+    // Turret body (darker metal)
+    rect_dsc.bg_color = lv_color_hex(0x4a5568);
+    lv_canvas_draw_rect(target, turretCenterX - 12, groundY - 20, 24, 12, &rect_dsc);
+
+    // Turret dome (cyan highlight)
+    lv_draw_line_dsc_t line_dsc;
+    lv_draw_line_dsc_init(&line_dsc);
+    line_dsc.color = LV_COLOR_ACCENT_PRIMARY;
+    line_dsc.width = 1;
+
+    // Draw dome as half circle
+    int domeRadius = 10;
+    int domeCenterY = groundY - 20;
+    for (int dy = -domeRadius; dy <= 0; dy++) {
+        int halfWidth = (int)sqrt(domeRadius * domeRadius - dy * dy);
+        if (halfWidth > 0) {
+            lv_point_t points[2] = {{(lv_coord_t)(turretCenterX - halfWidth), (lv_coord_t)(domeCenterY + dy)},
+                                    {(lv_coord_t)(turretCenterX + halfWidth), (lv_coord_t)(domeCenterY + dy)}};
+            lv_canvas_draw_line(target, points, 2, &line_dsc);
+        }
+    }
+
+    // Turret barrel (pointing up)
+    line_dsc.color = lv_color_hex(0x00CED1);  // Dark turquoise
+    line_dsc.width = 4;
+    lv_point_t barrel[2] = {{(lv_coord_t)turretCenterX, (lv_coord_t)(groundY - 30)},
+                            {(lv_coord_t)turretCenterX, (lv_coord_t)(groundY - 50)}};
+    lv_canvas_draw_line(target, barrel, 2, &line_dsc);
+
+    // Barrel tip glow
+    line_dsc.color = LV_COLOR_ACCENT_PRIMARY;
+    line_dsc.width = 6;
+    lv_point_t tip[2] = {{(lv_coord_t)turretCenterX, (lv_coord_t)(groundY - 48)},
+                         {(lv_coord_t)turretCenterX, (lv_coord_t)(groundY - 52)}};
+    lv_canvas_draw_line(target, tip, 2, &line_dsc);
+}
+
+/*
+ * Scenery for the small-memory path.
+ *
+ * Draws one 160px slice of village, which the two image widgets beside it show
+ * again, so the same 23KB of pixels covers all 480. The houses sit toward the
+ * edges of the slice and the middle is left as a clearing, which keeps the
+ * repeat from reading as an obvious seam and leaves the turret somewhere to
+ * stand.
+ *
+ * The turret gets its own canvas, filled to match the tile so it blends in:
+ * sky above the ground line, the same two greens below it.
+ */
+static void drawShooterSceneryTiled() {
+    if (shooter_canvas != NULL) {
+        int groundY = SHOOTER_TILE_H - 30;
+
+        lv_canvas_fill_bg(shooter_canvas, lv_color_hex(0x0a0a20), LV_OPA_COVER);
+
+        lv_draw_rect_dsc_t rect_dsc;
+        lv_draw_rect_dsc_init(&rect_dsc);
+        rect_dsc.bg_opa = LV_OPA_COVER;
+
+        rect_dsc.bg_color = lv_color_hex(0x228B22);
+        lv_canvas_draw_rect(shooter_canvas, 0, groundY, SHOOTER_TILE_W, 30, &rect_dsc);
+        rect_dsc.bg_color = lv_color_hex(0x1a6b1a);
+        lv_canvas_draw_rect(shooter_canvas, 0, groundY + 15, SHOOTER_TILE_W, 15, &rect_dsc);
+
+        // Two houses near the edges, clearing in the middle
+        drawHouse(6, groundY, 26, 20, lv_color_hex(0xCD5C5C), lv_color_hex(0x8B0000), lv_color_hex(0x4a2511));
+        drawHouse(112, groundY, 24, 18, lv_color_hex(0x87CEEB), lv_color_hex(0x4682B4), lv_color_hex(0x2F4F4F));
+
+        drawPineTree(40, groundY, 24, lv_color_hex(0x006400));
+        drawPineTree(146, groundY, 20, lv_color_hex(0x32CD32));
+        drawRoundTree(88, groundY, 22, lv_color_hex(0x228B22));
+
+        drawBush(22, groundY, 9, lv_color_hex(0x32CD32));
+        drawBush(64, groundY, 11, lv_color_hex(0x2E8B57));
+        drawBush(132, groundY, 9, lv_color_hex(0x3CB371));
+    }
+
+    if (shooter_turret_canvas != NULL) {
+        int groundY = SHOOTER_TURRET_H - 30;
+
+        lv_canvas_fill_bg(shooter_turret_canvas, lv_color_hex(0x0a0a20), LV_OPA_COVER);
+
+        lv_draw_rect_dsc_t rect_dsc;
+        lv_draw_rect_dsc_init(&rect_dsc);
+        rect_dsc.bg_opa = LV_OPA_COVER;
+
+        rect_dsc.bg_color = lv_color_hex(0x228B22);
+        lv_canvas_draw_rect(shooter_turret_canvas, 0, groundY, SHOOTER_TURRET_W, 30, &rect_dsc);
+        rect_dsc.bg_color = lv_color_hex(0x1a6b1a);
+        lv_canvas_draw_rect(shooter_turret_canvas, 0, groundY + 15, SHOOTER_TURRET_W, 15, &rect_dsc);
+
+        drawShooterTurret(shooter_turret_canvas, SHOOTER_TURRET_W / 2, groundY);
+    }
+}
+
 void drawShooterScenery() {
+    if (shooter_tiled_bg) {
+        drawShooterSceneryTiled();
+        return;
+    }
+
     if (shooter_canvas == NULL || shooter_canvas_buf == NULL) return;
 
     // Clear canvas with night sky gradient (dark blue)
@@ -590,48 +791,7 @@ void drawShooterScenery() {
     drawBush(425, groundY, 9, lv_color_hex(0x3CB371));
     drawBush(468, groundY, 10, lv_color_hex(0x006400));
 
-    // === TURRET (center of screen) ===
-    int turretCenterX = SCREEN_WIDTH / 2;
-
-    // Turret base platform (metallic gray)
-    rect_dsc.bg_color = lv_color_hex(0x708090);  // Slate gray
-    lv_canvas_draw_rect(shooter_canvas, turretCenterX - 20, groundY - 8, 40, 8, &rect_dsc);
-
-    // Turret body (darker metal)
-    rect_dsc.bg_color = lv_color_hex(0x4a5568);
-    lv_canvas_draw_rect(shooter_canvas, turretCenterX - 12, groundY - 20, 24, 12, &rect_dsc);
-
-    // Turret dome (cyan highlight)
-    lv_draw_line_dsc_t line_dsc;
-    lv_draw_line_dsc_init(&line_dsc);
-    line_dsc.color = LV_COLOR_ACCENT_PRIMARY;
-    line_dsc.width = 1;
-
-    // Draw dome as half circle
-    int domeRadius = 10;
-    int domeCenterY = groundY - 20;
-    for (int dy = -domeRadius; dy <= 0; dy++) {
-        int halfWidth = (int)sqrt(domeRadius * domeRadius - dy * dy);
-        if (halfWidth > 0) {
-            lv_point_t points[2] = {{(lv_coord_t)(turretCenterX - halfWidth), (lv_coord_t)(domeCenterY + dy)},
-                                    {(lv_coord_t)(turretCenterX + halfWidth), (lv_coord_t)(domeCenterY + dy)}};
-            lv_canvas_draw_line(shooter_canvas, points, 2, &line_dsc);
-        }
-    }
-
-    // Turret barrel (pointing up)
-    line_dsc.color = lv_color_hex(0x00CED1);  // Dark turquoise
-    line_dsc.width = 4;
-    lv_point_t barrel[2] = {{(lv_coord_t)turretCenterX, (lv_coord_t)(groundY - 30)},
-                            {(lv_coord_t)turretCenterX, (lv_coord_t)(groundY - 50)}};
-    lv_canvas_draw_line(shooter_canvas, barrel, 2, &line_dsc);
-
-    // Barrel tip glow
-    line_dsc.color = LV_COLOR_ACCENT_PRIMARY;
-    line_dsc.width = 6;
-    lv_point_t tip[2] = {{(lv_coord_t)turretCenterX, (lv_coord_t)(groundY - 48)},
-                         {(lv_coord_t)turretCenterX, (lv_coord_t)(groundY - 52)}};
-    lv_canvas_draw_line(shooter_canvas, tip, 2, &line_dsc);
+    drawShooterTurret(shooter_canvas, SCREEN_WIDTH / 2, groundY);
 }
 
 // ============================================
