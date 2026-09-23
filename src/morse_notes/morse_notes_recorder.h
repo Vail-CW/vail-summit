@@ -49,13 +49,14 @@ static float* mnRecordingTimingBuffer = nullptr;
 bool mnEnsureRecordingBuffer() {
     if (mnRecordingTimingBuffer != nullptr) return true;
 
+    size_t bytes = (size_t)mnMaxEvents() * sizeof(float);
     if (psramFound()) {
-        mnRecordingTimingBuffer = (float*)ps_malloc(MN_MAX_RECORDING_EVENTS * sizeof(float));
-        Serial.printf("[MorseNotes] Recording buffer allocated in PSRAM (%d bytes)\n",
-                      MN_MAX_RECORDING_EVENTS * sizeof(float));
+        mnRecordingTimingBuffer = (float*)ps_malloc(bytes);
+        Serial.printf("[MorseNotes] Recording buffer in PSRAM (%u bytes)\n", (unsigned)bytes);
     } else {
-        mnRecordingTimingBuffer = (float*)malloc(MN_MAX_RECORDING_EVENTS * sizeof(float));
-        Serial.println("[MorseNotes] WARNING: PSRAM not found, using heap for recording buffer");
+        mnRecordingTimingBuffer = (float*)malloc(bytes);
+        Serial.printf("[MorseNotes] Recording buffer in heap (%u bytes, %d events max)\n",
+                      (unsigned)bytes, mnMaxEvents());
     }
 
     if (mnRecordingTimingBuffer == nullptr) {
@@ -311,7 +312,7 @@ void mnKeyerCallback(bool keyDown, unsigned long timestamp) {
     }
 
     // Check buffer limit
-    if (mnRecordingSession.eventCount >= MN_MAX_RECORDING_EVENTS) {
+    if (mnRecordingSession.eventCount >= mnMaxEvents()) {
         Serial.println("[MorseNotes] WARNING: Event buffer full, stopping recording");
         mnStopRecording();
         return;
@@ -403,6 +404,19 @@ bool mnShouldShowRecordingWarning() {
 
     unsigned long elapsed = millis() - mnRecordingSession.startTime;
     return elapsed >= MN_WARNING_TIME_MS;
+}
+
+/*
+ * Hand the recording buffer back. Cheap to keep around when it lives in PSRAM,
+ * but on a board without it this is 32KB of heap that WiFi and BLE would
+ * rather have, so the cleanup path calls this on the way out of Morse Notes.
+ */
+void mnFreeRecordingBuffer() {
+    if (mnRecordingTimingBuffer == nullptr) return;
+    free(mnRecordingTimingBuffer);
+    mnRecordingTimingBuffer = nullptr;
+    mnRecordingSession.timingBuffer = nullptr;
+    Serial.println("[MorseNotes] Recording buffer released");
 }
 
 #endif // MORSE_NOTES_RECORDER_H

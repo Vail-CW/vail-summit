@@ -11,26 +11,39 @@
 // Global playback session
 static MorseNotesPlaybackSession mnPlaybackSession;
 
-// Timing buffer allocated in PSRAM on first use (saves 160KB heap)
+// Timing buffer, sized to the recording being played rather than to the
+// maximum a recording could ever be. A note is usually a few thousand events,
+// so this is typically a few KB instead of 160KB, and it matters on a board
+// with no PSRAM to fall back on.
 static float* mnPlaybackTimingBuffer = nullptr;
+static int    mnPlaybackBufferEvents = 0;
 
-// Allocate playback buffer in PSRAM
-bool mnEnsurePlaybackBuffer() {
-    if (mnPlaybackTimingBuffer != nullptr) return true;
+void mnFreePlaybackBuffer() {
+    if (mnPlaybackTimingBuffer == nullptr) return;
+    free(mnPlaybackTimingBuffer);
+    mnPlaybackTimingBuffer = nullptr;
+    mnPlaybackBufferEvents = 0;
+}
 
-    if (psramFound()) {
-        mnPlaybackTimingBuffer = (float*)ps_malloc(MN_MAX_RECORDING_EVENTS * sizeof(float));
-        Serial.printf("[MorseNotes] Playback buffer allocated in PSRAM (%d bytes)\n",
-                      MN_MAX_RECORDING_EVENTS * sizeof(float));
-    } else {
-        mnPlaybackTimingBuffer = (float*)malloc(MN_MAX_RECORDING_EVENTS * sizeof(float));
-        Serial.println("[MorseNotes] WARNING: PSRAM not found, using heap for playback buffer");
-    }
-
-    if (mnPlaybackTimingBuffer == nullptr) {
-        Serial.println("[MorseNotes] ERROR: Failed to allocate playback buffer!");
+// Grow the buffer if this recording needs more room than the last one did.
+bool mnEnsurePlaybackBuffer(int events) {
+    if (events <= 0) return false;
+    if (events > mnMaxEvents()) {
+        Serial.printf("[MorseNotes] Recording has %d events, this board tops out at %d\n",
+                      events, mnMaxEvents());
         return false;
     }
+    if (mnPlaybackTimingBuffer != nullptr && mnPlaybackBufferEvents >= events) return true;
+
+    mnFreePlaybackBuffer();
+    size_t bytes = (size_t)events * sizeof(float);
+    mnPlaybackTimingBuffer = psramFound() ? (float*)ps_malloc(bytes) : (float*)malloc(bytes);
+    if (mnPlaybackTimingBuffer == nullptr) {
+        Serial.printf("[MorseNotes] ERROR: playback buffer of %u bytes failed\n", (unsigned)bytes);
+        return false;
+    }
+    mnPlaybackBufferEvents = events;
+    Serial.printf("[MorseNotes] Playback buffer %u bytes for %d events\n", (unsigned)bytes, events);
     return true;
 }
 
@@ -54,8 +67,16 @@ bool mnLoadForPlayback(unsigned long id) {
         mnStopPlayback();
     }
 
-    // Ensure buffer is allocated (in PSRAM)
-    if (!mnEnsurePlaybackBuffer()) {
+    // The library already knows how long this recording is, so ask for exactly
+    // that much rather than reserving room for the longest one allowed.
+    MorseNoteMetadata* known = mnGetMetadata(id);
+    if (known == nullptr || known->eventCount <= 0) {
+        Serial.println("[MorseNotes] ERROR: no metadata for that recording");
+        mnPlaybackSession.state = MN_PLAY_ERROR;
+        return false;
+    }
+
+    if (!mnEnsurePlaybackBuffer(known->eventCount)) {
         mnPlaybackSession.state = MN_PLAY_ERROR;
         return false;
     }
@@ -70,7 +91,7 @@ bool mnLoadForPlayback(unsigned long id) {
     bool success = mnLoadRecording(
         id,
         mnPlaybackTimingBuffer,
-        MN_MAX_RECORDING_EVENTS,
+        mnPlaybackBufferEvents,
         eventCount,
         toneFreq,
         &metadata
