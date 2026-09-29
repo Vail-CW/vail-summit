@@ -67,12 +67,12 @@ static lv_color_t* shooter_canvas_buf = NULL;
 //
 // The small-memory path draws one 160px slice of village into a 23KB canvas and
 // shows it three times across the screen, with a plain rectangle behind for the
-// sky. The turret gets its own 5KB canvas because it sits at centre screen and
+// sky. The turret gets its own ~7.5KB canvas because it sits at centre screen and
 // must not repeat with the tiles.
 #define SHOOTER_TILE_W      160
 #define SHOOTER_TILE_H      72
 #define SHOOTER_TURRET_W    44
-#define SHOOTER_TURRET_H    56
+#define SHOOTER_TURRET_H    86   // 30px ground + barrel tip at groundY - 52, plus a little headroom
 
 static lv_obj_t*   shooter_bg_tiles[2]   = {NULL, NULL};   // the two repeats
 static lv_obj_t*   shooter_turret_canvas = NULL;
