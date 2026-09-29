@@ -171,12 +171,48 @@ using namespace lgfx::v1::fonts;
 int getCwKeyTypeAsInt() { return (int)cwKeyType; }
 void setCwKeyTypeFromInt(int keyType) { cwKeyType = (KeyType)keyType; }
 
+// ============================================
+// Audio priority gate
+// ============================================
+// Audio wins over everything else, WiFi included. While audio priority is
+// active, background work that can stall the Core-1 loop (blocking HTTPS,
+// flash commits, SD writes, BLE scans) is held off, and WiFi modem sleep is
+// turned off so the radio isn't cycling sleep/wake bursts under the tone.
+// The hold keeps the gate closed through gaps between elements/characters
+// so a multi-second TLS handshake can't start in a gap and land mid-tone.
+#define AUDIO_PRIORITY_HOLD_MS 3000
+
+static unsigned long lastAudioActiveMs = 0;
+static bool audioPriorityWasActive = false;
+static bool audioPriorityWifiWasUp = false;
+
+bool audioPriorityActive() {
+  if (isModeAudioCritical((int)currentMode)) return true;
+  if (isTonePlaying() || isMorsePlaybackActive()) {
+    lastAudioActiveMs = millis();
+    return true;
+  }
+  return lastAudioActiveMs != 0 && (millis() - lastAudioActiveMs) < AUDIO_PRIORITY_HOLD_MS;
+}
+
+// Called once per loop: apply WiFi power-save changes on gate edges only
+// (and when WiFi comes up, since a fresh connection starts in modem sleep)
+void updateAudioPriority() {
+  bool active = audioPriorityActive();
+  bool wifiUp = (WiFi.status() == WL_CONNECTED);
+  if (active == audioPriorityWasActive && wifiUp == audioPriorityWifiWasUp) return;
+  audioPriorityWasActive = active;
+  audioPriorityWifiWasUp = wifiUp;
+  if (wifiUp) {
+    WiFi.setSleep(active ? WIFI_PS_NONE : WIFI_PS_MIN_MODEM);
+  }
+}
+
 // Deferred NVS saves (src/core/deferred_save.h) may only commit when no audio
 // is active: a flash commit disables both cores' caches, and even in an
 // inter-element gap it would delay the start of the next element.
 bool deferredSavesAllowed() {
-  if (isModeAudioCritical((int)currentMode)) return false;
-  return !isTonePlaying() && !isMorsePlaybackActive();
+  return !audioPriorityActive();
 }
 
 // ============================================
@@ -381,23 +417,12 @@ void setup() {
     initDisplay();
     drawEarlyBootDownloadScreen();
 
-    // Load saved WiFi credentials from Preferences
-    // WiFi credentials are stored as ssid1/pass1, ssid2/pass2, ssid3/pass3
-    Preferences wifiPrefs;
-    wifiPrefs.begin("wifi", true);  // read-only
-    String savedSSID = wifiPrefs.getString("ssid1", "");
-    String savedPassword = wifiPrefs.getString("pass1", "");
-    wifiPrefs.end();
-
-    Serial.printf("Loaded WiFi credentials - SSID: '%s' (length: %d)\n",
-      savedSSID.c_str(), savedSSID.length());
-
-    if (savedSSID.length() > 0) {
-      Serial.printf("Using saved WiFi: %s\n", savedSSID.c_str());
-
+    // Saved WiFi credentials live in "wifi" prefs as ssid1/pass1 .. ssid3/pass3.
+    // The downloader tries all of them, starting with the one that was connected
+    // when the download was requested.
+    if (hasSavedWiFiForEarlyBoot()) {
       // Perform the download with progress callback for display updates
-      bool success = performEarlyBootWebDownload(savedSSID.c_str(), savedPassword.c_str(),
-                                                  earlyBootProgressCallback);
+      bool success = performEarlyBootWebDownload(earlyBootProgressCallback);
 
       // Clear the pending flag
       clearWebDownloadPending();
@@ -888,9 +913,14 @@ void loop() {
   // Periodic memory health check (runs every 30 seconds internally)
   checkMemoryHealth();
 
+  // Audio priority: evaluated once here, gates the background work below
+  updateAudioPriority();
+  bool audioBusy = audioPriorityWasActive;
+
   // Update status data periodically (skip during audio-critical/busy modes)
   static unsigned long lastStatusUpdate = 0;
-  if (!isModeNoStatus((int)currentMode) && millis() - lastStatusUpdate > 5000) {
+  // (internet check is a blocking HTTP request - held off while audio has priority)
+  if (!isModeNoStatus((int)currentMode) && !audioBusy && millis() - lastStatusUpdate > 5000) {
     updateStatus();
     // Refresh header status icons on the active screen (menu headers set
     // these at creation time and would otherwise show stale state)
@@ -902,15 +932,17 @@ void loop() {
   // Dispatch mode-specific polling via registry table
   dispatchModeCallback(pollTable, pollTableSize, (int)currentMode);
 
-  // Update Morse Mailbox polling (runs in background regardless of mode)
-  updateMailboxPolling();
+  // Update Morse Mailbox polling (background; blocking HTTPS, so never while audio has priority)
+  if (!audioBusy) {
+    updateMailboxPolling();
+  }
 
   // Commit deferred NVS saves once values settle and audio is idle
   updateDeferredSaves();
 
-  // Mirror changed settings to the SD backup (debounced; skipped during
-  // audio-critical modes so an SD write never crunches active audio)
-  if (!isModeAudioCritical((int)currentMode)) {
+  // Mirror changed settings to the SD backup (debounced; skipped while audio
+  // has priority so an SD write never crunches active audio)
+  if (!audioBusy) {
     updateSettingsBackup();
   }
 
@@ -918,7 +950,8 @@ void loop() {
   // Also paused while the satellite data download streams: BLE scanning and
   // sustained WiFi TLS share the 2.4GHz radio and RAM, and running both is
   // an intermittent-crash recipe (seen mid-download with scans in the log).
-  if (currentMode != MODE_BT_HID && currentMode != MODE_BT_MIDI && !satUpdateJobActive()) {
+  // Also held off while audio has priority: BLE scans contend with WiFi for the radio.
+  if (currentMode != MODE_BT_HID && currentMode != MODE_BT_MIDI && !satUpdateJobActive() && !audioBusy) {
     updateBLEKeyboardHost();
   }
 

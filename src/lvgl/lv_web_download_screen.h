@@ -34,6 +34,23 @@ static WebDownloadUIState webDownloadUIState = WD_UI_IDLE;
 
 // Screen and widget references
 static lv_obj_t* web_download_screen = NULL;
+static lv_obj_t* web_download_desc = NULL;  // prompt description, reused for the no-WiFi warning
+
+// The download happens in early boot using the connection that is live right
+// now (see requestWebDownloadAndReboot). Rebooting without one just fails, so
+// refuse up front and say why.
+static bool webDownloadWiFiReady() {
+    if (WiFi.status() == WL_CONNECTED) return true;
+    beep(TONE_ERROR, BEEP_LONG);
+    if (web_download_desc && lv_obj_is_valid(web_download_desc)) {
+        lv_label_set_text(web_download_desc,
+            "\nWiFi is not connected.\n"
+            "Connect in Settings > WiFi first.");
+        lv_obj_set_style_text_color(web_download_desc, lv_color_hex(0xFF6666), 0);
+    }
+    Serial.println("[WebDownload] Refused: WiFi not connected");
+    return false;
+}
 static lv_obj_t* web_download_progress_bar = NULL;
 static lv_obj_t* web_download_file_label = NULL;
 static lv_obj_t* web_download_pct_label = NULL;
@@ -203,6 +220,7 @@ void showWebFilesDownloadScreen() {
     lv_obj_add_style(desc, getStyleLabelBody(), 0);
     lv_obj_set_style_text_color(desc, LV_COLOR_TEXT_SECONDARY, 0);
     lv_obj_set_style_text_line_space(desc, 4, 0);
+    web_download_desc = desc;
 
     // Button container
     lv_obj_t* btn_container = lv_obj_create(web_download_screen);
@@ -245,6 +263,7 @@ void showWebFilesDownloadScreen() {
     lv_obj_center(btn_download_label);
     lv_obj_add_event_cb(btn_download, [](lv_event_t* e) {
         Serial.println("[WebDownload] Download button clicked");
+        if (!webDownloadWiFiReady()) return;
         beep(TONE_SELECT, BEEP_MEDIUM);
 
         // Show brief reboot message
@@ -612,6 +631,7 @@ bool handleWebDownloadInput(char key) {
         case WD_UI_PROMPTING:
             // Handle Y/N for download prompt
             if (key == 'y' || key == 'Y' || key == KEY_ENTER) {
+                if (!webDownloadWiFiReady()) return true;
                 beep(TONE_SELECT, BEEP_MEDIUM);
 
                 // Due to memory constraints, downloads must happen at boot

@@ -811,7 +811,10 @@ void createNetworkListView(lv_obj_t* parent) {
     }
 }
 
-// Password textarea key handler - intercepts Enter, Tab, and ESC before default handling
+// Password textarea key handler - intercepts Enter, Tab, and ESC before default handling.
+// Registered with LV_EVENT_PREPROCESS: the textarea class handler runs before normal
+// callbacks and would otherwise insert the toggle key (0x16) as an invisible leading
+// character, making the saved password wrong.
 static void password_textarea_key_handler(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
     uint32_t key = lv_event_get_key(e);
@@ -825,7 +828,7 @@ static void password_textarea_key_handler(lv_event_t* e) {
             beep(TONE_SELECT, BEEP_MEDIUM);
             attemptWiFiConnection(networks[wifi_selected_network].ssid, password);
         }
-        lv_event_stop_bubbling(e);  // Prevent default textarea handling
+        lv_event_stop_processing(e);  // Textarea was just rebuilt; skip default handling
     } else if (isPasswordToggleKey(key)) {
         // Toggle password visibility
         wifi_password_visible = !wifi_password_visible;
@@ -888,7 +891,8 @@ void createPasswordInputView(lv_obj_t* parent) {
     lv_obj_set_style_text_font(wifi_password_textarea, getThemeFonts()->font_input, 0);
 
     // Add handlers BEFORE adding to navigation group so they process keys first
-    lv_obj_add_event_cb(wifi_password_textarea, password_textarea_key_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(wifi_password_textarea, password_textarea_key_handler,
+                        (lv_event_code_t)(LV_EVENT_KEY | LV_EVENT_PREPROCESS), NULL);
     lv_obj_add_event_cb(wifi_password_textarea, password_textarea_changed_handler, LV_EVENT_VALUE_CHANGED, NULL);
     addNavigableWidget(wifi_password_textarea);
 
