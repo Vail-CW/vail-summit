@@ -8,6 +8,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include "../core/psram_json.h"
 #include "internet_check.h"
 
 // ============================================
@@ -521,38 +522,25 @@ int fetchActiveSpots(POTASpotsCache& cache) {
     Serial.printf("POTA Spots: Received %d bytes\n", payload.length());
     Serial.printf("POTA Spots: Free heap after receive: %d\n", ESP.getFreeHeap());
 
-    // Use larger JSON buffer for more spots
-    // Each spot is ~500 bytes in JSON, so 200 spots = ~100KB
-    // Allocate in PSRAM if available
-    size_t jsonBufferSize = 131072;  // 128KB for ~200 spots
-    DynamicJsonDocument* doc;
+    // Each spot is ~500 bytes in JSON, so 200 spots = ~100KB of document.
+    // The PSRAM-first allocator keeps the document pools out of internal RAM
+    // (falls back to internal heap on no-PSRAM builds).
+    JsonDocument doc(psramJsonAllocator());
 
-    if (psramFound()) {
-        // Allocate JSON document in PSRAM
-        doc = new (ps_malloc(sizeof(DynamicJsonDocument))) DynamicJsonDocument(jsonBufferSize);
-        Serial.printf("POTA Spots: JSON buffer allocated in PSRAM (%d bytes)\n", jsonBufferSize);
-    } else {
-        // Fall back to heap with smaller buffer
-        jsonBufferSize = 32768;  // 32KB for ~50 spots
-        doc = new DynamicJsonDocument(jsonBufferSize);
-        Serial.printf("POTA Spots: JSON buffer allocated in heap (%d bytes)\n", jsonBufferSize);
-    }
-
-    DeserializationError error = deserializeJson(*doc, payload);
+    DeserializationError error = deserializeJson(doc, payload);
 
     // Free the payload string ASAP to recover memory
     payload = String();
 
     if (error) {
         Serial.printf("POTA Spots: JSON parse error - %s\n", error.c_str());
-        delete doc;
         cache.fetching = false;
         return -1;
     }
 
     Serial.printf("POTA Spots: Free heap after parse: %d\n", ESP.getFreeHeap());
 
-    JsonArray spotsArray = doc->as<JsonArray>();
+    JsonArray spotsArray = doc.as<JsonArray>();
     Serial.printf("POTA Spots: API returned %d spots\n", spotsArray.size());
 
     // Clear cache
@@ -604,8 +592,8 @@ int fetchActiveSpots(POTASpotsCache& cache) {
         cache.count++;
     }
 
-    // Free JSON document
-    delete doc;
+    // Free JSON document memory now (before the heap report below)
+    doc.clear();
 
     cache.fetchTime = millis();
     cache.valid = true;

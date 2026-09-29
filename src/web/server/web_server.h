@@ -121,8 +121,11 @@ void cleanupPracticeWebSocket() {
 
     Serial.println("[WebSocket] Cleaning up practice WebSocket...");
     practiceWebSocket->closeAll();
-    webServer.removeHandler(practiceWebSocket);
-    delete practiceWebSocket;
+    // removeHandler() owns and deletes the handler (unique_ptr list in
+    // ESPAsyncWebServer 3.6.0) - only delete here if it was not registered
+    if (!webServer.removeHandler(practiceWebSocket)) {
+      delete practiceWebSocket;
+    }
     practiceWebSocket = nullptr;
     Serial.printf("[WebSocket] Practice WebSocket freed (heap: %d)\n", ESP.getFreeHeap());
 }
@@ -142,8 +145,11 @@ void cleanupHearItWebSocket() {
 
     Serial.println("[WebSocket] Cleaning up hear-it WebSocket...");
     hearItWebSocket->closeAll();
-    webServer.removeHandler(hearItWebSocket);
-    delete hearItWebSocket;
+    // removeHandler() owns and deletes the handler (unique_ptr list in
+    // ESPAsyncWebServer 3.6.0) - only delete here if it was not registered
+    if (!webServer.removeHandler(hearItWebSocket)) {
+      delete hearItWebSocket;
+    }
     hearItWebSocket = nullptr;
     Serial.printf("[WebSocket] Hear-it WebSocket freed (heap: %d)\n", ESP.getFreeHeap());
 }
@@ -167,8 +173,11 @@ void cleanupMemoryChainWebSocket() {
 
     Serial.println("[WebSocket] Cleaning up memory-chain WebSocket...");
     memoryChainWebSocket->closeAll();
-    webServer.removeHandler(memoryChainWebSocket);
-    delete memoryChainWebSocket;
+    // removeHandler() owns and deletes the handler (unique_ptr list in
+    // ESPAsyncWebServer 3.6.0) - only delete here if it was not registered
+    if (!webServer.removeHandler(memoryChainWebSocket)) {
+      delete memoryChainWebSocket;
+    }
     memoryChainWebSocket = nullptr;
     Serial.printf("[WebSocket] Memory-chain WebSocket freed (heap: %d)\n", ESP.getFreeHeap());
 }
@@ -423,6 +432,9 @@ void stopWebServer() {
   cleanupMemoryChainWebSocket();
 
   webServer.end();
+  // end() only closes the listener - reset() frees every route handler so
+  // the next setupWebServer() does not stack a second copy of all routes
+  webServer.reset();
   MDNS.end();
   webServerRunning = false;
   Serial.println("Web server stopped");

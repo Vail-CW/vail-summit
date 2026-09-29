@@ -2159,6 +2159,12 @@ void cleanupBTKeyboardSettingsScreen() {
         btkb_timer = NULL;
     }
     stopBLEKeyboardScan();  // no-op unless a scan is running
+    // Nothing paired (never paired, or pairing was just forgotten): nothing
+    // will auto-reconnect, so shut NimBLE down and give its heap back.
+    // A paired keyboard keeps BLE up for auto-reconnect.
+    if (!bleKBHost.pairedDevice.valid && bleKBHost.state != BLEKB_STATE_CONNECTED) {
+        deinitBLEKeyboardHost();  // no-op if already idle
+    }
     btkb_screen = NULL;
     btkb_status_label = NULL;
     btkb_paired_label = NULL;

@@ -12,6 +12,7 @@
 #include <HTTPClient.h>
 #include <SPIFFS.h>
 #include <esp_task_wdt.h>
+#include <esp_heap_caps.h>
 #include <time.h>
 #include "../storage/sd_card.h"
 
@@ -59,12 +60,27 @@ struct SatCatalog {
 
 static SatCatalog satCatalog = { nullptr, 0, false, false, 0 };
 
+// Display-order index into satCatalog.sats (see buildSatDisplayList). PSRAM,
+// allocated once in initSatCatalog() and never freed; only read for rows
+// below satDisplayCount, which stays 0 unless this was allocated.
+static uint16_t* satDisplayIdx = nullptr;
+static int satDisplayCount = 0;
+
 // ============================================
 // PSRAM Allocation
 // ============================================
 
 bool initSatCatalog() {
     if (satCatalog.initialized) return true;
+
+    if (!satDisplayIdx) {
+        satDisplayIdx = (uint16_t*)heap_caps_calloc(MAX_SATELLITES, sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+        if (!satDisplayIdx) satDisplayIdx = (uint16_t*)calloc(MAX_SATELLITES, sizeof(uint16_t));
+    }
+    if (!satDisplayIdx) {
+        Serial.println("[SAT] ERROR: display index allocation failed");
+        return false;
+    }
 
     size_t totalSize = sizeof(SatEntry) * MAX_SATELLITES;
     if (psramFound()) {
@@ -338,9 +354,6 @@ void toggleSatFavorite(uint32_t norad) {
 // Display List (favorites first, name filter)
 // ============================================
 
-static uint16_t satDisplayIdx[MAX_SATELLITES];
-static int satDisplayCount = 0;
-
 // Case-insensitive substring match
 static bool satNameMatches(const char* name, const char* filter) {
     if (filter[0] == '\0') return true;
@@ -372,7 +385,7 @@ typedef bool (*SatIncludeFn)(uint32_t norad);
 // nextPassAos != NULL: whole list ordered by next pass time (see key above).
 void buildSatDisplayList(const char* filter, const time_t* nextPassAos, SatIncludeFn include) {
     satDisplayCount = 0;
-    if (!satCatalog.valid) return;
+    if (!satCatalog.valid || !satDisplayIdx) return;
 
     if (nextPassAos) {
         for (int i = 0; i < satCatalog.count; i++) {

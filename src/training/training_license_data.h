@@ -8,6 +8,7 @@
 
 #include <SD.h>
 #include <ArduinoJson.h>
+#include "../core/psram_json.h"
 #include "../storage/sd_card.h"
 #include "../core/config.h"
 
@@ -118,7 +119,7 @@ bool loadQuestionPool(QuestionPool* pool) {
   file.close();
 
   // Parse JSON
-  DynamicJsonDocument doc(fileSize + 2048);  // Add buffer for parsing overhead
+  JsonDocument doc(psramJsonAllocator());  // PSRAM-first: keeps big parse out of internal RAM
   DeserializationError error = deserializeJson(doc, jsonBuffer);
   free(jsonBuffer);
 

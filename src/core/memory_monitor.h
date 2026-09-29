@@ -7,6 +7,11 @@
 #define MEMORY_MONITOR_H
 
 #include <Arduino.h>
+#include <esp_heap_caps.h>
+
+// Lowest largest-internal-block seen since boot - the number that predicts
+// WiFi/TLS trouble better than total free heap
+static uint32_t lowestMaxInternalBlock = UINT32_MAX;
 
 // Memory snapshot structure
 struct MemorySnapshot {
@@ -41,8 +46,8 @@ void logMemoryStatus(const char* tag = nullptr) {
         Serial.printf("[%s] ", tag);
     }
 
-    Serial.printf("Heap: %d free, %d min, %d max-block",
-        snap.freeHeap, snap.minFreeHeap, snap.maxAllocHeap);
+    Serial.printf("Heap: %d free, %d min, %d max-block (lowest max-block %u)",
+        snap.freeHeap, snap.minFreeHeap, snap.maxAllocHeap, (unsigned)lowestMaxInternalBlock);
 
     if (snap.totalPsram > 0) {
         Serial.printf(", PSRAM: %d/%d free", snap.freePsram, snap.totalPsram);
@@ -63,6 +68,15 @@ bool isHeapFragmented() {
     return (maxBlock < freeHeap / 2) && (freeHeap > 30000);
 }
 
+// Largest contiguous internal block a TLS handshake needs (mbedTLS buffers are
+// internal-only on this core). Below this, HTTPS / WSS connects start failing.
+#define TLS_INTERNAL_BLOCK_NEEDED 45000
+
+// True when a TLS connection can reasonably be attempted right now
+bool hasTLSHeadroom() {
+    return heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) >= TLS_INTERNAL_BLOCK_NEEDED;
+}
+
 // Periodic health check - call in main loop
 void checkMemoryHealth() {
     static unsigned long lastCheck = 0;
@@ -74,7 +88,16 @@ void checkMemoryHealth() {
     lastCheck = now;
 
     uint32_t freeHeap = ESP.getFreeHeap();
-    uint32_t minHeap = ESP.getMinFreeHeap();
+    uint32_t maxInternal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (maxInternal < lowestMaxInternalBlock) lowestMaxInternalBlock = maxInternal;
+
+    // TLS can't fit - worth knowing when WiFi features start failing
+    if (maxInternal < TLS_INTERNAL_BLOCK_NEEDED && now - lastWarning > 300000) {
+        Serial.printf("WARNING: largest internal block %u < %u needed for TLS (lowest since boot %u)\n",
+            (unsigned)maxInternal, (unsigned)TLS_INTERNAL_BLOCK_NEEDED, (unsigned)lowestMaxInternalBlock);
+        logMemoryStatus("TLS_ROOM");
+        lastWarning = now;
+    }
 
     // Log if heap is low or has dropped significantly
     if (freeHeap < 30000) {

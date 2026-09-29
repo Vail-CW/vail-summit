@@ -93,14 +93,14 @@ static void homeReadCallsign(char* out, size_t len) {
 
 // True if the user has made ANY progress in the Vail course (else day-one).
 static bool homeHasTrainingProgress() {
-    return !(vailCourseProgress.currentModule == MODULE_LETTERS_1 &&
-             vailCourseProgress.currentLesson == 1 &&
-             vailCourseProgress.modulesCompleted == 0);
+    return !(vcProgress().currentModule == MODULE_LETTERS_1 &&
+             vcProgress().currentLesson == 1 &&
+             vcProgress().modulesCompleted == 0);
 }
 
 static int homeCountCompletedModules() {
     int n = 0;
-    uint32_t bits = vailCourseProgress.modulesCompleted;
+    uint32_t bits = vcProgress().modulesCompleted;
     while (bits) { n += (bits & 1); bits >>= 1; }
     return n;
 }
@@ -141,17 +141,17 @@ static void homeApplyMailbox(lv_obj_t* lbl) {
 static void homeFillSideWidget() {
     if (!s_home_side_ttl) return;
 
-    if (bandConditionsData.valid) {
+    if (bandConditions().valid) {
         lv_label_set_text(s_home_side_ttl, "ON THE BANDS");
         if (s_home_side_l1)
             lv_label_set_text_fmt(s_home_side_l1, "20m  %s",
-                getBandConditionText(bandConditionsData.hf_30m_20m.day));
+                getBandConditionText(bandConditions().hf_30m_20m.day));
         if (s_home_side_l2)
             lv_label_set_text_fmt(s_home_side_l2, "40m  %s",
-                getBandConditionText(bandConditionsData.hf_80m_40m.day));
+                getBandConditionText(bandConditions().hf_80m_40m.day));
         if (s_home_side_l3)
             lv_label_set_text_fmt(s_home_side_l3, "SFI %d   K %d",
-                bandConditionsData.solar.solarFlux, bandConditionsData.solar.kIndex);
+                bandConditions().solar.solarFlux, bandConditions().solar.kIndex);
     } else {
         lv_label_set_text(s_home_side_ttl, "YOUR PRACTICE");
         if (s_home_side_l1)
@@ -321,7 +321,7 @@ lv_obj_t* createHomeScreen() {
     lv_obj_t* hero_title = lv_label_create(hero);
     if (hasProgress) {
         lv_label_set_text_fmt(hero_title, "%s",
-            vailCourseModuleNames[vailCourseProgress.currentModule]);
+            vailCourseModuleNames[vcProgress().currentModule]);
     } else {
         lv_label_set_text(hero_title, "Learn Morse Code");
     }
@@ -331,7 +331,7 @@ lv_obj_t* createHomeScreen() {
 
     lv_obj_t* hero_sub = lv_label_create(hero);
     if (hasProgress) {
-        lv_label_set_text_fmt(hero_sub, "Lesson %d", vailCourseProgress.currentLesson);
+        lv_label_set_text_fmt(hero_sub, "Lesson %d", vcProgress().currentLesson);
     } else {
         lv_label_set_text(hero_sub, "From zero. One sound at a time.");
     }

@@ -70,9 +70,6 @@ uint8_t vailTxTone = 72;        // MIDI note 72 = C5 (523 Hz) - default CW tone
 
 #if VAIL_ENABLED
 
-// SSL client for WebSocket
-WiFiClientSecure wifiClient;
-
 // Vail repeater state
 enum VailState {
   VAIL_DISCONNECTED,

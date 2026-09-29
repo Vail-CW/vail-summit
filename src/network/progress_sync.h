@@ -7,6 +7,7 @@
 #define PROGRESS_SYNC_H
 
 #include <ArduinoJson.h>
+#include "../core/psram_json.h"
 #include <HTTPClient.h>
 #include <Preferences.h>
 #include "../settings/settings_cwschool.h"
@@ -68,7 +69,7 @@ static Preferences syncPrefs;
  * Includes practice time, session info, and any training progress
  */
 String buildSyncPayload(unsigned long sessionDurationSec, const String& sessionMode) {
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
 
     // Version and device info
     doc["v"] = PROGRESS_SYNC_VERSION;
@@ -91,7 +92,7 @@ String buildSyncPayload(unsigned long sessionDurationSec, const String& sessionM
 
     // Practice history (parse from the JSON string helper)
     String historyJson = getPracticeHistoryJson();
-    JsonDocument historyDoc;
+    JsonDocument historyDoc(psramJsonAllocator());
     if (deserializeJson(historyDoc, historyJson) == DeserializationError::Ok) {
         doc["practice_time"]["history"] = historyDoc;
     }
@@ -264,7 +265,7 @@ bool syncProgressToCloud(const String& payload) {
 
     if (httpCode == 200) {
         // Parse response to update local state if needed
-        JsonDocument respDoc;
+        JsonDocument respDoc(psramJsonAllocator());
         if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
             // Update last sync time
             syncState.lastSyncTime = millis();
@@ -357,7 +358,7 @@ bool pullProgressFromCloud() {
         return false;
     }
 
-    JsonDocument reqDoc;
+    JsonDocument reqDoc(psramJsonAllocator());
     reqDoc["device_id"] = getCWSchoolDeviceId();
 
     String body;
@@ -367,7 +368,7 @@ bool pullProgressFromCloud() {
     int httpCode = cwschoolHttpRequest("POST", "api_summit_getProgress", body, response);
 
     if (httpCode == 200) {
-        JsonDocument respDoc;
+        JsonDocument respDoc(psramJsonAllocator());
         if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
             Serial.println("[Sync] Progress pulled from cloud");
 

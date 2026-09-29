@@ -8,6 +8,7 @@
 #define WEB_SERVER_API_H
 
 #include <ArduinoJson.h>
+#include "../../core/psram_json.h"
 #include <FS.h>
 #include <SD.h>
 #include "../../core/config.h"
@@ -142,7 +143,7 @@ String getQSOLogsJSON() {
 
         // Process QSO log files (JSON only, not ADIF)
         if (filename.endsWith(".json")) {
-          JsonDocument logDoc;
+          JsonDocument logDoc(psramJsonAllocator());
           DeserializationError error = deserializeJson(logDoc, file);
 
           if (!error && logDoc.containsKey("logs")) {
@@ -205,7 +206,7 @@ String generateADIF() {
 
         // Only process JSON files
         if (filename.endsWith(".json")) {
-          JsonDocument logDoc;
+          JsonDocument logDoc(psramJsonAllocator());
           DeserializationError error = deserializeJson(logDoc, file);
 
           if (!error && logDoc.containsKey("logs")) {
@@ -318,7 +319,7 @@ String generateCSV() {
 
         // Only process JSON files
         if (filename.endsWith(".json")) {
-          JsonDocument logDoc;
+          JsonDocument logDoc(psramJsonAllocator());
           DeserializationError error = deserializeJson(logDoc, file);
 
           if (!error && logDoc.containsKey("logs")) {

@@ -9,6 +9,7 @@
 #include "../core/config.h"
 #include "qso_logger.h"  // Same folder
 #include "qso_logger_storage.h"  // Same folder
+#include "../core/psram_json.h"
 
 // ============================================
 // Statistics Data Structure
@@ -95,8 +96,10 @@ void calculateStatistics() {
   // Reset stats
   memset(&stats, 0, sizeof(stats));
 
-  // Track unique callsigns (simple array, limited to 100 for memory)
-  String uniqueCallsignsList[100];
+  // Track unique callsigns (limited to 100). Fixed-width table allocated in
+  // PSRAM (falls back to internal heap) and freed before returning.
+  constexpr int MAX_UNIQUE_CALLSIGNS = 100;
+  constexpr size_t UNIQUE_CALLSIGN_LEN = 32;  // generous: logged callsigns are max 10 chars
   int uniqueCount = 0;
 
   // Track dates for most active day
@@ -112,6 +115,15 @@ void calculateStatistics() {
   if (!root || !root.isDirectory()) {
     Serial.println("Failed to open /qso directory");
     return;
+  }
+
+  char (*uniqueCallsignsList)[UNIQUE_CALLSIGN_LEN] = (char (*)[UNIQUE_CALLSIGN_LEN])heap_caps_calloc(
+      MAX_UNIQUE_CALLSIGNS, UNIQUE_CALLSIGN_LEN, MALLOC_CAP_SPIRAM);
+  if (!uniqueCallsignsList) {
+    uniqueCallsignsList = (char (*)[UNIQUE_CALLSIGN_LEN])calloc(MAX_UNIQUE_CALLSIGNS, UNIQUE_CALLSIGN_LEN);
+  }
+  if (!uniqueCallsignsList) {
+    Serial.println("Stats: failed to allocate callsign table, unique count will be 0");
   }
 
   // Iterate through all log files
@@ -135,7 +147,7 @@ void calculateStatistics() {
           String content = logFile.readString();
           logFile.close();
 
-          StaticJsonDocument<8192> doc;
+          JsonDocument doc(psramJsonAllocator());
           DeserializationError error = deserializeJson(doc, content);
 
           if (!error && doc.containsKey("logs")) {
@@ -161,17 +173,17 @@ void calculateStatistics() {
               }
 
               // Unique callsigns
-              String callsign = String(qso["callsign"] | "");
-              if (callsign.length() > 0) {
+              const char* callsign = qso["callsign"] | "";
+              if (uniqueCallsignsList && callsign[0] != 0) {
                 bool found = false;
                 for (int i = 0; i < uniqueCount; i++) {
-                  if (uniqueCallsignsList[i] == callsign) {
+                  if (strncmp(uniqueCallsignsList[i], callsign, UNIQUE_CALLSIGN_LEN - 1) == 0) {
                     found = true;
                     break;
                   }
                 }
-                if (!found && uniqueCount < 100) {
-                  uniqueCallsignsList[uniqueCount++] = callsign;
+                if (!found && uniqueCount < MAX_UNIQUE_CALLSIGNS) {
+                  strlcpy(uniqueCallsignsList[uniqueCount++], callsign, UNIQUE_CALLSIGN_LEN);
                 }
               }
 
@@ -206,6 +218,8 @@ void calculateStatistics() {
     file = root.openNextFile();
   }
   root.close();
+
+  free(uniqueCallsignsList);
 
   // Set unique callsigns count
   stats.uniqueCallsigns = uniqueCount;

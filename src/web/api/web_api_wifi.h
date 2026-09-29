@@ -79,6 +79,8 @@ void setupWiFiScanEndpoint(AsyncWebServer &server) {
         network["encrypted"] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
       }
     }
+    // Results are copied into the JSON doc - free the driver's scan list
+    WiFi.scanDelete();
 
     String output;
     serializeJson(doc, output);

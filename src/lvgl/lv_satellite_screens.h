@@ -10,6 +10,7 @@
 
 #include <lvgl.h>
 #include <WiFi.h>
+#include <esp_heap_caps.h>
 #include "lv_theme_summit.h"
 #include "lv_widgets_summit.h"
 #include "lv_screen_manager.h"
@@ -54,8 +55,10 @@ int satPassesReturnMode = MODE_SAT_LIST;
 // aos/los per catalog index: 0 = not computed, -1 = no pass found within the
 // lookahead window. Favorites + curated birds always compute; the "by next
 // pass" variant sweeps the whole catalog (favorites first).
-static time_t sat_np_aos[MAX_SATELLITES];
-static time_t sat_np_los[MAX_SATELLITES];
+// PSRAM arrays of MAX_SATELLITES, allocated by satScreensEnsureBuffers() and
+// never freed; every reader tolerates NULL (treated as nothing computed).
+static time_t* sat_np_aos = NULL;
+static time_t* sat_np_los = NULL;
 static lv_timer_t* sat_list_np_timer = NULL;
 static int sat_np_current = -1;         // catalog index in-flight, -1 = idle
 
@@ -91,8 +94,9 @@ static lv_obj_t* sat_set_value_labels[5] = { NULL };
 // Sky window ("what's up in the hour after <date time>")
 #define SAT_WIN_MAX_RESULTS 40
 #define SAT_WIN_MINUTES 60
-static struct { int catIdx; SatPass pass; } sat_win_results[SAT_WIN_MAX_RESULTS];
-static int sat_win_count = 0;
+struct SatWinResult { int catIdx; SatPass pass; };
+static SatWinResult* sat_win_results = NULL;   // SAT_WIN_MAX_RESULTS entries, PSRAM
+static int sat_win_count = 0;                  // stays 0 while sat_win_results is NULL
 static int sat_win_scan = 0;            // next catalog index to evaluate
 static bool sat_win_inflight = false;
 static time_t sat_win_start = 0;        // UTC start of the 60-min window
@@ -103,6 +107,22 @@ static lv_obj_t* sat_win_date_val = NULL;
 static lv_obj_t* sat_win_time_val = NULL;
 static lv_timer_t* sat_win_timer = NULL;
 static bool sat_win_focus_table = false;   // true = "Next 60 Minutes" entry
+
+static void* satScreenPsramCalloc(size_t n, size_t size) {
+    void* p = heap_caps_calloc(n, size, MALLOC_CAP_SPIRAM);
+    if (!p) p = calloc(n, size);   // no-PSRAM builds
+    return p;
+}
+
+// Allocate the list/window work arrays once (first satellite screen visit).
+static void satScreensEnsureBuffers() {
+    if (!sat_np_aos) sat_np_aos = (time_t*)satScreenPsramCalloc(MAX_SATELLITES, sizeof(time_t));
+    if (!sat_np_los) sat_np_los = (time_t*)satScreenPsramCalloc(MAX_SATELLITES, sizeof(time_t));
+    if (!sat_win_results) sat_win_results = (SatWinResult*)satScreenPsramCalloc(SAT_WIN_MAX_RESULTS, sizeof(SatWinResult));
+}
+
+// Both next-pass arrays present (they are always read together)
+static inline bool satNpReady() { return sat_np_aos && sat_np_los; }
 
 // ============================================
 // Cleanup (registered for all satellite modes)
@@ -263,8 +283,10 @@ static void satUpdateFinishUI(bool ok) {
 
     if (ok) {
         // Catalog indexes changed - cached next-pass times are invalid
-        memset(sat_np_aos, 0, sizeof(sat_np_aos));
-        memset(sat_np_los, 0, sizeof(sat_np_los));
+        if (satNpReady()) {
+            memset(sat_np_aos, 0, MAX_SATELLITES * sizeof(time_t));
+            memset(sat_np_los, 0, MAX_SATELLITES * sizeof(time_t));
+        }
         beep(1000, 100);
         // Say where the cache landed - offline field use depends on it
         if (satTLEStorage == SAT_STORE_SD) showToast("Satellite data updated - saved to SD card");
@@ -402,7 +424,7 @@ static void satAutoFetchIfEmpty() {
 // "14:32 in 1h05m" / "NOW" / "none" for a favorite's cached next pass
 static void satFmtNextPassCell(int catIdx, char* buf, size_t n) {
     buf[0] = '\0';
-    if (!ntpSynced) return;
+    if (!ntpSynced || !satNpReady()) return;
     time_t aos = sat_np_aos[catIdx];
     time_t los = sat_np_los[catIdx];
     time_t now = time(nullptr);
@@ -433,7 +455,7 @@ static bool satIncludePopular(uint32_t norad) { return lookupSatFreqs(norad) != 
 // everything wanted is current. -1 ("no pass in window") entries stay sticky
 // until a TLE refresh - recomputing them is the most expensive case.
 static int satNextComputeIndex() {
-    if (!satCatalog.valid || !ntpSynced) return -1;
+    if (!satCatalog.valid || !ntpSynced || !satNpReady()) return -1;
     double lat, lon;
     if (!gridToLatLon(satEffectiveGrid(), &lat, &lon)) return -1;
 
@@ -454,7 +476,7 @@ static int satNextComputeIndex() {
 static void satNextPassProgress(int* done, int* wanted) {
     *done = 0;
     *wanted = 0;
-    if (!satCatalog.valid) return;
+    if (!satCatalog.valid || !satNpReady()) return;
     for (int i = 0; i < satCatalog.count; i++) {
         if (!satNextPassWanted(i)) continue;
         (*wanted)++;
@@ -480,6 +502,7 @@ static void satEnsureNextPassWorker() {
 // and picks up birds whose pass has ended.
 static void sat_list_np_timer_cb(lv_timer_t* t) {
     if (!sat_list_table || !lv_obj_is_valid(sat_list_table)) return;
+    if (!satNpReady()) return;
 
     if (sat_np_current < 0) {
         sat_np_current = satNextComputeIndex();
@@ -573,7 +596,7 @@ static void satRefreshListTable() {
         selNorad = satCatalog.sats[satDisplayIdx[sat_list_selected_row]].norad;
     }
 
-    const time_t* sortKeys = (sat_list_variant == SAT_LIST_ALL) ? NULL : sat_np_aos;
+    const time_t* sortKeys = (sat_list_variant == SAT_LIST_ALL || !satNpReady()) ? NULL : sat_np_aos;
     SatIncludeFn include = NULL;
     if (sat_list_variant == SAT_LIST_MY) include = satIncludeFavorite;
     else if (sat_list_variant == SAT_LIST_POPULAR) include = satIncludePopular;
@@ -619,7 +642,7 @@ static void satRefreshListTable() {
         lv_table_set_cell_value(sat_list_table, i, 0, fav ? "*" : "");
         lv_table_set_cell_value(sat_list_table, i, 1, e.name);
         char next[24] = "";
-        if (sat_list_variant != SAT_LIST_ALL || sat_np_aos[satDisplayIdx[i]] != 0) {
+        if (sat_list_variant != SAT_LIST_ALL || (satNpReady() && sat_np_aos[satDisplayIdx[i]] != 0)) {
             satFmtNextPassCell(satDisplayIdx[i], next, sizeof(next));
         }
         lv_table_set_cell_value(sat_list_table, i, 2, next);
@@ -749,6 +772,7 @@ static lv_obj_t* createSatListScreenVariant(SatListVariant variant) {
     applyScreenStyle(screen);
 
     initSatCatalog();
+    satScreensEnsureBuffers();
     loadSatSettings();
     loadSatFavorites();
     if (!satCatalog.valid) {
@@ -1713,7 +1737,7 @@ static void satWinRestartScan() {
 }
 
 static void satWinInsertResult(int catIdx, const SatPass* p) {
-    if (sat_win_count >= SAT_WIN_MAX_RESULTS) return;
+    if (!sat_win_results || sat_win_count >= SAT_WIN_MAX_RESULTS) return;
     int pos = sat_win_count;
     while (pos > 0 && sat_win_results[pos - 1].pass.aos > p->aos) {
         sat_win_results[pos] = sat_win_results[pos - 1];
@@ -1840,6 +1864,7 @@ static lv_obj_t* createSatWindowScreenVariant(bool focusTable) {
 
     // May be the first satellite screen visited this boot - load the cache
     initSatCatalog();
+    satScreensEnsureBuffers();
     loadSatSettings();
     loadSatFavorites();
     if (!satCatalog.valid) {

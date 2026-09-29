@@ -11,6 +11,8 @@
 
 #include <Arduino.h>
 #include <HTTPClient.h>
+#include <esp_heap_caps.h>
+#include <new>
 #include "sat_data.h"
 #include "sat_xmtrs.h"
 
@@ -39,10 +41,32 @@ struct SatUpdateJob {
     bool finishedOk;
 };
 
+#define SAT_UPD_OBJ_SIZE   2048
+#define SAT_UPD_CHUNK_SIZE 512
+
 static SatUpdateJob satUpd = {};
-static HTTPClient satUpdHttp;        // reused across stages; too big for stack
-static char satUpdObj[2048];
-static char satUpdChunk[512];
+// Work buffers + HTTP client live in PSRAM. Allocated once by
+// satUpdEnsureBuffers() (from satUpdateJobStart) and never freed, so every
+// user below runs only while a job is active and the pointers are valid.
+static HTTPClient* satUpdHttpPtr = nullptr;   // reused across stages; too big for stack
+static char* satUpdObj = nullptr;             // SAT_UPD_OBJ_SIZE bytes
+static char* satUpdChunk = nullptr;           // SAT_UPD_CHUNK_SIZE bytes
+
+static void* satUpdPsramCalloc(size_t n, size_t size) {
+    void* p = heap_caps_calloc(n, size, MALLOC_CAP_SPIRAM);
+    if (!p) p = calloc(n, size);   // no-PSRAM builds
+    return p;
+}
+
+static bool satUpdEnsureBuffers() {
+    if (!satUpdObj) satUpdObj = (char*)satUpdPsramCalloc(SAT_UPD_OBJ_SIZE, 1);
+    if (!satUpdChunk) satUpdChunk = (char*)satUpdPsramCalloc(SAT_UPD_CHUNK_SIZE, 1);
+    if (!satUpdHttpPtr) {
+        void* mem = satUpdPsramCalloc(1, sizeof(HTTPClient));
+        if (mem) satUpdHttpPtr = new (mem) HTTPClient();   // constructed once, never destroyed
+    }
+    return satUpdObj && satUpdChunk && satUpdHttpPtr;
+}
 
 bool satUpdateJobActive() { return satUpd.stage != SATUPD_IDLE; }
 
@@ -62,6 +86,7 @@ bool satUpdateJobStart() {
     if (satUpdateJobActive()) return true;
     if (WiFi.status() != WL_CONNECTED) return false;
     if (!initSatCatalog() || !initSatXmtrs()) return false;
+    if (!satUpdEnsureBuffers()) return false;
 
     memset(&satUpd, 0, sizeof(satUpd));
     // Rebuild from scratch so decayed/renamed birds don't linger
@@ -84,7 +109,7 @@ static const char* satUpdStageUrl() {
 
 static void satUpdAdvanceStage() {
     if (satUpd.httpOpen) {
-        satUpdHttp.end();
+        satUpdHttpPtr->end();
         satUpd.httpOpen = false;
     }
     switch (satUpd.stage) {
@@ -132,7 +157,7 @@ static void satUpdConsumeByte(char c) {
             }
             return;
         }
-        if (satUpd.oPos < (int)sizeof(satUpdObj) - 1) satUpdObj[satUpd.oPos++] = c;
+        if (satUpd.oPos < SAT_UPD_OBJ_SIZE - 1) satUpdObj[satUpd.oPos++] = c;
         if (satUpd.esc) { satUpd.esc = false; return; }
         if (satUpd.inStr) {
             if (c == '\\') satUpd.esc = true;
@@ -163,7 +188,7 @@ static void satUpdConsumeByte(char c) {
 
 // One tick of work, bounded by budgetMs. Call from an LVGL timer.
 void satUpdateJobTick(uint32_t budgetMs) {
-    if (!satUpdateJobActive()) return;
+    if (!satUpdateJobActive() || !satUpdEnsureBuffers()) return;
     uint32_t t0 = millis();
 
     if (!satUpd.httpOpen) {
@@ -171,25 +196,25 @@ void satUpdateJobTick(uint32_t budgetMs) {
         // well under the loop WDT timeout; a frame renders right after.
         const char* url = satUpdStageUrl();
         if (!url) { satUpd.stage = SATUPD_IDLE; return; }
-        satUpdHttp.setTimeout(15000);
-        satUpdHttp.setReuse(false);
-        satUpdHttp.begin(url);
-        int code = satUpdHttp.GET();
+        satUpdHttpPtr->setTimeout(15000);
+        satUpdHttpPtr->setReuse(false);
+        satUpdHttpPtr->begin(url);
+        int code = satUpdHttpPtr->GET();
         if (code != HTTP_CODE_OK) {
             Serial.printf("[SAT] update stage %d failed: HTTP %d\n", satUpd.stage, code);
-            satUpdHttp.end();
+            satUpdHttpPtr->end();
             satUpdAdvanceStage();
             return;
         }
-        satUpd.stageTotal = satUpdHttp.getSize();
+        satUpd.stageTotal = satUpdHttpPtr->getSize();
         satUpd.lastData = millis();
         satUpd.httpOpen = true;
         return;
     }
 
-    WiFiClient* stream = satUpdHttp.getStreamPtr();
+    WiFiClient* stream = satUpdHttpPtr->getStreamPtr();
     while ((millis() - t0) < budgetMs) {
-        if (!satUpdHttp.connected() && !stream->available()) {
+        if (!satUpdHttpPtr->connected() && !stream->available()) {
             satUpdAdvanceStage();       // stage body fully consumed
             return;
         }
@@ -203,7 +228,7 @@ void satUpdateJobTick(uint32_t budgetMs) {
             return;                     // nothing yet - let the UI animate
         }
         satUpd.lastData = millis();
-        int n = stream->readBytes(satUpdChunk, min(avail, (int)sizeof(satUpdChunk)));
+        int n = stream->readBytes(satUpdChunk, min(avail, SAT_UPD_CHUNK_SIZE));
         satUpd.stageBytes += (uint32_t)n;
         for (int i = 0; i < n; i++) {
             satUpdConsumeByte(satUpdChunk[i]);

@@ -39,7 +39,7 @@ static void vail_course_module_click_handler(lv_event_t* e) {
     }
 
     vail_course_selected_module = moduleIdx;
-    vailCourseProgress.currentModule = (VailCourseModule)moduleIdx;
+    vcProgress().currentModule = (VailCourseModule)moduleIdx;
     onLVGLMenuSelect(MODE_VAIL_COURSE_LESSON_SELECT);
 }
 
@@ -86,7 +86,7 @@ lv_obj_t* createVailCourseModuleSelectScreen() {
                                      (void*)(intptr_t)i);
 
         if (!firstRow) firstRow = row;
-        if (i == (int)vailCourseProgress.currentModule) currentRow = row;
+        if (i == (int)vcProgress().currentModule) currentRow = row;
     }
 
     focusWidget(currentRow ? currentRow : firstRow);
@@ -100,8 +100,8 @@ lv_obj_t* createVailCourseModuleSelectScreen() {
 static void vail_course_lesson_click_handler(lv_event_t* e) {
     int lessonNum = (int)(intptr_t)lv_event_get_user_data(e);
 
-    vailCourseProgress.currentLesson = lessonNum;
-    vailCourseProgress.currentPhase = PHASE_INTRO;
+    vcProgress().currentLesson = lessonNum;
+    vcProgress().currentPhase = PHASE_INTRO;
 
     // Navigate to lesson practice
     onLVGLMenuSelect(MODE_VAIL_COURSE_LESSON);
@@ -112,7 +112,7 @@ lv_obj_t* createVailCourseLessonSelectScreen() {
     lv_obj_t* screen = createScreen();
     applyScreenStyle(screen);
 
-    VailCourseModule module = vailCourseProgress.currentModule;
+    VailCourseModule module = vcProgress().currentModule;
     createHeader(screen, vailCourseModuleNames[module]);
 
     int lessonCount     = vailCourseLessonCounts[module];
@@ -242,7 +242,7 @@ static void vail_course_autoplay_cb(lv_timer_t* timer) {
     vail_course_autoplay_timer = NULL;
     advanceVailCourseLessonItem();
     // Only auto-play if we haven't moved to result phase
-    if (vailCourseProgress.currentPhase != PHASE_RESULT) {
+    if (vcProgress().currentPhase != PHASE_RESULT) {
         playCurrentCharacter();
     }
     updateVailCourseLessonUI();
@@ -262,7 +262,7 @@ static void vail_course_intro_timer_cb(lv_timer_t* timer) {
         advanceVailCourseLessonItem();
         updateVailCourseLessonUI();
         // If still in intro, start auto-play chain for the next character
-        if (vailCourseProgress.currentPhase == PHASE_INTRO) {
+        if (vcProgress().currentPhase == PHASE_INTRO) {
             vail_course_autoplay_timer = lv_timer_create(vail_course_intro_timer_cb, 1000, NULL);
         }
     }
@@ -285,7 +285,7 @@ char getRandomVailCourseChar() {
 
 // Get characters for current lesson (fills buffer)
 void getVailCourseLessonChars(char* buf, int bufSize) {
-    VailCourseModule module = vailCourseProgress.currentModule;
+    VailCourseModule module = vcProgress().currentModule;
 
     // For words and callsigns modules, use all letters
     if (module == MODULE_WORDS_COMMON || module == MODULE_CALLSIGNS) {
@@ -301,24 +301,24 @@ void getVailCourseLessonChars(char* buf, int bufSize) {
 
 // Get the new characters for this module (for intro phase)
 const char* getVailCourseNewChars() {
-    return vailCourseModuleChars[vailCourseProgress.currentModule];
+    return vailCourseModuleChars[vcProgress().currentModule];
 }
 
 // Generate a group target (fills buffer). For most modules this is a random
 // character group; the words-common and callsigns modules instead play a real
 // word or callsign so the GROUPS phase teaches actual CW content.
 void generateVailCourseGroup(char* buf, int length) {
-    VailCourseModule module = vailCourseProgress.currentModule;
+    VailCourseModule module = vcProgress().currentModule;
 
     if (module == MODULE_WORDS_COMMON) {
-        const char* word = getVailCourseRandomWord(vailCourseProgress.currentLesson - 1);
+        const char* word = getVailCourseRandomWord(vcProgress().currentLesson - 1);
         strncpy(buf, word, 15);
         buf[15] = '\0';
         return;
     }
     if (module == MODULE_CALLSIGNS) {
         // Lesson 1 = US calls, lesson 2 = DX calls.
-        int style = (vailCourseProgress.currentLesson >= 2) ? 1 : 0;
+        int style = (vcProgress().currentLesson >= 2) ? 1 : 0;
         generateVailCourseCallsign(buf, 16, style);
         return;
     }
@@ -375,10 +375,10 @@ void submitVailCourseGroupAnswer() {
         for (size_t i = 0; i < strlen(lessonState.currentGroup); i++) {
             int charIdx = getVailCourseCharIndex(lessonState.currentGroup[i]);
             if (charIdx >= 0) {
-                vailCourseProgress.charMastery[charIdx].attempts++;
-                vailCourseProgress.charMastery[charIdx].correct++;
-                vailCourseProgress.charMastery[charIdx].mastery =
-                    min(1000, vailCourseProgress.charMastery[charIdx].mastery + 50);
+                vcProgress().charMastery[charIdx].attempts++;
+                vcProgress().charMastery[charIdx].correct++;
+                vcProgress().charMastery[charIdx].mastery =
+                    min(1000, vcProgress().charMastery[charIdx].mastery + 50);
             }
         }
     } else {
@@ -386,16 +386,16 @@ void submitVailCourseGroupAnswer() {
         for (size_t i = 0; i < strlen(lessonState.currentGroup); i++) {
             int charIdx = getVailCourseCharIndex(lessonState.currentGroup[i]);
             if (charIdx >= 0) {
-                vailCourseProgress.charMastery[charIdx].attempts++;
-                vailCourseProgress.charMastery[charIdx].mastery =
-                    max(0, vailCourseProgress.charMastery[charIdx].mastery - 25);
+                vcProgress().charMastery[charIdx].attempts++;
+                vcProgress().charMastery[charIdx].mastery =
+                    max(0, vcProgress().charMastery[charIdx].mastery - 25);
             }
         }
     }
 
     // Update session stats
-    vailCourseProgress.sessionTotal++;
-    if (correct) vailCourseProgress.sessionCorrect++;
+    vcProgress().sessionTotal++;
+    if (correct) vcProgress().sessionCorrect++;
 
     // Show feedback
     lessonState.lastAnswerWasCorrect = correct;
@@ -416,7 +416,7 @@ void submitVailCourseGroupAnswer() {
 
 void startVailCourseLessonPhase() {
     cancelVailCourseAutoplayTimer();
-    VailCoursePhase phase = vailCourseProgress.currentPhase;
+    VailCoursePhase phase = vcProgress().currentPhase;
 
     lessonState.phaseItemIndex = 0;
     lessonState.phaseCorrect = 0;
@@ -432,8 +432,8 @@ void startVailCourseLessonPhase() {
             {
                 // Get NEW characters introduced in THIS lesson only
                 String newChars = getVailCourseNewCharsForLesson(
-                    vailCourseProgress.currentModule,
-                    vailCourseProgress.currentLesson
+                    vcProgress().currentModule,
+                    vcProgress().currentLesson
                 );
 
                 lessonState.introCharIndex = 0;
@@ -441,7 +441,7 @@ void startVailCourseLessonPhase() {
 
                 if (lessonState.phaseItemCount == 0) {
                     // No new chars (review lesson or words/callsigns) - skip to solo
-                    vailCourseProgress.currentPhase = PHASE_SOLO;
+                    vcProgress().currentPhase = PHASE_SOLO;
                     startVailCourseLessonPhase();
                     return;
                 }
@@ -460,8 +460,8 @@ void startVailCourseLessonPhase() {
             {
                 // Practice ONLY newly introduced characters for THIS lesson
                 String newChars = getVailCourseNewCharsForLesson(
-                    vailCourseProgress.currentModule,
-                    vailCourseProgress.currentLesson
+                    vcProgress().currentModule,
+                    vcProgress().currentLesson
                 );
 
                 lessonState.phaseItemCount = VAIL_LESSON_SOLO_COUNT;
@@ -470,7 +470,7 @@ void startVailCourseLessonPhase() {
 
                 if (strlen(lessonState.availableChars) == 0) {
                     // No new chars - skip to mixed
-                    vailCourseProgress.currentPhase = PHASE_MIXED;
+                    vcProgress().currentPhase = PHASE_MIXED;
                     startVailCourseLessonPhase();
                     return;
                 }
@@ -489,8 +489,8 @@ void startVailCourseLessonPhase() {
                 lessonState.phaseItemCount = VAIL_LESSON_MIXED_COUNT;
                 {
                     String chars = getVailCourseCharsForLesson(
-                        vailCourseProgress.currentModule,
-                        vailCourseProgress.currentLesson
+                        vcProgress().currentModule,
+                        vcProgress().currentLesson
                     );
                     strncpy(lessonState.availableChars, chars.c_str(), sizeof(lessonState.availableChars) - 1);
                     lessonState.availableChars[sizeof(lessonState.availableChars) - 1] = '\0';
@@ -509,8 +509,8 @@ void startVailCourseLessonPhase() {
                 lessonState.phaseItemCount = VAIL_LESSON_GROUP_COUNT;
                 {
                     String chars = getVailCourseCharsForLesson(
-                        vailCourseProgress.currentModule,
-                        vailCourseProgress.currentLesson
+                        vcProgress().currentModule,
+                        vcProgress().currentLesson
                     );
                     strncpy(lessonState.availableChars, chars.c_str(), sizeof(lessonState.availableChars) - 1);
                     lessonState.availableChars[sizeof(lessonState.availableChars) - 1] = '\0';
@@ -536,7 +536,7 @@ void startVailCourseLessonPhase() {
 }
 
 void advanceVailCoursePhase() {
-    VailCoursePhase currentPhase = vailCourseProgress.currentPhase;
+    VailCoursePhase currentPhase = vcProgress().currentPhase;
 
     // Calculate pass/fail for this phase
     int percentage = (lessonState.phaseTotal > 0)
@@ -549,16 +549,16 @@ void advanceVailCoursePhase() {
     // Advance to next phase
     switch (currentPhase) {
         case PHASE_INTRO:
-            vailCourseProgress.currentPhase = PHASE_SOLO;
+            vcProgress().currentPhase = PHASE_SOLO;
             break;
         case PHASE_SOLO:
-            vailCourseProgress.currentPhase = PHASE_MIXED;
+            vcProgress().currentPhase = PHASE_MIXED;
             break;
         case PHASE_MIXED:
-            vailCourseProgress.currentPhase = PHASE_GROUPS;
+            vcProgress().currentPhase = PHASE_GROUPS;
             break;
         case PHASE_GROUPS:
-            vailCourseProgress.currentPhase = PHASE_RESULT;
+            vcProgress().currentPhase = PHASE_RESULT;
             break;
         case PHASE_RESULT:
             // Stay on result
@@ -571,9 +571,9 @@ void advanceVailCoursePhase() {
 }
 
 void playCurrentCharacter() {
-    VailCoursePhase phase = vailCourseProgress.currentPhase;
-    int charWPM = vailCourseProgress.characterWPM;
-    int effWPM = vailCourseProgress.effectiveWPM;
+    VailCoursePhase phase = vcProgress().currentPhase;
+    int charWPM = vcProgress().characterWPM;
+    int effWPM = vcProgress().effectiveWPM;
 
     if (phase == PHASE_GROUPS) {
         requestPlayMorseStringFarnsworth(lessonState.currentGroup, charWPM, effWPM, TONE_SIDETONE);
@@ -593,7 +593,7 @@ void checkVailCourseLessonAnswer(char answer) {
     lessonState.waitingForInput = false;
     lessonState.phaseTotal++;
 
-    VailCoursePhase phase = vailCourseProgress.currentPhase;
+    VailCoursePhase phase = vcProgress().currentPhase;
     bool correct = false;
 
     if (phase == PHASE_GROUPS) {
@@ -611,26 +611,26 @@ void checkVailCourseLessonAnswer(char answer) {
         // Update mastery for this character
         int charIdx = getVailCourseCharIndex(lessonState.currentChar);
         if (charIdx >= 0) {
-            vailCourseProgress.charMastery[charIdx].attempts++;
-            vailCourseProgress.charMastery[charIdx].correct++;
+            vcProgress().charMastery[charIdx].attempts++;
+            vcProgress().charMastery[charIdx].correct++;
             // Increase mastery (capped at 1000)
-            vailCourseProgress.charMastery[charIdx].mastery =
-                min(1000, vailCourseProgress.charMastery[charIdx].mastery + 50);
+            vcProgress().charMastery[charIdx].mastery =
+                min(1000, vcProgress().charMastery[charIdx].mastery + 50);
         }
     } else {
         // Update mastery for incorrect
         int charIdx = getVailCourseCharIndex(lessonState.currentChar);
         if (charIdx >= 0) {
-            vailCourseProgress.charMastery[charIdx].attempts++;
+            vcProgress().charMastery[charIdx].attempts++;
             // Decrease mastery (but not below 0)
-            vailCourseProgress.charMastery[charIdx].mastery =
-                max(0, vailCourseProgress.charMastery[charIdx].mastery - 25);
+            vcProgress().charMastery[charIdx].mastery =
+                max(0, vcProgress().charMastery[charIdx].mastery - 25);
         }
     }
 
     // Update session stats
-    vailCourseProgress.sessionTotal++;
-    if (correct) vailCourseProgress.sessionCorrect++;
+    vcProgress().sessionTotal++;
+    if (correct) vcProgress().sessionCorrect++;
 
     // Show feedback
     lessonState.lastAnswerWasCorrect = correct;
@@ -652,7 +652,7 @@ void advanceVailCourseLessonItem() {
     lessonState.showingFeedback = false;
     clearVailCourseGroupInput();  // Clear group input for next item
 
-    VailCoursePhase phase = vailCourseProgress.currentPhase;
+    VailCoursePhase phase = vcProgress().currentPhase;
 
     // Check if phase is complete
     if (lessonState.phaseItemIndex >= lessonState.phaseItemCount) {
@@ -696,7 +696,7 @@ static void vail_course_lesson_key_handler(lv_event_t* e) {
 
     uint32_t key = lv_event_get_key(e);
 
-    VailCoursePhase phase = vailCourseProgress.currentPhase;
+    VailCoursePhase phase = vcProgress().currentPhase;
 
     // Block TAB
     if (key == '\t' || key == LV_KEY_NEXT) {
@@ -720,19 +720,19 @@ static void vail_course_lesson_key_handler(lv_event_t* e) {
         if (key == LV_KEY_ENTER || key == ' ') {
             cancelVailCourseAutoplayTimer();
             // Calculate overall score
-            int totalCorrect = vailCourseProgress.sessionCorrect;
-            int totalTotal = vailCourseProgress.sessionTotal;
+            int totalCorrect = vcProgress().sessionCorrect;
+            int totalTotal = vcProgress().sessionTotal;
             int percentage = (totalTotal > 0) ? (totalCorrect * 100 / totalTotal) : 0;
 
-            VailCourseModule module = vailCourseProgress.currentModule;
-            int curLesson = vailCourseProgress.currentLesson;
+            VailCourseModule module = vcProgress().currentModule;
+            int curLesson = vcProgress().currentLesson;
             int maxLessons = vailCourseLessonCounts[module];
             const bool passed = (percentage >= VAIL_LESSON_PASS_THRESHOLD);
 
             if (passed) {
                 completeVailCourseLesson(module, curLesson);
                 if (curLesson < maxLessons) {
-                    vailCourseProgress.currentLesson = curLesson + 1;
+                    vcProgress().currentLesson = curLesson + 1;
                 }
             }
 
@@ -761,7 +761,7 @@ static void vail_course_lesson_key_handler(lv_event_t* e) {
                     advanceVailCourseLessonItem();
                     updateVailCourseLessonUI();
                     // If still in intro, start auto-play for the next character
-                    if (vailCourseProgress.currentPhase == PHASE_INTRO) {
+                    if (vcProgress().currentPhase == PHASE_INTRO) {
                         vail_course_autoplay_timer = lv_timer_create(vail_course_intro_timer_cb, 1000, NULL);
                     }
                 }
@@ -777,7 +777,7 @@ static void vail_course_lesson_key_handler(lv_event_t* e) {
             cancelVailCourseAutoplayTimer();
             advanceVailCourseLessonItem();
             // Auto-play the next item immediately
-            if (vailCourseProgress.currentPhase != PHASE_RESULT) {
+            if (vcProgress().currentPhase != PHASE_RESULT) {
                 playCurrentCharacter();
             }
             updateVailCourseLessonUI();
@@ -798,7 +798,7 @@ static void vail_course_lesson_key_handler(lv_event_t* e) {
 
     // Waiting for input: still allow SPACE to replay (footer: "SPACE Replay"). ENTER replays in
     // solo/mixed only; in GROUPS, ENTER submits (handled below).
-    if (key == ' ' || (vailCourseProgress.currentPhase != PHASE_GROUPS && key == LV_KEY_ENTER)) {
+    if (key == ' ' || (vcProgress().currentPhase != PHASE_GROUPS && key == LV_KEY_ENTER)) {
         cancelVailCourseAutoplayTimer();
         if (!isMorsePlaybackActive()) {
             playCurrentCharacter();
@@ -807,7 +807,7 @@ static void vail_course_lesson_key_handler(lv_event_t* e) {
     }
 
     // Waiting for input
-    if (vailCourseProgress.currentPhase == PHASE_GROUPS) {
+    if (vcProgress().currentPhase == PHASE_GROUPS) {
         // Group input mode: accumulate characters
         if (isalnum(key) || key == '.' || key == ',' || key == '?' || key == '/') {
             addVailCourseGroupInputChar((char)key);
@@ -832,7 +832,7 @@ static void vail_course_lesson_key_handler(lv_event_t* e) {
 void updateVailCourseLessonUI() {
     if (!lessonState.screen) return;
 
-    VailCoursePhase phase = vailCourseProgress.currentPhase;
+    VailCoursePhase phase = vcProgress().currentPhase;
 
     // Update phase label
     if (lessonState.phase_label) {
@@ -847,8 +847,8 @@ void updateVailCourseLessonUI() {
         } else {
             // The rail card is too narrow for a sentence, so the result phase
             // shows the percentage here and the raw count on the CORRECT card.
-            int totalTotal = vailCourseProgress.sessionTotal;
-            int pct = (totalTotal > 0) ? (vailCourseProgress.sessionCorrect * 100 / totalTotal) : 0;
+            int totalTotal = vcProgress().sessionTotal;
+            int pct = (totalTotal > 0) ? (vcProgress().sessionCorrect * 100 / totalTotal) : 0;
             snprintf(buf, sizeof(buf), "%d%%", pct);
         }
         lv_label_set_text(lessonState.progress_label, buf);
@@ -921,8 +921,8 @@ void updateVailCourseLessonUI() {
 
             case PHASE_RESULT:
                 {
-                    int totalCorrect = vailCourseProgress.sessionCorrect;
-                    int totalTotal = vailCourseProgress.sessionTotal;
+                    int totalCorrect = vcProgress().sessionCorrect;
+                    int totalTotal = vcProgress().sessionTotal;
                     int percentage = (totalTotal > 0) ? (totalCorrect * 100 / totalTotal) : 0;
 
                     if (percentage >= VAIL_LESSON_PASS_THRESHOLD) {
@@ -981,7 +981,7 @@ void updateVailCourseLessonUI() {
         char buf[32];
         if (phase == PHASE_RESULT) {
             snprintf(buf, sizeof(buf), "%d/%d",
-                     vailCourseProgress.sessionCorrect, vailCourseProgress.sessionTotal);
+                     vcProgress().sessionCorrect, vcProgress().sessionTotal);
         } else if (lessonState.phaseTotal > 0) {
             snprintf(buf, sizeof(buf), "%d/%d", lessonState.phaseCorrect, lessonState.phaseTotal);
         } else {
@@ -1056,13 +1056,13 @@ lv_obj_t* createVailCourseLessonScreen() {
 
     char screenLabel[40];
     snprintf(screenLabel, sizeof(screenLabel), "%s   LESSON %d",
-             vailCourseModuleNames[vailCourseProgress.currentModule],
-             vailCourseProgress.currentLesson);
+             vailCourseModuleNames[vcProgress().currentModule],
+             vcProgress().currentLesson);
     summitScreenLabel(screen, screenLabel);
 
     // Phase reads top right, opposite the lesson it belongs to.
     lessonState.phase_label = lv_label_create(screen);
-    lv_label_set_text(lessonState.phase_label, vailCoursePhaseNames[vailCourseProgress.currentPhase]);
+    lv_label_set_text(lessonState.phase_label, vailCoursePhaseNames[vcProgress().currentPhase]);
     lv_obj_set_style_text_font(lessonState.phase_label, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(lessonState.phase_label, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_align(lessonState.phase_label, LV_ALIGN_TOP_RIGHT, -SUMMIT_MARGIN, SUMMIT_LABEL_Y);
@@ -1135,7 +1135,7 @@ lv_obj_t* createVailCourseLessonScreen() {
 
     // Initialize lesson state and start first phase
     startVailCourseSession();
-    vailCourseProgress.currentPhase = PHASE_INTRO;
+    vcProgress().currentPhase = PHASE_INTRO;
     startVailCourseLessonPhase();
 
     return screen;
@@ -1181,8 +1181,8 @@ lv_obj_t* createVailCourseProgressScreen() {
     lv_obj_set_style_text_font(current, getThemeFonts()->font_title, 0);
     char currentBuf[64];
     snprintf(currentBuf, sizeof(currentBuf), "%s   Lesson %d",
-             vailCourseModuleNames[vailCourseProgress.currentModule],
-             vailCourseProgress.currentLesson);
+             vailCourseModuleNames[vcProgress().currentModule],
+             vcProgress().currentLesson);
     lv_label_set_text(current, currentBuf);
 
     // Invisible focusable for ESC

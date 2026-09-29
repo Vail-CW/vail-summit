@@ -15,6 +15,7 @@
 
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
+#include "../../core/psram_json.h"
 #include <Preferences.h>
 #include <SD.h>
 #include "../../qso/qso_logger.h"
@@ -226,7 +227,7 @@ void setupQSOAPI(AsyncWebServer &webServer) {
       file.close();
 
       // Parse log file
-      JsonDocument logDoc;
+      JsonDocument logDoc(psramJsonAllocator());
       error = deserializeJson(logDoc, content);
       if (error) {
         request->send(500, "application/json", "{\"success\":false,\"error\":\"Failed to parse log file\"}");
@@ -312,7 +313,7 @@ void setupQSOAPI(AsyncWebServer &webServer) {
     file.close();
 
     // Parse log file
-    JsonDocument logDoc;
+    JsonDocument logDoc(psramJsonAllocator());
     DeserializationError error = deserializeJson(logDoc, content);
     if (error) {
       request->send(500, "application/json", "{\"success\":false,\"error\":\"Failed to parse log file\"}");

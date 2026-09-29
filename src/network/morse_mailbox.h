@@ -8,6 +8,7 @@
 
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include "../core/psram_json.h"
 #include <WiFi.h>
 #include "../settings/settings_mailbox.h"
 #include "../core/secrets.h"
@@ -102,7 +103,7 @@ static int inboxCacheCount = 0;
 static bool inboxCacheValid = false;
 
 // Current message for playback
-static JsonDocument currentMessageDoc;
+static JsonDocument currentMessageDoc(psramJsonAllocator());
 static bool currentMessageLoaded = false;
 
 // Forward declarations
@@ -142,7 +143,7 @@ bool exchangeCustomToken(const String& customToken) {
     http.setTimeout(MAILBOX_HTTP_TIMEOUT);
     http.addHeader("Content-Type", "application/json");
 
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     doc["token"] = customToken;
     doc["returnSecureToken"] = true;
 
@@ -154,7 +155,7 @@ bool exchangeCustomToken(const String& customToken) {
     http.end();
 
     if (httpCode == 200) {
-        JsonDocument respDoc;
+        JsonDocument respDoc(psramJsonAllocator());
         if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
             String idToken = respDoc["idToken"].as<String>();
             String refreshToken = respDoc["refreshToken"].as<String>();
@@ -195,7 +196,7 @@ bool refreshMailboxIdToken() {
     http.end();
 
     if (httpCode == 200) {
-        JsonDocument respDoc;
+        JsonDocument respDoc(psramJsonAllocator());
         if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
             String newIdToken = respDoc["id_token"].as<String>();
             /* Firebase often omits refresh_token on refresh; keep the existing one. */
@@ -300,7 +301,7 @@ int mailboxCallableRequest(const String& functionName, const JsonDocument& data,
     }
 
     // Wrap data in {"data": ...}
-    JsonDocument requestDoc;
+    JsonDocument requestDoc(psramJsonAllocator());
     requestDoc["data"] = data;
 
     String body;
@@ -312,7 +313,7 @@ int mailboxCallableRequest(const String& functionName, const JsonDocument& data,
         String response = http.getString();
 
         if (httpCode == 200) {
-            JsonDocument respDoc;
+            JsonDocument respDoc(psramJsonAllocator());
             if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
                 // Unwrap result from {"result": ...}
                 if (respDoc.containsKey("result")) {
@@ -354,7 +355,7 @@ bool requestDeviceCode() {
 
     mailboxLinkState = MAILBOX_LINK_REQUESTING_CODE;
 
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     doc["device_name"] = "VAIL Summit";
     doc["device_type"] = MAILBOX_DEVICE_TYPE;
     doc["firmware_version"] = FIRMWARE_VERSION;
@@ -366,7 +367,7 @@ bool requestDeviceCode() {
     int httpCode = mailboxHttpRequest("POST", "api_device_requestCode", body, response);
 
     if (httpCode == 200) {
-        JsonDocument respDoc;
+        JsonDocument respDoc(psramJsonAllocator());
         if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
             linkCode = respDoc["code"].as<String>();
             linkUrl = respDoc["link_url"].as<String>();
@@ -428,7 +429,7 @@ int checkDeviceCode() {
     Serial.printf("[Mailbox] checkDeviceCode response: %s\n", response.c_str());
 
     if (httpCode == 200) {
-        JsonDocument respDoc;
+        JsonDocument respDoc(psramJsonAllocator());
         DeserializationError jsonErr = deserializeJson(respDoc, response);
         if (jsonErr == DeserializationError::Ok) {
             String status = respDoc["status"].as<String>();
@@ -544,14 +545,14 @@ bool hasUnreadMailboxMessages() {
 bool fetchMailboxInbox(int limit = 20, const String& status = "all") {
     if (!isMailboxLinked()) return false;
 
-    JsonDocument requestData;
+    JsonDocument requestData(psramJsonAllocator());
     requestData["limit"] = limit;
     if (status != "all") {
         requestData["status"] = status;
     }
     requestData["device_id"] = getMailboxDeviceId();
 
-    JsonDocument result;
+    JsonDocument result(psramJsonAllocator());
     int httpCode = mailboxCallableRequest("api_messages_inbox", requestData, result);
 
     if (httpCode == 200) {
@@ -614,7 +615,7 @@ bool fetchMailboxMessage(const String& messageId) {
 
     mailboxPlaybackState = MB_PLAYBACK_LOADING;
 
-    JsonDocument requestData;
+    JsonDocument requestData(psramJsonAllocator());
     requestData["message_id"] = messageId;
     requestData["device_id"] = getMailboxDeviceId();
 
@@ -633,6 +634,12 @@ bool fetchMailboxMessage(const String& messageId) {
     return false;
 }
 
+// Release the loaded message (called when leaving the playback screen)
+void clearCurrentMailboxMessage() {
+    currentMessageDoc.clear();
+    currentMessageLoaded = false;
+}
+
 // Get current loaded message document
 JsonDocument& getCurrentMailboxMessage() {
     return currentMessageDoc;
@@ -646,12 +653,12 @@ bool isMailboxMessageLoaded() {
 bool markMailboxMessageRead(const String& messageId) {
     if (!isMailboxLinked()) return false;
 
-    JsonDocument requestData;
+    JsonDocument requestData(psramJsonAllocator());
     requestData["message_id"] = messageId;
     requestData["status"] = "read";
     requestData["device_id"] = getMailboxDeviceId();
 
-    JsonDocument result;
+    JsonDocument result(psramJsonAllocator());
     int httpCode = mailboxCallableRequest("api_messages_update", requestData, result);
 
     if (httpCode == 200) {
@@ -680,19 +687,19 @@ bool markMailboxMessageRead(const String& messageId) {
 bool sendMailboxMessage(const String& recipient, const String& timingJson) {
     if (!isMailboxLinked()) return false;
 
-    JsonDocument requestData;
+    JsonDocument requestData(psramJsonAllocator());
     requestData["recipient"] = recipient;
     requestData["device_id"] = getMailboxDeviceId();
 
     // Parse timing array
-    JsonDocument timingDoc;
+    JsonDocument timingDoc(psramJsonAllocator());
     if (deserializeJson(timingDoc, timingJson) != DeserializationError::Ok) {
         Serial.println("[Mailbox] Invalid timing JSON");
         return false;
     }
     requestData["morse_timing"] = timingDoc.as<JsonArray>();
 
-    JsonDocument result;
+    JsonDocument result(psramJsonAllocator());
     int httpCode = mailboxCallableRequest("api_messages_send", requestData, result);
 
     if (httpCode == 200) {
@@ -713,12 +720,12 @@ bool sendMailboxMessage(const String& recipient, const String& timingJson) {
 int searchMailboxUsers(const String& query, String callsigns[], String mmids[], int maxResults) {
     if (!isMailboxLinked() || query.length() < 2) return 0;
 
-    JsonDocument requestData;
+    JsonDocument requestData(psramJsonAllocator());
     requestData["q"] = query;
     requestData["limit"] = maxResults;
     requestData["device_id"] = getMailboxDeviceId();
 
-    JsonDocument result;
+    JsonDocument result(psramJsonAllocator());
     int httpCode = mailboxCallableRequest("api_users_search", requestData, result);
 
     if (httpCode == 200) {
@@ -760,12 +767,12 @@ void updateMailboxPolling() {
     lastPollTime = now;
 
     /* Poll unread inbox (limit 50 per API); count messages returned + has_more for lower bound. */
-    JsonDocument requestData;
+    JsonDocument requestData(psramJsonAllocator());
     requestData["limit"] = 50;
     requestData["status"] = "unread";
     requestData["device_id"] = getMailboxDeviceId();
 
-    JsonDocument result;
+    JsonDocument result(psramJsonAllocator());
     int httpCode = mailboxCallableRequest("api_messages_inbox", requestData, result);
 
     if (httpCode == 200) {
@@ -833,7 +840,9 @@ struct MailboxTimingEvent {
     bool keydown;   // true = keydown, false = keyup
 };
 
-static MailboxTimingEvent recordedTiming[MAILBOX_MAX_TIMING_EVENTS];
+// Allocated lazily in PSRAM (falls back to internal heap) on first recording,
+// then kept for the rest of the session. Keeps 4KB out of internal .bss.
+static MailboxTimingEvent* recordedTiming = nullptr;
 static int recordedTimingCount = 0;
 static unsigned long recordingStartTime = 0;
 static bool isRecordingActive = false;
@@ -862,9 +871,29 @@ bool isMailboxRecordingActive() {
     return isRecordingActive;
 }
 
+// Allocate the timing buffer once (never freed). Returns false if out of memory.
+static bool ensureRecordedTimingBuffer() {
+    if (recordedTiming) return true;
+    recordedTiming = (MailboxTimingEvent*)heap_caps_calloc(
+        MAILBOX_MAX_TIMING_EVENTS, sizeof(MailboxTimingEvent), MALLOC_CAP_SPIRAM);
+    if (!recordedTiming) {
+        recordedTiming = (MailboxTimingEvent*)calloc(MAILBOX_MAX_TIMING_EVENTS, sizeof(MailboxTimingEvent));
+    }
+    if (!recordedTiming) {
+        Serial.println("[Mailbox] Failed to allocate recording buffer");
+        return false;
+    }
+    return true;
+}
+
 // Start recording
 void startMailboxRecording() {
     recordedTimingCount = 0;
+    if (!ensureRecordedTimingBuffer()) {
+        isRecordingActive = false;
+        mailboxRecordState = MB_RECORD_READY;
+        return;
+    }
     recordingStartTime = 0;  // Will be set on first keydown
     isRecordingActive = true;
     recordKeyState = false;
@@ -910,7 +939,7 @@ void clearMailboxRecording() {
 
 // Record a key event (called from keyer callback on Core 0)
 void recordMailboxKeyEvent(bool keydown) {
-    if (!isRecordingActive) return;
+    if (!isRecordingActive || !recordedTiming) return;
     if (recordedTimingCount >= MAILBOX_MAX_TIMING_EVENTS) {
         Serial.println("[Mailbox] Recording buffer full!");
         return;
@@ -943,7 +972,7 @@ void recordMailboxKeyEvent(bool keydown) {
 String getRecordedTimingJson() {
     if (recordedTimingCount == 0) return "[]";
 
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     JsonArray arr = doc.to<JsonArray>();
 
     for (int i = 0; i < recordedTimingCount; i++) {

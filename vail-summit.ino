@@ -34,6 +34,7 @@ using namespace lgfx::v1::fonts;
 #include "src/core/config.h"
 #include "src/core/settings_migration.h"
 #include "src/core/memory_monitor.h"
+#include "src/core/psram_json.h"
 #include <Adafruit_LC709203F.h>
 #include <Adafruit_MAX1704X.h>
 

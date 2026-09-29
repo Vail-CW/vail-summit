@@ -166,6 +166,9 @@ static void cleanupMailboxPlayback() {
     mailbox_loading_overlay = NULL;
     mailbox_loading_label = NULL;
     mailbox_loading_spinner = NULL;
+
+    // Release the loaded message document (playback timer is gone, nothing reads it now)
+    clearCurrentMailboxMessage();
 }
 
 // ============================================

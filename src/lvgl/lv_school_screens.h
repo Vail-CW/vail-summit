@@ -69,8 +69,8 @@ static void schoolDrillUpdateScore() {
 
 static void schoolDrillPlayTarget() {
     char str[2] = { s_drill_target, '\0' };
-    requestPlayMorseStringFarnsworth(str, vailCourseProgress.characterWPM,
-                                     vailCourseProgress.effectiveWPM, TONE_SIDETONE);
+    requestPlayMorseStringFarnsworth(str, vcProgress().characterWPM,
+                                     vcProgress().effectiveWPM, TONE_SIDETONE);
 }
 
 static void schoolDrillNext() {
@@ -272,13 +272,13 @@ lv_obj_t* createSchoolHubScreen() {
 
     // Learn: show resume position if there is progress
     char learnDesc[48];
-    bool hasProg = !(vailCourseProgress.currentModule == MODULE_LETTERS_1 &&
-                     vailCourseProgress.currentLesson == 1 &&
-                     vailCourseProgress.modulesCompleted == 0);
+    bool hasProg = !(vcProgress().currentModule == MODULE_LETTERS_1 &&
+                     vcProgress().currentLesson == 1 &&
+                     vcProgress().modulesCompleted == 0);
     if (hasProg)
         snprintf(learnDesc, sizeof(learnDesc), "Resume: %s  L%d",
-                 vailCourseModuleNames[vailCourseProgress.currentModule],
-                 vailCourseProgress.currentLesson);
+                 vailCourseModuleNames[vcProgress().currentModule],
+                 vcProgress().currentLesson);
     else
         snprintf(learnDesc, sizeof(learnDesc), "Structured lessons from zero");
 
@@ -434,8 +434,8 @@ static void schoolSendKeyHandler(lv_event_t* e) {
             s_send_ready_until = millis();  // skip countdown; poll starts the first target
         } else {
             char str[2] = { s_send_target_ch, '\0' };
-            requestPlayMorseStringFarnsworth(str, vailCourseProgress.characterWPM,
-                                             vailCourseProgress.effectiveWPM, TONE_SIDETONE);
+            requestPlayMorseStringFarnsworth(str, vcProgress().characterWPM,
+                                             vcProgress().effectiveWPM, TONE_SIDETONE);
         }
         lv_event_stop_processing(e);
     } else if (key == '\t' || key == LV_KEY_NEXT) {

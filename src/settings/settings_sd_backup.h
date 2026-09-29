@@ -32,6 +32,7 @@
 #define SETTINGS_SD_BACKUP_H
 
 #include <ArduinoJson.h>
+#include "../core/psram_json.h"
 #include <nvs.h>
 #include <nvs_flash.h>
 #include "../core/config.h"
@@ -72,7 +73,7 @@ static bool writeNvsEntryLine(File& f, const nvs_entry_info_t& info) {
   nvs_handle_t h;
   if (nvs_open(info.namespace_name, NVS_READONLY, &h) != ESP_OK) return false;
 
-  JsonDocument doc;
+  JsonDocument doc(psramJsonAllocator());
   doc["ns"] = info.namespace_name;
   doc["k"]  = info.key;
   doc["t"]  = (int)info.type;
@@ -184,7 +185,7 @@ static bool hexDecode(const char* hex, uint8_t* out, size_t outLen) {
 }
 
 static bool applyNvsEntryLine(const char* line) {
-  JsonDocument doc;
+  JsonDocument doc(psramJsonAllocator());
   if (deserializeJson(doc, line) != DeserializationError::Ok) return false;
   const char* ns = doc["ns"] | (const char*)NULL;
   const char* k  = doc["k"]  | (const char*)NULL;

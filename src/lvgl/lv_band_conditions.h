@@ -227,43 +227,43 @@ void createHFTabContent(lv_obj_t* parent) {
 
     // Solar Flux
     char buf[32];
-    snprintf(buf, sizeof(buf), "SFI: %d", bandConditionsData.solar.solarFlux);
+    snprintf(buf, sizeof(buf), "SFI: %d", bandConditions().solar.solarFlux);
     lv_obj_t* sfi_lbl = lv_label_create(solar_card);
     lv_label_set_text(sfi_lbl, buf);
     lv_obj_set_style_text_font(sfi_lbl, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(sfi_lbl, LV_COLOR_TEXT_PRIMARY, 0);
 
     // A and K indices on same line
-    snprintf(buf, sizeof(buf), "A: %d   K: %d", bandConditionsData.solar.aIndex, bandConditionsData.solar.kIndex);
+    snprintf(buf, sizeof(buf), "A: %d   K: %d", bandConditions().solar.aIndex, bandConditions().solar.kIndex);
     lv_obj_t* ak_lbl = lv_label_create(solar_card);
     lv_label_set_text(ak_lbl, buf);
     lv_obj_set_style_text_font(ak_lbl, &lv_font_montserrat_14, 0);
     // Color K index
-    lv_obj_set_style_text_color(ak_lbl, lv_color_hex(getKIndexColorHex(bandConditionsData.solar.kIndex)), 0);
+    lv_obj_set_style_text_color(ak_lbl, lv_color_hex(getKIndexColorHex(bandConditions().solar.kIndex)), 0);
 
     // X-Ray
-    snprintf(buf, sizeof(buf), "X-Ray: %s", bandConditionsData.solar.xray);
+    snprintf(buf, sizeof(buf), "X-Ray: %s", bandConditions().solar.xray);
     lv_obj_t* xray_lbl = lv_label_create(solar_card);
     lv_label_set_text(xray_lbl, buf);
     lv_obj_set_style_text_font(xray_lbl, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(xray_lbl, LV_COLOR_TEXT_SECONDARY, 0);
 
     // Sunspots
-    snprintf(buf, sizeof(buf), "Spots: %d", bandConditionsData.solar.sunspots);
+    snprintf(buf, sizeof(buf), "Spots: %d", bandConditions().solar.sunspots);
     lv_obj_t* spots_lbl = lv_label_create(solar_card);
     lv_label_set_text(spots_lbl, buf);
     lv_obj_set_style_text_font(spots_lbl, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(spots_lbl, LV_COLOR_TEXT_SECONDARY, 0);
 
     // Geomag Field
-    snprintf(buf, sizeof(buf), "Geo: %s", bandConditionsData.solar.geomagField);
+    snprintf(buf, sizeof(buf), "Geo: %s", bandConditions().solar.geomagField);
     lv_obj_t* geo_lbl = lv_label_create(solar_card);
     lv_label_set_text(geo_lbl, buf);
     lv_obj_set_style_text_font(geo_lbl, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(geo_lbl, lv_color_hex(getGeomagColorHex(bandConditionsData.solar.geomagField)), 0);
+    lv_obj_set_style_text_color(geo_lbl, lv_color_hex(getGeomagColorHex(bandConditions().solar.geomagField)), 0);
 
     // Signal Noise
-    snprintf(buf, sizeof(buf), "Noise: %s", bandConditionsData.solar.signalNoise);
+    snprintf(buf, sizeof(buf), "Noise: %s", bandConditions().solar.signalNoise);
     lv_obj_t* noise_lbl = lv_label_create(solar_card);
     lv_label_set_text(noise_lbl, buf);
     lv_obj_set_style_text_font(noise_lbl, &lv_font_montserrat_12, 0);
@@ -323,10 +323,10 @@ void createHFTabContent(lv_obj_t* parent) {
 
     // Band data - Column 1 (80m, 40m, 30m, 20m)
     const char* bands_col1[] = {"80m", "40m", "30m", "20m"};
-    BandCondition day_col1[] = {bandConditionsData.hf_80m_40m.day, bandConditionsData.hf_80m_40m.day,
-                                 bandConditionsData.hf_30m_20m.day, bandConditionsData.hf_30m_20m.day};
-    BandCondition night_col1[] = {bandConditionsData.hf_80m_40m.night, bandConditionsData.hf_80m_40m.night,
-                                   bandConditionsData.hf_30m_20m.night, bandConditionsData.hf_30m_20m.night};
+    BandCondition day_col1[] = {bandConditions().hf_80m_40m.day, bandConditions().hf_80m_40m.day,
+                                 bandConditions().hf_30m_20m.day, bandConditions().hf_30m_20m.day};
+    BandCondition night_col1[] = {bandConditions().hf_80m_40m.night, bandConditions().hf_80m_40m.night,
+                                   bandConditions().hf_30m_20m.night, bandConditions().hf_30m_20m.night};
 
     int y_start = 40;
     int row_height = 28;
@@ -352,10 +352,10 @@ void createHFTabContent(lv_obj_t* parent) {
 
     // Band data - Column 2 (17m, 15m, 12m, 10m)
     const char* bands_col2[] = {"17m", "15m", "12m", "10m"};
-    BandCondition day_col2[] = {bandConditionsData.hf_17m_15m.day, bandConditionsData.hf_17m_15m.day,
-                                 bandConditionsData.hf_12m_10m.day, bandConditionsData.hf_12m_10m.day};
-    BandCondition night_col2[] = {bandConditionsData.hf_17m_15m.night, bandConditionsData.hf_17m_15m.night,
-                                   bandConditionsData.hf_12m_10m.night, bandConditionsData.hf_12m_10m.night};
+    BandCondition day_col2[] = {bandConditions().hf_17m_15m.day, bandConditions().hf_17m_15m.day,
+                                 bandConditions().hf_12m_10m.day, bandConditions().hf_12m_10m.day};
+    BandCondition night_col2[] = {bandConditions().hf_17m_15m.night, bandConditions().hf_17m_15m.night,
+                                   bandConditions().hf_12m_10m.night, bandConditions().hf_12m_10m.night};
 
     for (int i = 0; i < 4; i++) {
         int y = y_start + i * row_height;
@@ -419,7 +419,7 @@ void createVHFTabContent(lv_obj_t* parent) {
     int row_height = 24;
     int max_rows = 6;  // Limit to fit screen
 
-    int count = min(bandConditionsData.vhfCount, max_rows);
+    int count = min(bandConditions().vhfCount, max_rows);
 
     if (count == 0) {
         lv_obj_t* no_data = lv_label_create(vhf_card);
@@ -433,21 +433,21 @@ void createVHFTabContent(lv_obj_t* parent) {
 
             // Phenomenon name
             lv_obj_t* name_lbl = lv_label_create(vhf_card);
-            lv_label_set_text(name_lbl, bandConditionsData.vhf[i].name);
+            lv_label_set_text(name_lbl, bandConditions().vhf[i].name);
             lv_obj_set_style_text_font(name_lbl, &lv_font_montserrat_12, 0);
             lv_obj_set_style_text_color(name_lbl, LV_COLOR_TEXT_PRIMARY, 0);
             lv_obj_set_pos(name_lbl, 5, y);
 
             // Region/Location
             lv_obj_t* region_lbl = lv_label_create(vhf_card);
-            lv_label_set_text(region_lbl, bandConditionsData.vhf[i].location);
+            lv_label_set_text(region_lbl, bandConditions().vhf[i].location);
             lv_obj_set_style_text_font(region_lbl, &lv_font_montserrat_12, 0);
             lv_obj_set_style_text_color(region_lbl, LV_COLOR_TEXT_SECONDARY, 0);
             lv_obj_set_pos(region_lbl, 180, y);
 
             // Status (colored)
             lv_obj_t* status_lbl = lv_label_create(vhf_card);
-            if (bandConditionsData.vhf[i].closed) {
+            if (bandConditions().vhf[i].closed) {
                 lv_label_set_text(status_lbl, "Closed");
                 lv_obj_set_style_text_color(status_lbl, LV_COLOR_ERROR, 0);
             } else {
@@ -470,7 +470,7 @@ void updateBandConditionsContent() {
     // Clear existing content
     lv_obj_clean(band_cond_content);
 
-    if (!bandConditionsData.valid) {
+    if (!bandConditions().valid) {
         // Show "No data" message
         lv_obj_t* no_data = lv_label_create(band_cond_content);
         lv_label_set_text(no_data, "No data available.\nPress R to refresh.");
@@ -517,7 +517,7 @@ void refreshBandConditions() {
     lv_obj_t* overlay = createLoadingOverlay("Fetching band conditions...");
 
     // Fetch data (blocking)
-    bool success = fetchBandConditions(bandConditionsData);
+    bool success = fetchBandConditions(bandConditions());
 
     lv_obj_del(overlay);
     band_cond_is_loading = false;
@@ -689,7 +689,7 @@ void startBandConditions(LGFX& display) {
     band_cond_update_timer = lv_timer_create(band_cond_timer_cb, 60000, NULL);  // 60 seconds
 
     // Auto-refresh on entry if WiFi connected and no data yet
-    if (WiFi.status() == WL_CONNECTED && !bandConditionsData.valid) {
+    if (WiFi.status() == WL_CONNECTED && !bandConditions().valid) {
         // One-shot timer lets the screen render before the fetch
         band_cond_autoload_timer = lv_timer_create(band_cond_autoload_cb, 100, NULL);
         lv_timer_set_repeat_count(band_cond_autoload_timer, 1);
