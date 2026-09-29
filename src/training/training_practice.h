@@ -157,18 +157,12 @@ void startPracticeMode(LGFX &display) {
     decodedMorse += morse;
 
     needsUIUpdate = true;
-
-    Serial.print("Decoded: ");
-    Serial.print(text);
-    Serial.print(" (");
-    Serial.print(morse);
-    Serial.println(")");
+    // No per-character Serial here: this runs in the keying path, and a
+    // print into a full USB CDC buffer can stall the keyer.
   };
 
   practiceDecoder->speedCallback = [](float wpm, float fwpm) {
-    Serial.print("Speed detected: ");
-    Serial.print(wpm);
-    Serial.println(" WPM");
+    // Fires on every element - no Serial (keying path, see above)
   };
 
   Serial.println("Practice mode started with decoding enabled");

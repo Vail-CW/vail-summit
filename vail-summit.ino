@@ -320,6 +320,10 @@ void earlyBootProgressCallback(const char* status, int currentFile, int totalFil
 
 void setup() {
   Serial.begin(SERIAL_BAUD);
+  // Never block on USB serial. Once a host enumerates the port, HWCDC defaults
+  // to a 100ms TX timeout, so with nothing reading it every print into a full
+  // buffer stalls the loop (and the keyer) for up to 100ms. Drop logs instead.
+  Serial.setTxTimeoutMs(0);
   delay(500); // Brief wait for serial monitor
   Serial.println("\n\n=== VAIL SUMMIT STARTING ===");
   Serial.printf("Firmware: %s (Build: %s)\n", FIRMWARE_VERSION, FIRMWARE_DATE);
