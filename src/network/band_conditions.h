@@ -7,6 +7,7 @@
 #define BAND_CONDITIONS_H
 
 #include <Arduino.h>
+#include <esp_heap_caps.h>   // largest-free-block check before TLS
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <esp_heap_caps.h>
@@ -285,6 +286,10 @@ bool parseXMLResponse(const String& xml, BandConditionsData& data) {
 // ============================================
 
 #define BAND_CONDITIONS_URL "https://www.hamqsl.com/solarxml.php"
+// Rough floor for a TLS handshake plus the response. The handshake wants a big
+// contiguous block, so this is checked against the largest free block rather
+// than total free heap.
+#define BAND_CONDITIONS_MIN_BLOCK 45000
 
 /*
  * Fetch band conditions from hamqsl.com
@@ -306,7 +311,19 @@ bool fetchBandConditions(BandConditionsData& data) {
         return false;
     }
 
-    Serial.println("[BandConditions] Fetching from hamqsl.com...");
+    // The XML is only about 8KB. What costs memory here is the TLS handshake,
+    // so the number that matters is the biggest free block, not total free
+    // heap. Checking it up front turns a silent failure into a log line.
+    size_t largestBlock = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);  // tls buffers are internal-only
+    Serial.printf("[BandConditions] Fetching from hamqsl.com (heap %u free, %u largest)\n",
+                  (unsigned)ESP.getFreeHeap(), (unsigned)largestBlock);
+
+    if (largestBlock < BAND_CONDITIONS_MIN_BLOCK) {
+        Serial.printf("[BandConditions] Skipping: largest block %u, TLS needs about %u\n",
+                      (unsigned)largestBlock, (unsigned)BAND_CONDITIONS_MIN_BLOCK);
+        data.fetching = false;
+        return false;
+    }
 
     HTTPClient http;
     http.begin(BAND_CONDITIONS_URL);
@@ -315,7 +332,12 @@ bool fetchBandConditions(BandConditionsData& data) {
     int httpCode = http.GET();
 
     if (httpCode == 200) {
-        String xml = http.getString();
+        String xml;
+        int contentLen = http.getSize();
+        // Reserve up front so the String does not double its way up and leave
+        // holes behind it, which is what fragments the heap for the next fetch.
+        if (contentLen > 0 && contentLen < 65536) xml.reserve(contentLen + 1);
+        xml = http.getString();
         Serial.printf("[BandConditions] Received %d bytes\n", xml.length());
 
         bool success = parseXMLResponse(xml, data);

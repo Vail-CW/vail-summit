@@ -24,6 +24,16 @@ extern bool ntpSynced;
 // ============================================
 
 #define MAX_SATELLITES 160
+#define MAX_SATELLITES_NOPSRAM 60   // 60 * ~172B = ~10KB, against ~100KB of usable heap
+
+/*
+ * How many satellites this board will hold. The full catalog is 27KB, which is
+ * nothing next to PSRAM but a real bite out of the heap on a board without it,
+ * especially with WiFi up and an HTTPS fetch wanting a big contiguous block.
+ */
+static inline int satMaxCount() {
+    return psramFound() ? MAX_SATELLITES : MAX_SATELLITES_NOPSRAM;
+}
 #define SAT_TLE_TIMEOUT 20000
 
 // Celestrak amateur group + ISS (ISS lives in the stations group, not amateur,
@@ -82,7 +92,7 @@ bool initSatCatalog() {
         return false;
     }
 
-    size_t totalSize = sizeof(SatEntry) * MAX_SATELLITES;
+    size_t totalSize = sizeof(SatEntry) * satMaxCount();
     if (psramFound()) {
         satCatalog.sats = (SatEntry*)ps_malloc(totalSize);
     }
@@ -97,6 +107,25 @@ bool initSatCatalog() {
     satCatalog.initialized = true;
     Serial.printf("[SAT] Catalog allocated: %u bytes\n", (unsigned)totalSize);
     return true;
+}
+
+/*
+ * Release the catalog. Nothing outside the satellite screens reads it, so it
+ * is handed back when you leave rather than held for the rest of the session.
+ */
+void freeSatCatalog() {
+    if (satCatalog.sats == nullptr) return;
+    free(satCatalog.sats);
+    satCatalog.sats = nullptr;
+    satCatalog.count = 0;
+    satCatalog.initialized = false;
+    satCatalog.valid = false;
+    if (satDisplayIdx) {
+        free(satDisplayIdx);
+        satDisplayIdx = nullptr;
+    }
+    satDisplayCount = 0;
+    Serial.println("[SAT] Catalog released");
 }
 
 // ============================================
@@ -141,7 +170,7 @@ static void satParseTLELine(SatTLEParseState& st, char* line) {
         uint32_t norad = (uint32_t)strtoul(st.line1 + 2, NULL, 10);
         int idx = satFindByNorad(norad);
         if (idx < 0) {
-            if (satCatalog.count >= MAX_SATELLITES) { st.haveName = st.haveLine1 = false; return; }
+            if (satCatalog.count >= satMaxCount()) { st.haveName = st.haveLine1 = false; return; }
             idx = satCatalog.count++;
         }
         SatEntry& e = satCatalog.sats[idx];

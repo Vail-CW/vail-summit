@@ -9,6 +9,19 @@
 
 // Maximum limits
 #define MN_MAX_RECORDING_EVENTS    40000                    // Max timing events per recording (covers ~40 WPM sustained for the full 30 min cap)
+#define MN_MAX_RECORDING_EVENTS_NOPSRAM 8000                // Without PSRAM the biggest free block is ~100KB, so cap at 32KB (~5 min)
+
+/*
+ * How many events a recording may hold on this board.
+ *
+ * With PSRAM the buffer is 160KB and nobody notices. Without it the largest
+ * block we can get is around 100KB with WiFi up, so a full size buffer simply
+ * fails to allocate and recording never starts. 8000 events is 32KB, which is
+ * roughly five minutes of steady sending.
+ */
+static inline int mnMaxEvents() {
+    return psramFound() ? MN_MAX_RECORDING_EVENTS : MN_MAX_RECORDING_EVENTS_NOPSRAM;
+}
 #define MN_MAX_RECORDING_DURATION_MS (30 * 60 * 1000)      // 30 minutes
 #define MN_MAX_RECORDINGS          200                      // Max recordings in library
 #define MN_WARNING_TIME_MS         (29 * 60 * 1000 + 30 * 1000)  // Warning at 29:30
