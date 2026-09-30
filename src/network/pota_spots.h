@@ -449,6 +449,77 @@ int filterSpots(const POTASpotsCache& cache, const POTASpotFilter& filter,
 // API Functions
 // ============================================
 
+/*
+ * Pull one top-level JSON object off the stream into buf.
+ *
+ * The old code did http.getString() and then handed the whole thing to a 32KB
+ * or 128KB JsonDocument. That is two copies of a response that can run past
+ * 100KB, which no board without PSRAM is going to survive. This walks the
+ * stream instead and hands back one spot at a time, so memory stays flat no
+ * matter how many spots the API returns.
+ *
+ * Tracks string state and backslash escapes, because a park name or a comment
+ * is free to contain a brace and we would otherwise cut the object in half.
+ *
+ * Returns 1 on an object, 0 at the end of the array, -1 on a read timeout.
+ * An object too big for buf is skipped rather than truncated, since a
+ * half-parsed spot is worse than a missing one.
+ */
+static int potaReadNextObject(Stream* stream, char* buf, size_t bufSize, bool* overflowed) {
+    int depth = 0;
+    bool inString = false;
+    bool escaped = false;
+    size_t len = 0;
+    *overflowed = false;
+
+    unsigned long lastData = millis();
+    while (true) {
+        if (!stream->available()) {
+            if (millis() - lastData > POTA_SPOTS_TIMEOUT) return -1;
+            delay(1);
+            continue;
+        }
+        lastData = millis();
+
+        int c = stream->read();
+        if (c < 0) continue;
+
+        if (depth == 0) {
+            if (c == '{') {
+                depth = 1;
+                len = 0;
+                if (len < bufSize - 1) buf[len++] = (char)c;
+            } else if (c == ']') {
+                return 0;   // end of the array
+            }
+            continue;       // whitespace and commas between objects
+        }
+
+        if (len < bufSize - 1) {
+            buf[len++] = (char)c;
+        } else {
+            *overflowed = true;   // keep scanning so we still find the object end
+        }
+
+        if (escaped) {
+            escaped = false;
+        } else if (c == '\\' && inString) {
+            escaped = true;
+        } else if (c == '"') {
+            inString = !inString;
+        } else if (!inString) {
+            if (c == '{') depth++;
+            else if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    buf[len] = '\0';
+                    return 1;
+                }
+            }
+        }
+    }
+}
+
 /**
  * Fetch active spots from POTA API
  * @param cache Cache to populate
@@ -500,70 +571,36 @@ int fetchActiveSpots(POTASpotsCache& cache) {
         return -1;
     }
 
-    // Check if we have enough memory before reading response
-    int contentLength = http.getSize();
-    Serial.printf("POTA Spots: Content-Length: %d\n", contentLength);
+    Serial.printf("POTA Spots: Content-Length: %d\n", http.getSize());
 
-    // Use PSRAM for large responses if available
-    size_t requiredMem = contentLength + 65536;  // Response + JSON buffer headroom
-    bool havePsram = psramFound() && ESP.getFreePsram() > requiredMem;
+    // Parsed straight off the socket, one spot at a time. Peak cost is this
+    // buffer plus a small document, so it no longer depends on how big the
+    // response is or on PSRAM being there.
+    Stream* stream = http.getStreamPtr();
 
-    if (!havePsram && contentLength > 0 && ESP.getFreeHeap() < requiredMem) {
-        Serial.println("POTA Spots: Not enough memory for response!");
+    static const size_t POTA_OBJ_BUF = 1536;   // a spot is ~500 bytes of JSON
+    char* objBuf = (char*)malloc(POTA_OBJ_BUF);
+    if (!objBuf) {
+        Serial.println("POTA Spots: could not allocate the parse buffer");
         http.end();
         cache.fetching = false;
         return -1;
     }
 
-    String payload = http.getString();
-    http.end();
-
-    Serial.printf("POTA Spots: Received %d bytes\n", payload.length());
-    Serial.printf("POTA Spots: Free heap after receive: %d\n", ESP.getFreeHeap());
-
-    // Use larger JSON buffer for more spots
-    // Each spot is ~500 bytes in JSON, so 200 spots = ~100KB
-    // Allocate in PSRAM if available
-    size_t jsonBufferSize = 131072;  // 128KB for ~200 spots
-    DynamicJsonDocument* doc;
-
-    if (psramFound()) {
-        // Allocate JSON document in PSRAM
-        doc = new (ps_malloc(sizeof(DynamicJsonDocument))) DynamicJsonDocument(jsonBufferSize);
-        Serial.printf("POTA Spots: JSON buffer allocated in PSRAM (%d bytes)\n", jsonBufferSize);
-    } else {
-        // Fall back to heap with smaller buffer
-        jsonBufferSize = 32768;  // 32KB for ~50 spots
-        doc = new DynamicJsonDocument(jsonBufferSize);
-        Serial.printf("POTA Spots: JSON buffer allocated in heap (%d bytes)\n", jsonBufferSize);
-    }
-
-    DeserializationError error = deserializeJson(*doc, payload);
-
-    // Free the payload string ASAP to recover memory
-    payload = String();
-
-    if (error) {
-        Serial.printf("POTA Spots: JSON parse error - %s\n", error.c_str());
-        delete doc;
-        cache.fetching = false;
-        return -1;
-    }
-
-    Serial.printf("POTA Spots: Free heap after parse: %d\n", ESP.getFreeHeap());
-
-    JsonArray spotsArray = doc->as<JsonArray>();
-    Serial.printf("POTA Spots: API returned %d spots\n", spotsArray.size());
-
-    // Clear cache
     cache.count = 0;
+    int skippedTooBig = 0;
+    int seen = 0;
 
-    // Parse each spot
-    for (JsonObject spotObj : spotsArray) {
-        if (cache.count >= cache.maxSpots) {
-            Serial.printf("POTA Spots: Cache full at %d spots\n", cache.maxSpots);
-            break;
-        }
+    while (cache.count < cache.maxSpots) {
+        bool tooBig = false;
+        int got = potaReadNextObject(stream, objBuf, POTA_OBJ_BUF, &tooBig);
+        if (got <= 0) break;            // end of array, or the read timed out
+        if (tooBig) { skippedTooBig++; continue; }
+        seen++;
+
+        JsonDocument spotDoc;
+        if (deserializeJson(spotDoc, objBuf) != DeserializationError::Ok) continue;
+        JsonObject spotObj = spotDoc.as<JsonObject>();
 
         // Skip invalid spots
         if (spotObj["invalid"].as<bool>()) {
@@ -604,8 +641,13 @@ int fetchActiveSpots(POTASpotsCache& cache) {
         cache.count++;
     }
 
-    // Free JSON document
-    delete doc;
+    free(objBuf);
+    http.end();
+
+    if (skippedTooBig > 0) {
+        Serial.printf("POTA Spots: skipped %d oversized spots\n", skippedTooBig);
+    }
+    Serial.printf("POTA Spots: read %d spots off the stream\n", seen);
 
     cache.fetchTime = millis();
     cache.valid = true;

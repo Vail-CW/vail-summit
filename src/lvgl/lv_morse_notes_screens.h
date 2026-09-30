@@ -842,6 +842,10 @@ static void mnDoDiscardAndExit() {
     // Clean up keyer
     mnRecordKeyer = nullptr;
 
+    // Give the timing buffer back. Worth little when it sits in PSRAM, worth
+    // 32KB of heap on a board without any.
+    mnFreeRecordingBuffer();
+
     onLVGLMenuSelect(MODE_MORSE_NOTES_LIBRARY);
 }
 
@@ -1058,6 +1062,8 @@ void cleanupMorseNotesRecordScreen() {
         lv_timer_del(mnRecordTimer);
         mnRecordTimer = nullptr;
     }
+
+    mnFreeRecordingBuffer();
 
     // Delete preview timer
     if (mnSavePreviewTimer) {
@@ -1388,6 +1394,8 @@ void cleanupMorseNotesPlaybackScreen() {
         lv_timer_del(mnPlaybackTimer);
         mnPlaybackTimer = nullptr;
     }
+
+    mnFreePlaybackBuffer();
 
     mnPlaybackScreen = nullptr;
 }

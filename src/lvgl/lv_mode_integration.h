@@ -826,6 +826,7 @@ static const ModeCallbackEntry cleanupTable[] = {
     { MODE_POTA_FILTERS,                 cleanupPOTAScreen },
     // Satellite tracker: every screen may own an LVGL timer (pass search,
     // countdown, live tracking) - one cleanup deletes whatever exists.
+    { MODE_SAT_MENU,                     freeSatelliteData },
     { MODE_SAT_LIST,                     cleanupSatelliteScreens },
     { MODE_SAT_MY,                       cleanupSatelliteScreens },
     { MODE_SAT_POPULAR,                  cleanupSatelliteScreens },

@@ -18,6 +18,13 @@
 #define SAT_XMTR_URL      "https://db.satnogs.org/api/transmitters/?format=json"
 #define SAT_XMTR_FILE     "/sat/freqs.txt"
 #define SAT_XMTR_MAX      800
+#define SAT_XMTR_MAX_NOPSRAM 200   // 200 * 68B = ~14KB instead of 54KB
+
+// Same reasoning as the catalog: 54KB of heap is too much to hold on a board
+// without PSRAM just to look up a downlink frequency.
+static inline int satXmtrMax() {
+    return psramFound() ? SAT_XMTR_MAX : SAT_XMTR_MAX_NOPSRAM;
+}
 #define SAT_XMTR_PER_SAT  8
 #define SAT_XMTR_TIMEOUT  30000
 
@@ -36,7 +43,7 @@ static bool satXmtrsLoaded = false;   // load-from-storage attempted
 
 static bool initSatXmtrs() {
     if (satXmtrs) return true;
-    size_t totalSize = sizeof(SatTransmitter) * SAT_XMTR_MAX;
+    size_t totalSize = sizeof(SatTransmitter) * satXmtrMax();
     if (psramFound()) {
         satXmtrs = (SatTransmitter*)ps_malloc(totalSize);
     }
@@ -50,6 +57,15 @@ static bool initSatXmtrs() {
     memset(satXmtrs, 0, totalSize);
     satXmtrCount = 0;
     return true;
+}
+
+void freeSatXmtrs() {
+    if (satXmtrs == nullptr) return;
+    free(satXmtrs);
+    satXmtrs = nullptr;
+    satXmtrCount = 0;
+    satXmtrsLoaded = false;
+    Serial.println("[SAT] Transmitter table released");
 }
 
 static bool satCatalogHasNorad(uint32_t norad) {
@@ -105,7 +121,7 @@ void satFmtMHz(uint32_t hz, char* buf, size_t n) {
 
 static void satAddXmtr(uint32_t norad, uint32_t down, uint32_t up, bool invert,
                        const char* mode, const char* desc) {
-    if (satXmtrCount >= SAT_XMTR_MAX) return;
+    if (satXmtrCount >= satXmtrMax()) return;
     if (satXmtrCountFor(norad) >= SAT_XMTR_PER_SAT) return;
     SatTransmitter& x = satXmtrs[satXmtrCount++];
     memset(&x, 0, sizeof(SatTransmitter));
@@ -158,7 +174,7 @@ static bool satReadXmtrFile(fs::FS& fs) {
     if (!f) return false;
     satXmtrCount = 0;
     char line[128];
-    while (f.available() && satXmtrCount < SAT_XMTR_MAX) {
+    while (f.available() && satXmtrCount < satXmtrMax()) {
         int n = f.readBytesUntil('\n', line, sizeof(line) - 1);
         line[n] = '\0';
         // norad,down,up,invert,mode,desc

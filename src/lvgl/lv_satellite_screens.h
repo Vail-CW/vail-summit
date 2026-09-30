@@ -138,6 +138,23 @@ void cleanupSatelliteScreens() {
     for (int i = 0; i < 5; i++) sat_set_value_labels[i] = NULL;
 }
 
+/*
+ * Leaving satellites for good, as opposed to stepping back one screen inside
+ * them. cleanupSatelliteScreens() runs on every back step, so the catalog and
+ * transmitter table cannot be freed there without throwing them away between
+ * the list and a pass detail.
+ *
+ * Together these are 81KB on a board with PSRAM and 24KB without, held for the
+ * whole session until now. Coming back in reloads from the SD cache, so this
+ * costs a file read, not a download.
+ */
+void freeSatelliteData() {
+    cleanupSatelliteScreens();
+    freeSatCatalog();
+    freeSatXmtrs();
+}
+
+
 // ============================================
 // Shared Helpers
 // ============================================
