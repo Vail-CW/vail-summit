@@ -12,6 +12,7 @@
 #include <SD.h>
 #include <SPIFFS.h>
 #include <ArduinoJson.h>
+#include "../core/psram_json.h"
 #include "qso_logger.h"  // Same folder
 #include "../storage/sd_card.h"
 #include "../core/config.h"
@@ -193,7 +194,7 @@ void loadMetadata() {
   }
 
   // Parse JSON
-  JsonDocument doc;
+  JsonDocument doc(psramJsonAllocator());
   DeserializationError error = deserializeJson(doc, file);
   file.close();
 
@@ -226,7 +227,7 @@ void loadMetadata() {
  */
 void saveMetadata() {
   // Create JSON document
-  JsonDocument doc;
+  JsonDocument doc(psramJsonAllocator());
 
   doc["totalLogs"] = storageStats.totalLogs;
   doc["oldestLogId"] = storageStats.oldestLogId;
@@ -472,7 +473,7 @@ void generateDailyADIF(const char* date) {
     return;
   }
 
-  JsonDocument doc;
+  JsonDocument doc(psramJsonAllocator());
   DeserializationError error = deserializeJson(doc, jsonFile);
   jsonFile.close();
 
@@ -535,7 +536,7 @@ void generateMasterADIF() {
       Serial.print("Processing: ");
       Serial.println(filename);
 
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, file);
 
       if (!error) {
@@ -608,7 +609,7 @@ bool saveQSO(const QSO& qso) {
   Serial.println(filename);
 
   // Load existing logs for this day (if any)
-  JsonDocument doc;
+  JsonDocument doc(psramJsonAllocator());
   JsonArray logs;
 
   if (SD.exists(filename)) {
@@ -709,7 +710,7 @@ int loadAllQSOs(QSO* qsos, int maxCount) {
       Serial.println(filename);
 
       // Parse JSON
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, file);
 
       if (!error) {
@@ -768,7 +769,7 @@ bool deleteQSO(unsigned long id) {
 
     if (filename.endsWith(".json")) {
       // Load file
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, file);
       file.close();
 
@@ -854,7 +855,7 @@ bool updateQSO(const QSO& qso) {
 
     if (filename.endsWith(".json")) {
       // Load file
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, file);
       file.close();
 
@@ -931,7 +932,7 @@ void recalculateMetadata() {
     String filename = file.name();
 
     if (filename.endsWith(".json")) {
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, file);
 
       if (!error) {

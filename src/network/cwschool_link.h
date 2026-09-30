@@ -8,6 +8,7 @@
 
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include "../core/psram_json.h"
 #include <WiFi.h>
 #include "../settings/settings_cwschool.h"
 #include "../core/config.h"
@@ -92,7 +93,7 @@ bool exchangeCWSchoolCustomToken(const String& customToken) {
     http.setTimeout(CWSCHOOL_HTTP_TIMEOUT);
     http.addHeader("Content-Type", "application/json");
 
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     doc["token"] = customToken;
     doc["returnSecureToken"] = true;
 
@@ -108,7 +109,7 @@ bool exchangeCWSchoolCustomToken(const String& customToken) {
     Serial.printf("[CWSchool] Token exchange HTTP code: %d\n", httpCode);
 
     if (httpCode == 200) {
-        JsonDocument respDoc;
+        JsonDocument respDoc(psramJsonAllocator());
         if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
             String idToken = respDoc["idToken"].as<String>();
             String refreshToken = respDoc["refreshToken"].as<String>();
@@ -155,7 +156,7 @@ bool refreshCWSchoolIdToken() {
     http.end();
 
     if (httpCode == 200) {
-        JsonDocument respDoc;
+        JsonDocument respDoc(psramJsonAllocator());
         if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
             String newIdToken = respDoc["id_token"].as<String>();
             String newRefreshToken = respDoc["refresh_token"].as<String>();
@@ -246,7 +247,7 @@ int cwschoolCallableRequest(const String& functionName, const JsonDocument& data
     }
 
     // Wrap data in {"data": ...}
-    JsonDocument requestDoc;
+    JsonDocument requestDoc(psramJsonAllocator());
     requestDoc["data"] = data;
 
     String body;
@@ -258,7 +259,7 @@ int cwschoolCallableRequest(const String& functionName, const JsonDocument& data
         String response = http.getString();
 
         if (httpCode == 200) {
-            JsonDocument respDoc;
+            JsonDocument respDoc(psramJsonAllocator());
             if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
                 // Unwrap result from {"result": ...}
                 if (respDoc.containsKey("result")) {
@@ -300,7 +301,7 @@ bool requestCWSchoolDeviceCode() {
 
     cwschoolLinkState = CWSCHOOL_LINK_REQUESTING_CODE;
 
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     doc["device_name"] = "VAIL Summit";
     doc["device_type"] = CWSCHOOL_DEVICE_TYPE;
     doc["firmware_version"] = FIRMWARE_VERSION;
@@ -317,7 +318,7 @@ bool requestCWSchoolDeviceCode() {
     int httpCode = cwschoolHttpRequest("POST", "api_summit_requestCode", body, response);
 
     if (httpCode == 200) {
-        JsonDocument respDoc;
+        JsonDocument respDoc(psramJsonAllocator());
         if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
             cwschoolLinkCode = respDoc["code"].as<String>();
             cwschoolLinkUrl = respDoc["link_url"].as<String>();
@@ -394,7 +395,7 @@ int checkCWSchoolDeviceCode() {
     Serial.printf("[CWSchool] checkDeviceCode HTTP code: %d\n", httpCode);
 
     if (httpCode == 200) {
-        JsonDocument respDoc;
+        JsonDocument respDoc(psramJsonAllocator());
         DeserializationError jsonErr = deserializeJson(respDoc, response);
         if (jsonErr == DeserializationError::Ok) {
             String status = respDoc["status"].as<String>();

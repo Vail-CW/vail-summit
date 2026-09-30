@@ -5,6 +5,7 @@
 #include "../storage/sd_card.h"
 #include <SD.h>
 #include <ArduinoJson.h>
+#include "../core/psram_json.h"
 #include <time.h>
 
 // ===================================
@@ -128,7 +129,7 @@ bool mnLoadLibrary() {
     }
 
     // Parse JSON
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     DeserializationError err = deserializeJson(doc, file);
     file.close();
 
@@ -179,7 +180,7 @@ bool mnSaveLibrary() {
     }
 
     // Create JSON document
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     doc["version"] = "1.0";
     doc["lastModified"] = (unsigned long)(millis() / 1000);
 

@@ -8,6 +8,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include "../core/psram_json.h"
 #include "internet_check.h"
 
 // ============================================
@@ -70,7 +71,7 @@ bool lookupPOTAPark(const char* reference, POTAPark& park) {
     Serial.println(payload.substring(0, 200));
 
     // Parse JSON
-    StaticJsonDocument<2048> doc;
+    JsonDocument doc(psramJsonAllocator());
     DeserializationError error = deserializeJson(doc, payload);
 
     if (!error) {

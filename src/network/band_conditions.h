@@ -10,6 +10,7 @@
 #include <esp_heap_caps.h>   // largest-free-block check before TLS
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <esp_heap_caps.h>
 #include "internet_check.h"
 
 // ============================================
@@ -73,8 +74,22 @@ struct BandConditionsData {
     int vhfCount;
 };
 
-// Global data instance
-static BandConditionsData bandConditionsData;
+// Global data instance - lives in PSRAM (not timing-critical). Allocated once
+// on first access and never freed; always go through bandConditions().
+static BandConditionsData* bandConditionsDataPtr = nullptr;
+
+static BandConditionsData& bandConditions() {
+    if (!bandConditionsDataPtr) {
+        BandConditionsData* p = (BandConditionsData*)heap_caps_calloc(1, sizeof(BandConditionsData), MALLOC_CAP_SPIRAM);
+        if (!p) p = (BandConditionsData*)calloc(1, sizeof(BandConditionsData));  // no-PSRAM builds
+        if (!p) {
+            Serial.println("[BandCond] FATAL: data allocation failed");
+            abort();
+        }
+        bandConditionsDataPtr = p;
+    }
+    return *bandConditionsDataPtr;
+}
 
 // ============================================
 // XML Parsing Helpers
@@ -299,7 +314,7 @@ bool fetchBandConditions(BandConditionsData& data) {
     // The XML is only about 8KB. What costs memory here is the TLS handshake,
     // so the number that matters is the biggest free block, not total free
     // heap. Checking it up front turns a silent failure into a log line.
-    size_t largestBlock = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    size_t largestBlock = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);  // tls buffers are internal-only
     Serial.printf("[BandConditions] Fetching from hamqsl.com (heap %u free, %u largest)\n",
                   (unsigned)ESP.getFreeHeap(), (unsigned)largestBlock);
 

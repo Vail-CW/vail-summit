@@ -5401,9 +5401,15 @@ void showQSODetailPopup(int qsoIndex) {
     lv_obj_set_style_pad_all(qso_detail_popup, 15, 0);
     lv_obj_clear_flag(qso_detail_popup, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Build text in a static buffer using snprintf (not LVGL formatting)
-    static char popup_text[512];
-    snprintf(popup_text, sizeof(popup_text),
+    // Build text in a persistent PSRAM buffer using snprintf (not LVGL
+    // formatting). Allocated on first use and never freed.
+    #define QSO_POPUP_TEXT_SIZE 512
+    static char* popup_text = NULL;
+    if (!popup_text) {
+        popup_text = (char*)heap_caps_calloc(QSO_POPUP_TEXT_SIZE, 1, MALLOC_CAP_SPIRAM);
+        if (!popup_text) popup_text = (char*)calloc(QSO_POPUP_TEXT_SIZE, 1);  // no-PSRAM builds
+    }
+    if (popup_text) snprintf(popup_text, QSO_POPUP_TEXT_SIZE,
         "Callsign: %s\n"
         "Date: %s  Time: %s\n"
         "Freq: %.3f MHz  Band: %s\n"
@@ -5419,7 +5425,7 @@ void showQSODetailPopup(int qsoIndex) {
 
     // Create label with QSO content
     lv_obj_t* content = lv_label_create(qso_detail_popup);
-    lv_label_set_text(content, popup_text);
+    lv_label_set_text(content, popup_text ? popup_text : qso.callsign);
     lv_obj_set_style_text_color(content, LV_COLOR_TEXT_PRIMARY, 0);
 
     // Add key handler

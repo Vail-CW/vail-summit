@@ -16,7 +16,17 @@ uint64_t sdCardSize = 0;
 uint64_t sdCardUsed = 0;
 
 // Initialize SD card
+// A failed SD.begin() (no card) blocks the loop for ~1s, and plenty of callers
+// retry on their own schedule. After a failure, report "no card" instantly
+// until the retry window passes instead of stalling UI and keying every time.
+#define SD_INIT_RETRY_MS 30000UL
+static unsigned long sdInitLastFailMs = 0;
+
 bool initSDCard() {
+  if (!sdCardAvailable && sdInitLastFailMs != 0 &&
+      millis() - sdInitLastFailMs < SD_INIT_RETRY_MS) {
+    return false;
+  }
   Serial.println("Initializing SD card...");
 
   // Set CS pin high (inactive) before initializing to avoid conflicts
@@ -29,6 +39,7 @@ bool initSDCard() {
   // The display's bus_shared=true setting allows this to work
   if (!SD.begin(SD_CS, SPI, 4000000, "/sd", 5, false)) {
     Serial.println("SD card initialization failed (or no card inserted)");
+    sdInitLastFailMs = millis();
     sdCardAvailable = false;
     return false;
   }
@@ -40,6 +51,7 @@ bool initSDCard() {
   uint8_t cardType = SD.cardType();
   if (cardType == CARD_NONE) {
     Serial.println("No SD card attached");
+    sdInitLastFailMs = millis();
     sdCardAvailable = false;
     return false;
   }

@@ -9,6 +9,7 @@
 #include "../core/config.h"
 #include "qso_logger.h"  // Same folder
 #include "qso_logger_storage.h"  // Same folder
+#include "../core/psram_json.h"
 
 // View state
 enum ViewMode {
@@ -75,7 +76,7 @@ void loadQSOsForView() {
           Serial.print("    First 200 chars: ");
           Serial.println(content.substring(0, min(200, (int)content.length())));
 
-          StaticJsonDocument<8192> doc;
+          JsonDocument doc(psramJsonAllocator());
           DeserializationError error = deserializeJson(doc, content);
 
           Serial.print("    JSON parse result: ");
@@ -157,7 +158,7 @@ void loadQSOsForView() {
           String content = logFile.readString();
           logFile.close();
 
-          StaticJsonDocument<8192> doc;
+          JsonDocument doc(psramJsonAllocator());
           DeserializationError error = deserializeJson(doc, content);
 
           if (!error && doc.containsKey("logs")) {
@@ -224,7 +225,7 @@ bool deleteCurrentQSO() {
   file.close();
 
   // Parse JSON
-  StaticJsonDocument<8192> doc;
+  JsonDocument doc(psramJsonAllocator());
   DeserializationError error = deserializeJson(doc, content);
 
   if (error) {
@@ -240,7 +241,7 @@ bool deleteCurrentQSO() {
 
   // Create new array without the deleted QSO
   JsonArray oldLogs = doc["logs"].as<JsonArray>();
-  StaticJsonDocument<8192> newDoc;
+  JsonDocument newDoc(psramJsonAllocator());
   JsonArray newLogs = newDoc.createNestedArray("logs");
 
   int removedCount = 0;

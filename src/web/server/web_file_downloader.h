@@ -32,6 +32,16 @@ typedef void (*EarlyBootProgressCallback)(const char* status, int currentFile, i
 
 #define WEB_DOWNLOAD_PREF_NAMESPACE "webdl"
 #define WEB_DOWNLOAD_PREF_PENDING "pending"
+// Snapshot of the live connection taken when the download is requested, so
+// early boot can rejoin exactly what was working (independent of which saved
+// slot it lives in, and pinned to the same access point / channel).
+#define WEB_DOWNLOAD_PREF_SSID "ssid"
+#define WEB_DOWNLOAD_PREF_PASS "pass"
+#define WEB_DOWNLOAD_PREF_BSSID "bssid"
+#define WEB_DOWNLOAD_PREF_CHAN "chan"
+
+#define EARLY_WIFI_ATTEMPT_MS 20000   // per attempt
+#define EARLY_WIFI_MAX_ATTEMPTS 6     // live pinned + live unpinned + 3 slots, with headroom
 
 /**
  * Check if a web download is pending (call early in setup, before LVGL)
@@ -53,30 +63,170 @@ void requestWebDownloadAndReboot() {
   Preferences prefs;
   prefs.begin(WEB_DOWNLOAD_PREF_NAMESPACE, false);  // read-write
   prefs.putBool(WEB_DOWNLOAD_PREF_PENDING, true);
+  if (WiFi.status() == WL_CONNECTED) {
+    prefs.putString(WEB_DOWNLOAD_PREF_SSID, WiFi.SSID().c_str());
+    prefs.putString(WEB_DOWNLOAD_PREF_PASS, WiFi.psk().c_str());
+    uint8_t* bssid = WiFi.BSSID();
+    if (bssid) prefs.putBytes(WEB_DOWNLOAD_PREF_BSSID, bssid, 6);
+    prefs.putUChar(WEB_DOWNLOAD_PREF_CHAN, (uint8_t)WiFi.channel());
+  } else {
+    prefs.remove(WEB_DOWNLOAD_PREF_SSID);
+    prefs.remove(WEB_DOWNLOAD_PREF_PASS);
+    prefs.remove(WEB_DOWNLOAD_PREF_BSSID);
+    prefs.remove(WEB_DOWNLOAD_PREF_CHAN);
+  }
   prefs.end();
   delay(100);
   ESP.restart();
 }
 
 /**
- * Clear the web download pending flag
+ * Clear the web download pending flag and the connection snapshot
  */
 void clearWebDownloadPending() {
   Preferences prefs;
   prefs.begin(WEB_DOWNLOAD_PREF_NAMESPACE, false);
   prefs.putBool(WEB_DOWNLOAD_PREF_PENDING, false);
+  prefs.remove(WEB_DOWNLOAD_PREF_SSID);
+  prefs.remove(WEB_DOWNLOAD_PREF_PASS);
+  prefs.remove(WEB_DOWNLOAD_PREF_BSSID);
+  prefs.remove(WEB_DOWNLOAD_PREF_CHAN);
   prefs.end();
+}
+
+/**
+ * Check whether early boot has anything to connect with: the live snapshot
+ * or any saved slot (ssid1..ssid3 in "wifi" prefs)
+ */
+bool hasSavedWiFiForEarlyBoot() {
+  Preferences prefs;
+  prefs.begin(WEB_DOWNLOAD_PREF_NAMESPACE, true);
+  bool any = prefs.getString(WEB_DOWNLOAD_PREF_SSID, "").length() > 0;
+  prefs.end();
+  prefs.begin("wifi", true);
+  any = any ||
+        prefs.getString("ssid1", "").length() > 0 ||
+        prefs.getString("ssid2", "").length() > 0 ||
+        prefs.getString("ssid3", "").length() > 0;
+  prefs.end();
+  return any;
+}
+
+struct EarlyWiFiAttempt {
+  char ssid[33];
+  char pass[65];
+  uint8_t bssid[6];
+  uint8_t channel;   // 0 = not pinned
+};
+
+static const char* earlyWiFiStatusText(wl_status_t st) {
+  switch (st) {
+    case WL_NO_SSID_AVAIL:   return "network not found";
+    case WL_CONNECT_FAILED:  return "rejected (password?)";
+    case WL_CONNECTION_LOST: return "connection lost";
+    case WL_DISCONNECTED:    return "timed out";
+    default:                 return "timed out";
+  }
+}
+
+// Fully reset the radio so each attempt starts clean (no stale auth state)
+static void resetEarlyBootRadio() {
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  delay(200);
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);                   // stay awake: faster, more reliable join
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);    // full power for the join
+  delay(100);
+}
+
+/**
+ * Connect for the early boot download. Nothing else is running yet (no LVGL,
+ * no audio, no BLE, no web server), so the radio and heap are all ours.
+ * Order: live snapshot pinned to its AP/channel, live snapshot unpinned,
+ * then every saved slot. Each attempt gets a clean radio reset.
+ */
+static bool connectEarlyBootWiFi(EarlyBootProgressCallback progressCb) {
+  EarlyWiFiAttempt attempts[EARLY_WIFI_MAX_ATTEMPTS];  // stack, early boot only - no permanent RAM
+  memset(attempts, 0, sizeof(attempts));
+  int count = 0;
+
+  Preferences prefs;
+  prefs.begin(WEB_DOWNLOAD_PREF_NAMESPACE, true);
+  EarlyWiFiAttempt live;
+  memset(&live, 0, sizeof(live));
+  prefs.getString(WEB_DOWNLOAD_PREF_SSID, live.ssid, sizeof(live.ssid));
+  prefs.getString(WEB_DOWNLOAD_PREF_PASS, live.pass, sizeof(live.pass));
+  bool haveBssid = prefs.getBytes(WEB_DOWNLOAD_PREF_BSSID, live.bssid, 6) == 6;
+  live.channel = prefs.getUChar(WEB_DOWNLOAD_PREF_CHAN, 0);
+  prefs.end();
+
+  if (live.ssid[0] != '\0') {
+    if (haveBssid && live.channel > 0) attempts[count++] = live;   // pinned
+    live.channel = 0;
+    attempts[count++] = live;                                       // unpinned
+  }
+
+  prefs.begin("wifi", true);
+  for (int i = 0; i < 3 && count < EARLY_WIFI_MAX_ATTEMPTS; i++) {
+    EarlyWiFiAttempt a;
+    memset(&a, 0, sizeof(a));
+    char key[8];
+    snprintf(key, sizeof(key), "ssid%d", i + 1);
+    prefs.getString(key, a.ssid, sizeof(a.ssid));
+    snprintf(key, sizeof(key), "pass%d", i + 1);
+    prefs.getString(key, a.pass, sizeof(a.pass));
+    if (a.ssid[0] == '\0') continue;
+    // Skip a slot identical to the live snapshot we already tried
+    if (strcmp(a.ssid, live.ssid) == 0 && strcmp(a.pass, live.pass) == 0) continue;
+    attempts[count++] = a;
+  }
+  prefs.end();
+
+  char status[64];
+  for (int n = 0; n < count; n++) {
+    EarlyWiFiAttempt& a = attempts[n];
+    resetEarlyBootRadio();
+
+    snprintf(status, sizeof(status), "Connecting to %.22s...", a.ssid);  // fits 480px at size 2
+    Serial.printf("WiFi attempt %d/%d: %s%s (heap %u, max block %u)\n", n + 1, count, a.ssid,
+                  a.channel ? " [pinned AP]" : "",
+                  (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+    if (progressCb) progressCb(status, 0, 0);
+
+    if (a.channel) {
+      WiFi.begin(a.ssid, a.pass, a.channel, a.bssid);
+    } else {
+      WiFi.begin(a.ssid, a.pass);
+    }
+
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < EARLY_WIFI_ATTEMPT_MS) {
+      // A hard reject is final for this attempt; don't sit out the timeout
+      if (WiFi.status() == WL_CONNECT_FAILED) break;
+      delay(250);
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.printf("Connected on attempt %d\n", n + 1);
+      return true;
+    }
+
+    wl_status_t st = WiFi.status();
+    Serial.printf("Attempt %d failed: status %d\n", n + 1, (int)st);
+    snprintf(status, sizeof(status), "%.20s: %s", a.ssid, earlyWiFiStatusText(st));
+    if (progressCb) progressCb(status, 0, 0);
+    delay(1500);  // leave the reason on screen long enough to read / photograph
+  }
+  return false;
 }
 
 /**
  * Perform web files download early in boot (before LVGL)
  * This runs when plenty of RAM is available
- * @param ssid WiFi SSID to connect to
- * @param password WiFi password
  * @return true if download successful
  */
-bool performEarlyBootWebDownload(const char* ssid, const char* password,
-                                  EarlyBootProgressCallback progressCb = nullptr) {
+bool performEarlyBootWebDownload(EarlyBootProgressCallback progressCb = nullptr) {
   Serial.println("\n========================================");
   Serial.println("EARLY BOOT WEB DOWNLOAD MODE");
   Serial.println("========================================\n");
@@ -85,19 +235,7 @@ bool performEarlyBootWebDownload(const char* ssid, const char* password,
     ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
   // Connect to WiFi
-  Serial.printf("Connecting to WiFi: %s\n", ssid);
-  if (progressCb) progressCb("Connecting to WiFi...", 0, 0);
-  WiFi.begin(ssid, password);
-
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
-  Serial.println();
-
-  if (WiFi.status() != WL_CONNECTED) {
+  if (!connectEarlyBootWiFi(progressCb)) {
     Serial.println("WiFi connection failed!");
     if (progressCb) progressCb("WiFi connection failed!", 0, 0);
     delay(2000);

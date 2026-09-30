@@ -8,6 +8,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include "../core/psram_json.h"
 #include "internet_check.h"
 
 // ============================================
@@ -598,7 +599,7 @@ int fetchActiveSpots(POTASpotsCache& cache) {
         if (tooBig) { skippedTooBig++; continue; }
         seen++;
 
-        JsonDocument spotDoc;
+        JsonDocument spotDoc(psramJsonAllocator());
         if (deserializeJson(spotDoc, objBuf) != DeserializationError::Ok) continue;
         JsonObject spotObj = spotDoc.as<JsonObject>();
 

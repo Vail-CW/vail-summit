@@ -527,9 +527,28 @@ void startTone(int frequency) {
 
   tone_playing = true;
 
-  // Immediately fill the I2S buffer to start playback
-  // This prevents the clicking issue by ensuring continuous data flow
-  continueTone(frequency);
+  // Prefill the DMA ring as deep as it will go, not just one 5.8ms chunk.
+  // Keyed modes call startTone/continueTone from the Core-1 loop, and the
+  // start of an element is exactly when that loop is busiest (the previous
+  // character's decode and redraw land here, measured at 20-35ms). With one
+  // chunk queued the DMA ran dry mid-element and the tone crunched. A full
+  // ring (~46ms) rides that out. No added key-up latency: stopTone() zeroes
+  // the DMA. Non-blocking writes so this never stalls the keyer.
+  float phase_increment = 2.0 * PI * current_frequency / I2S_SAMPLE_RATE;
+  int16_t sample_buffer[I2S_BUFFER_SIZE];
+  for (int i = 0; i < I2S_DMA_BUF_COUNT; i++) {
+    fillToneBuffer(sample_buffer, I2S_BUFFER_SIZE / 2, &phase, phase_increment, toneAmp());
+    size_t bytes_written = 0;
+    i2s_write(I2S_NUM, sample_buffer, I2S_BUFFER_SIZE * sizeof(int16_t), &bytes_written, 0);
+    if (bytes_written < I2S_BUFFER_SIZE * sizeof(int16_t)) {
+      // Ring is full. Wind the phase back over the frames that didn't fit so
+      // the next continueTone() picks up exactly where the DMA left off.
+      int unwrittenFrames = (int)((I2S_BUFFER_SIZE * sizeof(int16_t) - bytes_written) / (2 * sizeof(int16_t)));
+      phase -= phase_increment * unwrittenFrames;
+      while (phase < 0) phase += 2.0 * PI;
+      break;
+    }
+  }
 }
 
 /*

@@ -177,6 +177,9 @@ void scanNetworks() {
     Serial.print(" dBm) ");
     Serial.println(networks[i].encrypted ? "[Encrypted]" : "[Open]");
   }
+
+  // Results are copied into networks[] - free the driver's scan list
+  WiFi.scanDelete();
 }
 
 // Draw current connection status

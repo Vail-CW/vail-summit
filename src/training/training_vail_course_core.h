@@ -11,6 +11,7 @@
 
 #include <Arduino.h>
 #include <Preferences.h>
+#include <esp_heap_caps.h>
 #include "../core/config.h"
 
 // ============================================
@@ -214,21 +215,30 @@ struct VailCourseProgress {
     unsigned long lastSyncTimestamp;
 };
 
-// Global progress state
-static VailCourseProgress vailCourseProgress = {
-    .currentModule = MODULE_LETTERS_1,
-    .currentLesson = 1,
-    .currentPhase = PHASE_INTRO,
-    .modulesUnlocked = 0x01,        // First module unlocked by default
-    .modulesCompleted = 0,
-    .characterWPM = 20,
-    .effectiveWPM = 10,
-    .autoAdvance = true,
-    .sessionCorrect = 0,
-    .sessionTotal = 0,
-    .sessionStartTime = 0,
-    .lastSyncTimestamp = 0
-};
+// Global progress state - lives in PSRAM (~4.6KB, not timing-critical).
+// Allocated once on first access and never freed; always go through vcProgress().
+static VailCourseProgress* vailCourseProgressPtr = nullptr;
+
+static VailCourseProgress& vcProgress() {
+    if (!vailCourseProgressPtr) {
+        VailCourseProgress* p = (VailCourseProgress*)heap_caps_calloc(1, sizeof(VailCourseProgress), MALLOC_CAP_SPIRAM);
+        if (!p) p = (VailCourseProgress*)calloc(1, sizeof(VailCourseProgress));  // no-PSRAM builds
+        if (!p) {
+            Serial.println("[VailCourse] FATAL: progress allocation failed");
+            abort();
+        }
+        p->currentModule = MODULE_LETTERS_1;
+        p->currentLesson = 1;
+        p->currentPhase = PHASE_INTRO;
+        p->modulesUnlocked = 0x01;        // First module unlocked by default
+        p->modulesCompleted = 0;
+        p->characterWPM = 20;
+        p->effectiveWPM = 10;
+        p->autoAdvance = true;
+        vailCourseProgressPtr = p;
+    }
+    return *vailCourseProgressPtr;
+}
 
 static Preferences vailCoursePrefs;
 
@@ -270,22 +280,22 @@ char getVailCourseCharFromIndex(int idx) {
 
 // Check if a module is unlocked
 bool isVailCourseModuleUnlocked(VailCourseModule module) {
-    return (vailCourseProgress.modulesUnlocked & (1 << module)) != 0;
+    return (vcProgress().modulesUnlocked & (1 << module)) != 0;
 }
 
 // Check if a module is completed
 bool isVailCourseModuleCompleted(VailCourseModule module) {
-    return (vailCourseProgress.modulesCompleted & (1 << module)) != 0;
+    return (vcProgress().modulesCompleted & (1 << module)) != 0;
 }
 
 // Unlock a module
 void unlockVailCourseModule(VailCourseModule module) {
-    vailCourseProgress.modulesUnlocked |= (1 << module);
+    vcProgress().modulesUnlocked |= (1 << module);
 }
 
 // Complete a module
 void completeVailCourseModule(VailCourseModule module) {
-    vailCourseProgress.modulesCompleted |= (1 << module);
+    vcProgress().modulesCompleted |= (1 << module);
 
     // Unlock next module if prerequisite is met
     for (int i = 0; i < MODULE_COUNT; i++) {
@@ -297,17 +307,17 @@ void completeVailCourseModule(VailCourseModule module) {
 
 // Get number of lessons completed in a module
 int getVailCourseLessonsCompleted(VailCourseModule module) {
-    return vailCourseProgress.lessonsCompleted[module];
+    return vcProgress().lessonsCompleted[module];
 }
 
 // Complete a lesson
 void completeVailCourseLesson(VailCourseModule module, int lesson) {
-    if (lesson > (int)vailCourseProgress.lessonsCompleted[module]) {
-        vailCourseProgress.lessonsCompleted[module] = lesson;
+    if (lesson > (int)vcProgress().lessonsCompleted[module]) {
+        vcProgress().lessonsCompleted[module] = lesson;
     }
 
     // Check if module is complete
-    if ((int)vailCourseProgress.lessonsCompleted[module] >= vailCourseLessonCounts[module]) {
+    if ((int)vcProgress().lessonsCompleted[module] >= vailCourseLessonCounts[module]) {
         completeVailCourseModule(module);
     }
 }
@@ -377,7 +387,7 @@ String getVailCourseCharsForLesson(VailCourseModule module, int lesson) {
 String getVailCourseLearnedChars() {
     String chars = "";
     for (int m = 0; m < MODULE_COUNT; m++) {
-        int lessonsDone = (int)vailCourseProgress.lessonsCompleted[m];
+        int lessonsDone = (int)vcProgress().lessonsCompleted[m];
         if (lessonsDone <= 0) continue;
         for (int l = 0; l < lessonsDone && l < vailCourseLessonCounts[m]; l++) {
             const char* lc = vailCourseLessonChars[m][l];
@@ -394,7 +404,7 @@ String getVailCourseLearnedChars() {
 // keeps mastered characters in the rotation.
 static int vailCourseCharWeight(char c) {
     int idx = getVailCourseCharIndex(c);
-    int mastery = (idx >= 0 && idx < VAIL_CHAR_COUNT) ? vailCourseProgress.charMastery[idx].mastery : 0;
+    int mastery = (idx >= 0 && idx < VAIL_CHAR_COUNT) ? vcProgress().charMastery[idx].mastery : 0;
     int w = 1000 - mastery;
     return (w < 60) ? 60 : w;
 }
@@ -420,7 +430,7 @@ char getVailCourseWeightedRandomChar(const String& pool) {
 void vailCourseRecordAnswer(char c, bool correct) {
     int idx = getVailCourseCharIndex(c);
     if (idx < 0 || idx >= VAIL_CHAR_COUNT) return;
-    VailCourseCharMastery& m = vailCourseProgress.charMastery[idx];
+    VailCourseCharMastery& m = vcProgress().charMastery[idx];
     m.attempts++;
     if (correct) {
         m.correct++;
@@ -530,55 +540,55 @@ void loadVailCourseProgress() {
     vailCoursePrefs.begin("vailcourse", true);  // Read-only
 
     // Current position
-    vailCourseProgress.currentModule = (VailCourseModule)vailCoursePrefs.getInt("module", MODULE_LETTERS_1);
-    vailCourseProgress.currentLesson = vailCoursePrefs.getInt("lesson", 1);
+    vcProgress().currentModule = (VailCourseModule)vailCoursePrefs.getInt("module", MODULE_LETTERS_1);
+    vcProgress().currentLesson = vailCoursePrefs.getInt("lesson", 1);
 
     // Unlock state
-    vailCourseProgress.modulesUnlocked = vailCoursePrefs.getUInt("unlocked", 0x01);
-    vailCourseProgress.modulesCompleted = vailCoursePrefs.getUInt("completed", 0);
+    vcProgress().modulesUnlocked = vailCoursePrefs.getUInt("unlocked", 0x01);
+    vcProgress().modulesCompleted = vailCoursePrefs.getUInt("completed", 0);
 
     // Settings
-    vailCourseProgress.characterWPM = vailCoursePrefs.getInt("charWPM", 20);
-    vailCourseProgress.effectiveWPM = vailCoursePrefs.getInt("effWPM", 10);
-    vailCourseProgress.autoAdvance = vailCoursePrefs.getBool("autoAdv", true);
+    vcProgress().characterWPM = vailCoursePrefs.getInt("charWPM", 20);
+    vcProgress().effectiveWPM = vailCoursePrefs.getInt("effWPM", 10);
+    vcProgress().autoAdvance = vailCoursePrefs.getBool("autoAdv", true);
 
     // Sync metadata
-    vailCourseProgress.lastSyncTimestamp = vailCoursePrefs.getULong("lastSync", 0);
+    vcProgress().lastSyncTimestamp = vailCoursePrefs.getULong("lastSync", 0);
 
     // Load lessons completed per module (single blob, schema v2; size-guarded)
-    memset(vailCourseProgress.lessonsCompleted, 0, sizeof(vailCourseProgress.lessonsCompleted));
-    if (vailCoursePrefs.getBytesLength("lc") == sizeof(vailCourseProgress.lessonsCompleted))
-        vailCoursePrefs.getBytes("lc", vailCourseProgress.lessonsCompleted,
-                                 sizeof(vailCourseProgress.lessonsCompleted));
+    memset(vcProgress().lessonsCompleted, 0, sizeof(vcProgress().lessonsCompleted));
+    if (vailCoursePrefs.getBytesLength("lc") == sizeof(vcProgress().lessonsCompleted))
+        vailCoursePrefs.getBytes("lc", vcProgress().lessonsCompleted,
+                                 sizeof(vcProgress().lessonsCompleted));
 
     vailCoursePrefs.end();
 
     Serial.printf("[VailCourse] Progress loaded: Module %d, Lesson %d\n",
-                  (int)vailCourseProgress.currentModule, vailCourseProgress.currentLesson);
+                  (int)vcProgress().currentModule, vcProgress().currentLesson);
 }
 
 void saveVailCourseProgress() {
     vailCoursePrefs.begin("vailcourse", false);  // Read-write
 
     // Current position
-    vailCoursePrefs.putInt("module", (int)vailCourseProgress.currentModule);
-    vailCoursePrefs.putInt("lesson", vailCourseProgress.currentLesson);
+    vailCoursePrefs.putInt("module", (int)vcProgress().currentModule);
+    vailCoursePrefs.putInt("lesson", vcProgress().currentLesson);
 
     // Unlock state
-    vailCoursePrefs.putUInt("unlocked", vailCourseProgress.modulesUnlocked);
-    vailCoursePrefs.putUInt("completed", vailCourseProgress.modulesCompleted);
+    vailCoursePrefs.putUInt("unlocked", vcProgress().modulesUnlocked);
+    vailCoursePrefs.putUInt("completed", vcProgress().modulesCompleted);
 
     // Settings
-    vailCoursePrefs.putInt("charWPM", vailCourseProgress.characterWPM);
-    vailCoursePrefs.putInt("effWPM", vailCourseProgress.effectiveWPM);
-    vailCoursePrefs.putBool("autoAdv", vailCourseProgress.autoAdvance);
+    vailCoursePrefs.putInt("charWPM", vcProgress().characterWPM);
+    vailCoursePrefs.putInt("effWPM", vcProgress().effectiveWPM);
+    vailCoursePrefs.putBool("autoAdv", vcProgress().autoAdvance);
 
     // Sync metadata
-    vailCoursePrefs.putULong("lastSync", vailCourseProgress.lastSyncTimestamp);
+    vailCoursePrefs.putULong("lastSync", vcProgress().lastSyncTimestamp);
 
     // Save lessons completed per module (single blob, schema v2)
-    vailCoursePrefs.putBytes("lc", vailCourseProgress.lessonsCompleted,
-                             sizeof(vailCourseProgress.lessonsCompleted));
+    vailCoursePrefs.putBytes("lc", vcProgress().lessonsCompleted,
+                             sizeof(vcProgress().lessonsCompleted));
 
     vailCoursePrefs.end();
 
@@ -598,9 +608,9 @@ void loadVailCourseMastery() {
     vailCoursePrefs.end();
 
     for (int i = 0; i < VAIL_CHAR_COUNT; i++) {
-        vailCourseProgress.charMastery[i].mastery = m[i];
-        vailCourseProgress.charMastery[i].attempts = a[i];
-        vailCourseProgress.charMastery[i].correct = c[i];
+        vcProgress().charMastery[i].mastery = m[i];
+        vcProgress().charMastery[i].attempts = a[i];
+        vcProgress().charMastery[i].correct = c[i];
     }
     Serial.println("[VailCourse] Mastery loaded");
 }
@@ -608,9 +618,9 @@ void loadVailCourseMastery() {
 void saveVailCourseMastery() {
     int32_t m[VAIL_CHAR_COUNT], a[VAIL_CHAR_COUNT], c[VAIL_CHAR_COUNT];
     for (int i = 0; i < VAIL_CHAR_COUNT; i++) {
-        m[i] = vailCourseProgress.charMastery[i].mastery;
-        a[i] = vailCourseProgress.charMastery[i].attempts;
-        c[i] = vailCourseProgress.charMastery[i].correct;
+        m[i] = vcProgress().charMastery[i].mastery;
+        a[i] = vcProgress().charMastery[i].attempts;
+        c[i] = vcProgress().charMastery[i].correct;
     }
 
     vailCoursePrefs.begin("vcmastery", false);
@@ -626,9 +636,9 @@ void saveVailCourseMastery() {
 // ============================================
 
 void startVailCourseSession() {
-    vailCourseProgress.sessionCorrect = 0;
-    vailCourseProgress.sessionTotal = 0;
-    vailCourseProgress.sessionStartTime = millis();
+    vcProgress().sessionCorrect = 0;
+    vcProgress().sessionTotal = 0;
+    vcProgress().sessionStartTime = millis();
     Serial.println("[VailCourse] Session started");
 }
 
@@ -637,9 +647,9 @@ void endVailCourseSession() {
     saveVailCourseProgress();
     saveVailCourseMastery();
 
-    unsigned long duration = (millis() - vailCourseProgress.sessionStartTime) / 1000;
+    unsigned long duration = (millis() - vcProgress().sessionStartTime) / 1000;
     Serial.printf("[VailCourse] Session ended: %d/%d correct (%lu sec)\n",
-                  vailCourseProgress.sessionCorrect, vailCourseProgress.sessionTotal, duration);
+                  vcProgress().sessionCorrect, vcProgress().sessionTotal, duration);
 }
 
 // ============================================
