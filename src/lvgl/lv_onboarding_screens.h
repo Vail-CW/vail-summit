@@ -55,6 +55,7 @@ static lv_obj_t* onboard_callsign_ta = NULL;
 static lv_obj_t* onboard_screen = NULL;
 static lv_obj_t* onboard_nav_btns[6];
 static int onboard_nav_btn_count = 0;
+static lv_obj_t* onboard_primary_btn = NULL;  // initial focus (Next / Connect)
 static NavGridContext onboard_nav_ctx = { onboard_nav_btns, &onboard_nav_btn_count, 2 };
 static OnboardPending onboardPending = OB_PEND_NONE;
 
@@ -144,6 +145,10 @@ static void onboarding_skip_confirm_cb(lv_event_t* e) {
 }
 
 static void onboarding_show_skip_confirm() {
+    // The dialog swaps the keypad onto its own group with "No" focused, so the
+    // release of the ENTER that opened it would click "No" and close it again.
+    lv_indev_t* indev = getLVGLKeypad();
+    if (indev != NULL) lv_indev_wait_release(indev);
     createConfirmDialog(
         "Skip setup?",
         "You can run this anytime from\nSettings > General > Device Tour",
@@ -214,6 +219,14 @@ static void onboarding_btn_key_handler(lv_event_t* e) {
         lv_event_stop_processing(e);
         lv_event_stop_bubbling(e);
         onboarding_show_skip_confirm();
+        return;
+    }
+    // Callsign step: the text field sits above the button row.
+    if ((key == LV_KEY_UP || key == LV_KEY_PREV) && onboard_callsign_ta != NULL) {
+        focusWidget(onboard_callsign_ta);
+        lv_group_t* grp = getLVGLInputGroup();
+        if (grp) lv_group_set_editing(grp, true);
+        lv_event_stop_processing(e);
     }
 }
 
@@ -233,7 +246,9 @@ static void onboarding_callsign_key_handler(lv_event_t* e) {
         return;
     }
     if (key == LV_KEY_DOWN && onboard_nav_btn_count > 0) {
-        focusWidget(onboard_nav_btns[0]);
+        lv_group_t* grp = getLVGLInputGroup();
+        if (grp) lv_group_set_editing(grp, false);
+        focusWidget(onboard_primary_btn ? onboard_primary_btn : onboard_nav_btns[0]);
         lv_event_stop_processing(e);
     }
 }
@@ -269,12 +284,14 @@ static lv_obj_t* onboarding_add_btn(lv_obj_t* parent, const char* text, lv_coord
     if (onboard_nav_btn_count < (int)(sizeof(onboard_nav_btns) / sizeof(onboard_nav_btns[0]))) {
         onboard_nav_btns[onboard_nav_btn_count++] = btn;
     }
-    lv_group_add_obj(getLVGLInputGroup(), btn);
+    addNavigableWidget(btn);
     return btn;
 }
 
 static void onboarding_focus_first_nav() {
-    if (onboard_nav_btn_count > 0) {
+    if (onboard_primary_btn != NULL) {
+        focusWidget(onboard_primary_btn);
+    } else if (onboard_nav_btn_count > 0) {
         focusWidget(onboard_nav_btns[0]);
     }
 }
@@ -308,9 +325,11 @@ static lv_obj_t* onboarding_add_corner_skip(lv_obj_t* screen) {
 }
 
 static void onboarding_add_footer_buttons(lv_obj_t* screen, const char* next_label) {
+    // Skip is drawn left of Next, so it goes first in the nav grid (LEFT/RIGHT).
+    onboarding_add_corner_skip(screen);
     lv_obj_t* next = onboarding_add_btn(screen, next_label, 180, onboarding_next_btn_cb);
     lv_obj_align(next, LV_ALIGN_BOTTOM_MID, 0, -6);
-    onboarding_add_corner_skip(screen);
+    onboard_primary_btn = next;
 }
 
 static void onboarding_draw_ports_diagram(lv_obj_t* parent) {
@@ -373,6 +392,7 @@ void startOnboarding(bool fromSettings) {
 void cleanupOnboardingScreen() {
     onboard_callsign_ta = NULL;
     onboard_screen = NULL;
+    onboard_primary_btn = NULL;
 }
 
 void showOnboardingScreen() {
@@ -387,6 +407,7 @@ void showOnboardingScreen() {
 lv_obj_t* createOnboardingScreen() {
     onboard_callsign_ta = NULL;
     onboard_nav_btn_count = 0;
+    onboard_primary_btn = NULL;
 
     lv_obj_t* screen = createScreen();
     applyScreenStyle(screen);
