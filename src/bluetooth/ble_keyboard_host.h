@@ -451,7 +451,7 @@ void initBLEKeyboardHost() {
 
   // Initialize NimBLE in Central mode
   NimBLEDevice::init("VAIL-SUMMIT-KB");
-  if (!NimBLEDevice::getInitialized()) {
+  if (!NimBLEDevice::isInitialized()) {
     Serial.println("BLEKB: NimBLE init failed");
     bleKBSetLastError("BLE init failed");
     bleKBBootPhase = BLEKB_PHASE_NONE;
