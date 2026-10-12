@@ -1978,7 +1978,17 @@ static NavPanelContext btkb_nav_ctx = {
 
 static void btkb_update_status_labels() {
     if (btkb_status_label != NULL) {
-        lv_label_set_text(btkb_status_label, getBLEKBStateString());
+        if (bleKBHost.state == BLEKB_STATE_ERROR && bleKBHost.lastError[0] != ' ') {
+            lv_label_set_text_fmt(btkb_status_label, "Error: %s", bleKBHost.lastError);
+        } else if (bleKBHost.state == BLEKB_STATE_CONNECTING) {
+            lv_label_set_text(btkb_status_label, "Connecting... (PIN 123456 if asked)");
+        } else if (bleKBHost.autoReconnectTripped) {
+            // The boot guard turned auto-reconnect off after repeated crashes
+            lv_label_set_text_fmt(btkb_status_label, "%s - auto-reconnect off after crash",
+                                  getBLEKBStateString());
+        } else {
+            lv_label_set_text(btkb_status_label, getBLEKBStateString());
+        }
         lv_color_t color = LV_COLOR_TEXT_SECONDARY;
         if (bleKBHost.state == BLEKB_STATE_CONNECTED) {
             color = LV_COLOR_SUCCESS;
@@ -2016,19 +2026,19 @@ static void btkb_show_list_message(const char* msg) {
 static void btkb_device_btn_event_cb(lv_event_t* e) {
     int idx = (int)(intptr_t)lv_event_get_user_data(e);
     if (idx < 0 || idx >= bleKBHost.foundCount) return;
+    if (isBLEKeyboardConnectBusy()) return;  // one connect at a time
 
-    if (btkb_status_label != NULL) {
-        lv_label_set_text(btkb_status_label, "Connecting...");
-        lv_obj_set_style_text_color(btkb_status_label, LV_COLOR_WARNING, 0);
+    // Non-blocking: the connect/pair sequence runs on a worker task and the
+    // 500ms timer below picks up CONNECTING -> CONNECTED / ERROR
+    if (!connectToBLEKeyboard(idx)) {
+        btkb_last_state = bleKBHost.state;
+        btkb_update_status_labels();
+        return;
     }
-    // The UI is blocked during connect/pairing, so the PIN prompt must be
-    // on screen before it starts (only keyboards requiring a PIN use it)
+    // Only keyboards that require a PIN use this; shown while it pairs
     if (btkb_paired_label != NULL) {
         lv_label_set_text(btkb_paired_label, "If keyboard asks for a PIN: type 123456 then ENTER");
     }
-    lv_refr_now(NULL);  // paint the status before the blocking connect
-
-    connectToBLEKeyboard(idx);  // blocks for a few seconds (incl. pairing + retry)
     btkb_last_state = bleKBHost.state;
     btkb_update_status_labels();
 }
@@ -2056,7 +2066,7 @@ static void btkb_rebuild_device_list() {
 
         lv_obj_t* lbl = lv_label_create(btn);
         char buf[48];
-        snprintf(buf, sizeof(buf), "%s (%d)", bleKBHost.foundDevices[i].name.c_str(),
+        snprintf(buf, sizeof(buf), "%s (%d)", bleKBHost.foundDevices[i].name,
                  bleKBHost.foundDevices[i].rssi);
         lv_label_set_text(lbl, buf);
         lv_obj_set_style_text_font(lbl, getThemeFonts()->font_small, 0);
@@ -2073,6 +2083,7 @@ static void btkb_rebuild_device_list() {
 
 static void btkb_scan_btn_event_cb(lv_event_t* e) {
     if (bleKBHost.state == BLEKB_STATE_SCANNING) return;  // already scanning
+    if (isBLEKeyboardConnectBusy()) return;               // radio busy connecting
     btkb_show_list_message("Scanning...");
     btkb_last_found_count = 0;
     startBLEKeyboardScan();
@@ -2083,6 +2094,10 @@ static void btkb_scan_btn_event_cb(lv_event_t* e) {
 static void btkb_auto_btn_event_cb(lv_event_t* e) {
     bleKBHost.autoReconnect = !bleKBHost.autoReconnect;
     saveBLEKeyboardSettings();
+    if (bleKBHost.autoReconnect) {
+        // User explicitly re-enabled it: forgive the crash history
+        bleKBClearCrashCount();
+    }
     btkb_update_status_labels();
 }
 
