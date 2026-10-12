@@ -71,10 +71,10 @@ The following versions are pinned in `arduino-cli/`:
 
 | Component | Version | Location |
 |-----------|---------|----------|
-| ESP32 Core | 2.0.14 | `arduino-cli/data/packages/esp32/` |
-| LovyanGFX | 1.1.16 | `arduino-cli/user/libraries/` |
+| ESP32 Core | 3.3.12 | `arduino-cli/data/packages/esp32/` |
+| LovyanGFX | 1.2.32 | `arduino-cli/user/libraries/` |
 | LVGL | 8.3.11 | `arduino-cli/user/libraries/` |
-| NimBLE-Arduino | 1.4.2 | `arduino-cli/user/libraries/` |
+| NimBLE-Arduino | 2.5.1 | `arduino-cli/user/libraries/` |
 | ArduinoJson | 7.0.4 | `arduino-cli/user/libraries/` |
 | ESP Async WebServer | 3.6.0 | `arduino-cli/user/libraries/` |
 

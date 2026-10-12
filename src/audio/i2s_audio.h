@@ -7,7 +7,15 @@
 #ifndef I2S_AUDIO_H
 #define I2S_AUDIO_H
 
+// Legacy I2S driver. IDF 5 still ships driver/i2s.h and every call below works
+// unchanged, but the header emits a #warning on include. The official
+// off-switch (CONFIG_I2S_SUPPRESS_DEPRECATE_WARN) lives in the prebuilt
+// sdkconfig, so silence -Wcpp around the include instead. Migrating to
+// driver/i2s_std.h is deferred; see docs/core3-port-notes.md.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcpp"
 #include <driver/i2s.h>
+#pragma GCC diagnostic pop
 #include <driver/gpio.h>
 #include <math.h>
 #include <Preferences.h>
@@ -33,7 +41,7 @@
 #define I2S_DMA_BUF_COUNT 16
 
 // Forward declarations
-void IRAM_ATTR continueTone(int frequency);
+void continueTone(int frequency);  // IRAM_ATTR lives on the definition only
 static void initSineLUT();
 
 // ============================================
@@ -325,8 +333,10 @@ void initI2SAudio() {
     .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
     .communication_format = I2S_COMM_FORMAT_STAND_I2S,
     // Highest priority - must beat SPI DMA. Do NOT add ESP_INTR_FLAG_IRAM here:
-    // the legacy IDF I2S driver bundled with Arduino core 2.0.14 is not
-    // IRAM-safe, and an IRAM-resident ISR request against it crashes.
+    // the legacy IDF I2S driver was not IRAM-safe on the IDF 4.4 core and an
+    // IRAM-resident ISR request against it crashed. IDF 5.5 builds with
+    // CONFIG_I2S_ISR_IRAM_SAFE=y, so this could be revisited, but it has not
+    // been tested.
     .intr_alloc_flags = ESP_INTR_FLAG_LEVEL3,
     .dma_buf_count = I2S_DMA_BUF_COUNT,
     .dma_buf_len = 64,  // Smaller buffers for lower latency morse timing

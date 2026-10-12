@@ -147,15 +147,20 @@ bool dumpAllNvsToSD(const char* path) {
   if (!f) return false;
 
   int count = 0;
-  nvs_iterator_t it = nvs_entry_find("nvs", NULL, NVS_TYPE_ANY);
-  while (it != NULL) {
+  // IDF 5.x: nvs_entry_find()/nvs_entry_next() take an out-pointer and return
+  // esp_err_t (ESP_ERR_NVS_NOT_FOUND when exhausted); the iterator must be
+  // released explicitly.
+  nvs_iterator_t it = NULL;
+  esp_err_t res = nvs_entry_find("nvs", NULL, NVS_TYPE_ANY, &it);
+  while (res == ESP_OK) {
     nvs_entry_info_t info;
     nvs_entry_info(it, &info);
     if (!isSystemNvsNamespace(info.namespace_name) && writeNvsEntryLine(f, info)) {
       count++;
     }
-    it = nvs_entry_next(it);  // releases the iterator when exhausted
+    res = nvs_entry_next(&it);
   }
+  nvs_release_iterator(it);
   f.close();
 
   if (count == 0) {

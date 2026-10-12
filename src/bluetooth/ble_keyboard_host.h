@@ -11,6 +11,7 @@
 #include <Preferences.h>
 #include <esp_task_wdt.h>
 #include "../core/config.h"
+#include "ble_heap_guard.h"
 #include "hid_keycodes.h"
 
 // Fixed passkey shown to the user when a keyboard demands PIN entry during
@@ -129,8 +130,8 @@ class BLEKBClientCallbacks : public NimBLEClientCallbacks {
     bleKBHost.lastKeyTime = millis();
   }
 
-  void onDisconnect(NimBLEClient* pClient) override {
-    Serial.println("BLEKB: Disconnected");
+  void onDisconnect(NimBLEClient* pClient, int reason) override {
+    Serial.printf("BLEKB: Disconnected (reason %d)\n", reason);
     bleKBHost.state = BLEKB_STATE_DISCONNECTED;
     bleKBHost.pReportChar = nullptr;
 
@@ -142,23 +143,32 @@ class BLEKBClientCallbacks : public NimBLEClientCallbacks {
     }
   }
 
-  void onAuthenticationComplete(ble_gap_conn_desc* desc) override {
-    Serial.printf("BLEKB: Auth complete - encrypted=%d bonded=%d\n",
-                  desc->sec_state.encrypted, desc->sec_state.bonded);
+  void onConnectFail(NimBLEClient* pClient, int reason) override {
+    Serial.printf("BLEKB: Connect failed, reason %d\n", reason);
   }
 
-  // Keyboard demands PIN entry: we are the display side, the user types
-  // this passkey on the keyboard. The settings screen shows the number
-  // before the connect starts.
-  uint32_t onPassKeyRequest() override {
+  void onAuthenticationComplete(NimBLEConnInfo& connInfo) override {
+    Serial.printf("BLEKB: Auth complete - encrypted=%d bonded=%d\n",
+                  connInfo.isEncrypted(), connInfo.isBonded());
+  }
+
+  // We are the display side (BLE_HS_IO_DISPLAY_ONLY): the stack asks which
+  // passkey to show and the user types it on the keyboard.
+  uint32_t onPassKeyDisplay(NimBLEConnInfo& connInfo) override {
     Serial.printf("BLEKB: Passkey requested, displaying %d\n", BLE_KB_PASSKEY);
     return BLE_KB_PASSKEY;
   }
 
+  // Should a peer ask US to enter a key, answer with the same fixed passkey.
+  void onPassKeyEntry(NimBLEConnInfo& connInfo) override {
+    Serial.printf("BLEKB: Passkey entry requested, injecting %d\n", BLE_KB_PASSKEY);
+    NimBLEDevice::injectPassKey(connInfo, BLE_KB_PASSKEY);
+  }
+
   // Numeric comparison pairing: no way to show/confirm mid-connect, accept
-  bool onConfirmPIN(uint32_t pin) override {
+  void onConfirmPasskey(NimBLEConnInfo& connInfo, uint32_t pin) override {
     Serial.printf("BLEKB: Confirm PIN %lu - accepting\n", (unsigned long)pin);
-    return true;
+    NimBLEDevice::injectConfirmPasskey(connInfo, true);
   }
 
   // Accept the keyboard's preferred connection parameters. NimBLE's default
@@ -175,79 +185,80 @@ class BLEKBClientCallbacks : public NimBLEClientCallbacks {
   }
 };
 
-// Scan callbacks for device discovery
-class BLEKBScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
-  void onResult(NimBLEAdvertisedDevice* advertisedDevice) override {
-    // Check if device advertises HID service
-    bool isHid = advertisedDevice->haveServiceUUID() &&
-                 advertisedDevice->isAdvertisingService(NimBLEUUID(HID_SERVICE_UUID));
+// Scan result handling (called from BLEKBScanCallbacks::onResult)
+static void bleKBHandleScanResult(const NimBLEAdvertisedDevice* advertisedDevice) {
+  // Check if device advertises HID service
+  bool isHid = advertisedDevice->haveServiceUUID() &&
+               advertisedDevice->isAdvertisingService(NimBLEUUID(HID_SERVICE_UUID));
 
-    // Some keyboards omit the service UUID from the advertisement but set a
-    // HID appearance (category 0x03C0-0x03FF: keyboard/mouse/etc.)
-    if (!isHid && advertisedDevice->haveAppearance()) {
-      uint16_t appearance = advertisedDevice->getAppearance();
-      isHid = (appearance & 0xFFC0) == 0x03C0;
-    }
-    if (!isHid) return;
+  // Some keyboards omit the service UUID from the advertisement but set a
+  // HID appearance (category 0x03C0-0x03FF: keyboard/mouse/etc.)
+  if (!isHid && advertisedDevice->haveAppearance()) {
+    uint16_t appearance = advertisedDevice->getAppearance();
+    isHid = (appearance & 0xFFC0) == 0x03C0;
+  }
+  if (!isHid) return;
 
-    String addr = advertisedDevice->getAddress().toString().c_str();
-    String name = advertisedDevice->getName().c_str();
-    if (name.length() == 0) {
-      name = "Unknown Device";
-    }
+  String addr = advertisedDevice->getAddress().toString().c_str();
+  String name = advertisedDevice->getName().c_str();
+  if (name.length() == 0) {
+    name = "Unknown Device";
+  }
 
-    // If this is the paired keyboard, flag it so the main loop can reconnect
-    // (connecting from the scan callback context is not allowed). Match by
-    // identity address or by name - keyboards advertise with a rotating
-    // private address, so the address alone stops matching within minutes.
-    if (bleKBHost.pairedDevice.valid &&
-        (addr.equalsIgnoreCase(bleKBHost.pairedDevice.address) ||
-         (bleKBHost.pairedDevice.name[0] != '\0' &&
-          name == bleKBHost.pairedDevice.name))) {
-      // Record what's actually on the air right now - connecting to the
-      // advertised address always works; the stored identity may not
-      strncpy(bleKBHost.reconnectAddr, addr.c_str(), sizeof(bleKBHost.reconnectAddr) - 1);
-      bleKBHost.reconnectAddr[sizeof(bleKBHost.reconnectAddr) - 1] = '\0';
-      bleKBHost.reconnectAddrType = advertisedDevice->getAddress().getType();
-      bleKBHost.reconnectDeviceSeen = true;
-    }
+  // If this is the paired keyboard, flag it so the main loop can reconnect
+  // (connecting from the scan callback context is not allowed). Match by
+  // identity address or by name - keyboards advertise with a rotating
+  // private address, so the address alone stops matching within minutes.
+  if (bleKBHost.pairedDevice.valid &&
+      (addr.equalsIgnoreCase(bleKBHost.pairedDevice.address) ||
+       (bleKBHost.pairedDevice.name[0] != '\0' &&
+        name == bleKBHost.pairedDevice.name))) {
+    // Record what's actually on the air right now - connecting to the
+    // advertised address always works; the stored identity may not
+    strncpy(bleKBHost.reconnectAddr, addr.c_str(), sizeof(bleKBHost.reconnectAddr) - 1);
+    bleKBHost.reconnectAddr[sizeof(bleKBHost.reconnectAddr) - 1] = '\0';
+    bleKBHost.reconnectAddrType = advertisedDevice->getAddress().getType();
+    bleKBHost.reconnectDeviceSeen = true;
+  }
 
-    if (bleKBHost.foundCount < BLE_MAX_FOUND_DEVICES) {
-      // Check for duplicates
-      for (int i = 0; i < bleKBHost.foundCount; i++) {
-        if (bleKBHost.foundDevices[i].address == addr) {
-          return;  // Already found this device
-        }
+  if (bleKBHost.foundCount < BLE_MAX_FOUND_DEVICES) {
+    // Check for duplicates
+    for (int i = 0; i < bleKBHost.foundCount; i++) {
+      if (bleKBHost.foundDevices[i].address == addr) {
+        return;  // Already found this device
       }
-
-      bleKBHost.foundDevices[bleKBHost.foundCount].name = name;
-      bleKBHost.foundDevices[bleKBHost.foundCount].address = addr;
-      bleKBHost.foundDevices[bleKBHost.foundCount].addrType = advertisedDevice->getAddress().getType();
-      bleKBHost.foundDevices[bleKBHost.foundCount].rssi = advertisedDevice->getRSSI();
-      bleKBHost.foundCount++;
-
-      Serial.print("BLEKB: Found HID device: ");
-      Serial.print(name);
-      Serial.print(" [");
-      Serial.print(addr);
-      Serial.print("] RSSI: ");
-      Serial.println(advertisedDevice->getRSSI());
     }
+
+    bleKBHost.foundDevices[bleKBHost.foundCount].name = name;
+    bleKBHost.foundDevices[bleKBHost.foundCount].address = addr;
+    bleKBHost.foundDevices[bleKBHost.foundCount].addrType = advertisedDevice->getAddress().getType();
+    bleKBHost.foundDevices[bleKBHost.foundCount].rssi = advertisedDevice->getRSSI();
+    bleKBHost.foundCount++;
+
+    Serial.print("BLEKB: Found HID device: ");
+    Serial.print(name);
+    Serial.print(" [");
+    Serial.print(addr);
+    Serial.print("] RSSI: ");
+    Serial.println(advertisedDevice->getRSSI());
+  }
+}
+
+// Scan callbacks: per-device results plus the scan-end notification. Both run
+// on the NimBLE host task, so they must not touch LVGL or connect -
+// updateBLEKeyboardHost() advances the state machine from the main loop.
+class BLEKBScanCallbacks : public NimBLEScanCallbacks {
+  void onResult(const NimBLEAdvertisedDevice* advertisedDevice) override {
+    bleKBHandleScanResult(advertisedDevice);
+  }
+  void onScanEnd(const NimBLEScanResults& results, int reason) override {
+    Serial.printf("BLEKB: Scan finished, %d HID device(s) found\n", bleKBHost.foundCount);
   }
 };
 
 // Static callback instances (a new'd instance per scan/connect would leak)
 static BLEKBClientCallbacks bleKBClientCallbacks;
 static BLEKBScanCallbacks bleKBScanCallbacks;
-
-// Scan-complete callback. Runs on the NimBLE host task, so it must not touch
-// LVGL or connect - updateBLEKeyboardHost() advances the state machine from
-// the main loop. Its real purpose is selecting the NON-BLOCKING overload of
-// NimBLEScan::start(); the (duration, bool) overload blocks the caller for
-// the entire scan, which froze the UI for 10s per scan.
-static void bleKBScanCompleteCB(NimBLEScanResults results) {
-  Serial.printf("BLEKB: Scan finished, %d HID device(s) found\n", bleKBHost.foundCount);
-}
 
 // HID Report notification callback
 void hidReportNotifyCallback(NimBLERemoteCharacteristic* pChar,
@@ -350,11 +361,21 @@ void initBLEKeyboardHost() {
   bleKBHost.lastKeyTime = 0;
   memset(bleKBHost.prevKeys, 0, sizeof(bleKBHost.prevKeys));
 
+  // Refuse to start the controller on a starved heap. State stays IDLE so
+  // nothing touches the uninitialised stack; the settings screen shows
+  // lastError via getBLEKBStateString().
+  if (!bleHeapOkForInit("BLEKB")) {
+    bleKBHost.lastError = bleLastErrorMsg;
+    bleKBHost.state = BLEKB_STATE_IDLE;
+    return;
+  }
+  bleKBHost.lastError = "";
+
   // Initialize NimBLE in Central mode
   NimBLEDevice::init("VAIL-SUMMIT-KB");
 
-  // Set power level for better range
-  NimBLEDevice::setPower(ESP_PWR_LVL_P9);
+  // Set power level for better range (+9 dBm)
+  NimBLEDevice::setPower(9);
 
   // HID keyboards require bonding + link encryption before they will send
   // input reports. Just Works pairing (bond, no MITM, secure connections)
@@ -406,6 +427,7 @@ void deinitBLEKeyboardHost() {
 void startBLEKeyboardScan() {
   if (bleKBHost.state == BLEKB_STATE_IDLE) {
     initBLEKeyboardHost();
+    if (bleKBHost.state == BLEKB_STATE_IDLE) return;  // init refused (low heap)
   }
 
   if (bleKBHost.state == BLEKB_STATE_SCANNING) {
@@ -426,15 +448,15 @@ void startBLEKeyboardScan() {
 
   // Configure and start scan
   NimBLEScan* pScan = NimBLEDevice::getScan();
-  pScan->setAdvertisedDeviceCallbacks(&bleKBScanCallbacks, false);
+  pScan->setScanCallbacks(&bleKBScanCallbacks, false);
   pScan->setActiveScan(true);  // Active scan for device names
   pScan->setInterval(100);
   pScan->setWindow(99);
 
   bleKBHost.state = BLEKB_STATE_SCANNING;
-  // The callback overload is the non-blocking one; start(duration, bool)
-  // blocks the calling task until the scan completes
-  pScan->start(BLE_SCAN_DURATION_SEC, bleKBScanCompleteCB, false);
+  // start() is non-blocking (the blocking form is getResults()); duration is
+  // in milliseconds and scan end arrives via onScanEnd()
+  pScan->start(BLE_SCAN_DURATION_SEC * 1000, false, true);
 }
 
 // Stop scanning
@@ -463,6 +485,7 @@ bool connectToBLEKeyboard(int deviceIndex) {
 bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool freshPair) {
   if (bleKBHost.state == BLEKB_STATE_IDLE) {
     initBLEKeyboardHost();
+    if (bleKBHost.state == BLEKB_STATE_IDLE) return false;  // init refused (low heap)
   }
 
   // NimBLE cannot initiate a connection while a scan is running
@@ -481,8 +504,8 @@ bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool f
     bleKBHost.pClient = NimBLEDevice::createClient();
     bleKBHost.pClient->setClientCallbacks(&bleKBClientCallbacks, false);
     // Connect blocks the main loop; keep the timeout well under the 30s loop
-    // watchdog or a failed attempt would panic-reboot the device
-    bleKBHost.pClient->setConnectTimeout(10);
+    // watchdog or a failed attempt would panic-reboot the device (milliseconds)
+    bleKBHost.pClient->setConnectTimeout(10000);
   }
 
   // Standard host-like connection parameters (30-60ms interval, 5s timeout).
@@ -592,9 +615,8 @@ bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool f
     // (keyboard, media keys, mouse) and only one carries key presses - the
     // notify callback parses keyboard-format reports and ignores the rest.
     // Fall back to the Boot Keyboard Input Report (2A22) if no 2A4D notifies.
-    std::vector<NimBLERemoteCharacteristic*>* chars = pService->getCharacteristics(true);
-
-    for (auto pChar : *chars) {
+    const std::vector<NimBLERemoteCharacteristic*>& chars = pService->getCharacteristics(true);
+    for (auto pChar : chars) {
       bool isInputReport = (pChar->getUUID() == NimBLEUUID(HID_REPORT_CHAR_UUID) ||
                             pChar->getUUID() == NimBLEUUID(HID_BOOT_INPUT_UUID)) &&
                            pChar->canNotify();
@@ -866,6 +888,8 @@ void forgetBLEKeyboardPairing() {
 const char* getBLEKBStateString() {
   switch (bleKBHost.state) {
     case BLEKB_STATE_IDLE:
+      // Init refused (low heap): surface the reason instead of "Idle"
+      if (bleKBHost.lastError.length() > 0) return bleKBHost.lastError.c_str();
       return "Idle";
     case BLEKB_STATE_READY:
       return "Ready";

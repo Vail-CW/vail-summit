@@ -22,8 +22,9 @@ Preferences brightnessPrefs;
  * Call this once during setup() before using brightness functions
  */
 void setupBrightnessPWM() {
-  ledcSetup(BRIGHTNESS_PWM_CHANNEL, BRIGHTNESS_PWM_FREQ, BRIGHTNESS_PWM_RESOLUTION);
-  ledcAttachPin(TFT_BL, BRIGHTNESS_PWM_CHANNEL);
+  // ledcAttach() allocates an LEDC channel internally; ledcWrite() is
+  // addressed by pin.
+  ledcAttach(TFT_BL, BRIGHTNESS_PWM_FREQ, BRIGHTNESS_PWM_RESOLUTION);
 }
 
 /*
@@ -31,7 +32,7 @@ void setupBrightnessPWM() {
  */
 void applyBrightness(int percent) {
   int pwmValue = map(percent, 0, 100, 0, 255);
-  ledcWrite(BRIGHTNESS_PWM_CHANNEL, pwmValue);
+  ledcWrite(TFT_BL, pwmValue);
 }
 
 /*

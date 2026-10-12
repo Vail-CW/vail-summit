@@ -38,7 +38,7 @@ function Compile-Firmware {
     Write-Host "Board: " -NoNewline -ForegroundColor Gray
     Write-Host "Adafruit Feather ESP32-S3 2MB PSRAM"
     Write-Host "Core:  " -NoNewline -ForegroundColor Gray
-    Write-Host "ESP32 2.0.14"
+    Write-Host "ESP32 3.3.12"
     Write-Host ""
 
     & $ArduinoCli compile `
@@ -168,7 +168,7 @@ function Show-Help {
     Write-Host "  Arduino CLI:   $ArduinoCli"
     Write-Host "  Config File:   $ConfigFile"
     Write-Host "  Board:         Adafruit Feather ESP32-S3 2MB PSRAM"
-    Write-Host "  ESP32 Core:    2.0.14"
+    Write-Host "  ESP32 Core:    3.3.12"
     Write-Host ""
 }
 
