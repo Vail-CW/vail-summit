@@ -46,7 +46,7 @@ void setupQSOAPI(AsyncWebServer &webServer) {
   webServer.on("/api/settings/station", HTTP_GET, [](AsyncWebServerRequest *request) {
     if (!checkWebAuth(request)) return;
 
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
 
     Preferences prefs;
     prefs.begin("qso_operator", true);
@@ -82,7 +82,7 @@ void setupQSOAPI(AsyncWebServer &webServer) {
       if (!checkWebAuth(request)) return;
 
       // Parse JSON body
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, data, len);
 
       if (error) {
@@ -133,7 +133,7 @@ void setupQSOAPI(AsyncWebServer &webServer) {
       }
 
       // Parse JSON body
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, data, len);
 
       if (error) {
@@ -198,7 +198,7 @@ void setupQSOAPI(AsyncWebServer &webServer) {
       }
 
       // Parse JSON body
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, data, len);
 
       if (error) {

@@ -20,7 +20,7 @@ void setupWiFiStatusEndpoint(AsyncWebServer &server) {
 
     extern bool isAPMode;  // From settings_wifi.h
 
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     doc["isAPMode"] = isAPMode;
 
     // Check if this is a remote connection (client IP != AP IP)
@@ -64,7 +64,7 @@ void setupWiFiScanEndpoint(AsyncWebServer &server) {
     // Scan networks
     int n = WiFi.scanNetworks();
 
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     if (n < 0) {
       doc["success"] = false;
       doc["error"] = "Scan failed";
@@ -113,7 +113,7 @@ void setupWiFiConnectEndpoint(AsyncWebServer &server) {
         return;
       }
 
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, data, len);
 
       if (error) {

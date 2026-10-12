@@ -1536,19 +1536,18 @@ void cleanupCWMemoriesScreen() {
 
 // External references from vail_repeater.h
 extern VailState vailState;
-extern String vailChannel;
-extern String vailCallsign;
+extern char vailChannel[];
+extern char vailCallsign[];
 extern int connectedClients;
 extern std::vector<ChatMessage> chatHistory;
 extern std::vector<RoomInfo> activeRooms;
 extern std::vector<UserInfo> connectedUsers;
-extern String chatInput;
-extern String roomInput;
+extern char roomInput[];
 extern int cwSpeed;
-extern void connectToVail(String channel);
+extern void connectToVail(const char* channel);
 extern void disconnectFromVail();
-extern void sendChatMessage(String message);
-extern void addChatMessage(String callsign, String message);
+extern void sendChatMessage(const char* message);
+extern void addChatMessage(const char* callsign, const char* message);
 extern void saveCWSettings();
 
 // Vail screen static variables
@@ -1626,7 +1625,7 @@ static bool vail_callsign_required = false;  // True if user needs to set callsi
 static lv_obj_t* vail_callsign_overlay = NULL;
 static VailState lastKnownVailState = VAIL_DISCONNECTED;  // Track connection state changes
 #define VAIL_MAX_INPUT_LEN 20  // Caps morse airtime to ~13s at 18 WPM
-static String vail_chat_input_text = "";  // Text being typed in chat view
+static char vail_chat_input_text[VAIL_MAX_INPUT_LEN + 1] = "";  // Text being typed in chat view
 
 // Deferred room reconnect: disconnect happens immediately in the key handler,
 // the reconnect fires from updateVailScreenLVGL() after a 250ms settle so the
@@ -1640,7 +1639,7 @@ static unsigned long vail_reconnect_at_ms = 0;
 // that would otherwise only appear while someone happens to be in it.
 static bool vailRoomsHasDecoder() {
     for (size_t i = 0; i < activeRooms.size(); i++) {
-        if (activeRooms[i].name == "Decoder") return true;
+        if (strcmp(activeRooms[i].name, "Decoder") == 0) return true;
     }
     return false;
 }
@@ -1652,7 +1651,7 @@ static int vailRoomListCount() {
 }
 
 static const char* vailRoomNameAt(int i) {
-    if (i < (int)activeRooms.size()) return activeRooms[i].name.c_str();
+    if (i < (int)activeRooms.size()) return activeRooms[i].name;
     return "Decoder";  // the pinned entry
 }
 
@@ -2032,34 +2031,36 @@ static void vail_key_event_cb(lv_event_t* e) {
         case 10: // Chat compose modal — typing into vail_chat_input_text
             switch(key) {
                 case LV_KEY_ESC:
-                    vail_chat_input_text = "";
+                    vail_chat_input_text[0] = '\0';
                     hideVailChatInputOverlay();
                     beep(TONE_MENU_NAV, BEEP_SHORT);
                     lv_event_stop_processing(e);
                     break;
                 case LV_KEY_ENTER:
-                    if (vail_chat_input_text.length() > 0) {
+                    if (vail_chat_input_text[0] != '\0') {
                         addChatMessage(vailCallsign, vail_chat_input_text);
                         sendChatMessage(vail_chat_input_text);
-                        vail_chat_input_text = "";
+                        vail_chat_input_text[0] = '\0';
                         beep(TONE_SUCCESS, BEEP_SHORT);
                     }
                     hideVailChatInputOverlay();
                     break;
                 case LV_KEY_BACKSPACE:
-                    if (vail_chat_input_text.length() > 0) {
-                        vail_chat_input_text.remove(vail_chat_input_text.length() - 1);
+                    if (vail_chat_input_text[0] != '\0') {
+                        vail_chat_input_text[strlen(vail_chat_input_text) - 1] = '\0';
                         if (vail_chat_input_textarea) {
-                            lv_textarea_set_text(vail_chat_input_textarea, vail_chat_input_text.c_str());
+                            lv_textarea_set_text(vail_chat_input_textarea, vail_chat_input_text);
                         }
                     }
                     break;
                 default:
                     if (key >= 32 && key < 127) {
-                        if ((int)vail_chat_input_text.length() < VAIL_MAX_INPUT_LEN) {
-                            vail_chat_input_text += (char)key;
+                        size_t len = strlen(vail_chat_input_text);
+                        if ((int)len < VAIL_MAX_INPUT_LEN) {
+                            vail_chat_input_text[len] = (char)key;
+                            vail_chat_input_text[len + 1] = '\0';
                             if (vail_chat_input_textarea) {
-                                lv_textarea_set_text(vail_chat_input_textarea, vail_chat_input_text.c_str());
+                                lv_textarea_set_text(vail_chat_input_textarea, vail_chat_input_text);
                             }
                         } else {
                             beep(TONE_ERROR, BEEP_SHORT);
@@ -2075,7 +2076,7 @@ static void vail_key_event_cb(lv_event_t* e) {
                     if (vail_custom_room_mode) {
                         // Exit custom room input, back to room list
                         vail_custom_room_mode = false;
-                        roomInput = "";
+                        roomInput[0] = '\0';
                         if (vail_room_input_textarea) {
                             lv_obj_add_flag(vail_room_input_textarea, LV_OBJ_FLAG_HIDDEN);
                         }
@@ -2113,20 +2114,20 @@ static void vail_key_event_cb(lv_event_t* e) {
                 case LV_KEY_ENTER:
                     if (vail_custom_room_mode) {
                         // Connect to custom room
-                        if (roomInput.length() > 0) {
+                        if (roomInput[0] != '\0') {
                             hideVailRoomOverlay();
                             // Disconnect now, reconnect after 250ms settle
                             // (deferred via updateVailScreenLVGL, no blocking)
                             disconnectFromVail();
-                            strlcpy(vail_pending_room, roomInput.c_str(), sizeof(vail_pending_room));
+                            strlcpy(vail_pending_room, roomInput, sizeof(vail_pending_room));
                             vail_reconnect_at_ms = millis() + 250;
-                            roomInput = "";
+                            roomInput[0] = '\0';
                             beep(TONE_SUCCESS, BEEP_SHORT);
                         }
                     } else if (vail_room_selection == vailRoomListCount()) {
                         // Selected "Custom room..." option
                         vail_custom_room_mode = true;
-                        roomInput = "";
+                        roomInput[0] = '\0';
                         if (vail_room_list) {
                             lv_obj_add_flag(vail_room_list, LV_OBJ_FLAG_HIDDEN);
                         }
@@ -2155,16 +2156,19 @@ static void vail_key_event_cb(lv_event_t* e) {
                     // Handle text input for custom room
                     if (vail_custom_room_mode) {
                         if (key == LV_KEY_BACKSPACE) {
-                            if (roomInput.length() > 0) {
-                                roomInput.remove(roomInput.length() - 1);
+                            size_t rl = strlen(roomInput);
+                            if (rl > 0) {
+                                roomInput[rl - 1] = '\0';
                                 if (vail_room_input_textarea) {
-                                    lv_textarea_set_text(vail_room_input_textarea, roomInput.c_str());
+                                    lv_textarea_set_text(vail_room_input_textarea, roomInput);
                                 }
                             }
-                        } else if (key >= 32 && key < 127 && roomInput.length() < 30) {
-                            roomInput += (char)key;
+                        } else if (key >= 32 && key < 127 && strlen(roomInput) < (size_t)MAX_ROOM_NAME) {
+                            size_t rl = strlen(roomInput);
+                            roomInput[rl] = (char)key;
+                            roomInput[rl + 1] = '\0';
                             if (vail_room_input_textarea) {
-                                lv_textarea_set_text(vail_room_input_textarea, roomInput.c_str());
+                                lv_textarea_set_text(vail_room_input_textarea, roomInput);
                             }
                         }
                         lv_event_stop_processing(e);
@@ -2340,7 +2344,7 @@ static void updateVailRoomList() {
         if (i < (int)activeRooms.size()) {
             snprintf(item_text, sizeof(item_text), "%s %s (%d users)",
                      (i == vail_room_selection) ? ">" : " ",
-                     activeRooms[i].name.c_str(),
+                     activeRooms[i].name,
                      activeRooms[i].users);
         } else {
             snprintf(item_text, sizeof(item_text), "%s Decoder",
@@ -2372,13 +2376,12 @@ static void updateVailRoomList() {
 // Create overlay for chat input (text-only chat compose modal opened by C key
 // from the operating view).
 static void showVailChatInputOverlay() {
-    vail_chat_input_text = "";
+    vail_chat_input_text[0] = '\0';
     if (vail_chat_input_overlay != NULL) {
         lv_obj_clear_flag(vail_chat_input_overlay, LV_OBJ_FLAG_HIDDEN);
         if (vail_chat_input_textarea) {
             lv_textarea_set_text(vail_chat_input_textarea, "");
         }
-        chatInput = "";
         vail_view_mode = 10;  // chat compose modal
         return;
     }
@@ -2417,7 +2420,6 @@ static void showVailChatInputOverlay() {
     lv_obj_set_style_text_color(help, LV_COLOR_WARNING, 0);
     lv_obj_align(help, LV_ALIGN_BOTTOM_MID, 0, 0);
 
-    chatInput = "";
     vail_view_mode = 10;  // chat compose modal
 }
 
@@ -2504,7 +2506,7 @@ static void updateVailUserList() {
         char item_text[48];
         // Convert MIDI note to approximate Hz for display
         int freq = (int)(440.0 * pow(2.0, (connectedUsers[i].txTone - 69) / 12.0));
-        snprintf(item_text, sizeof(item_text), "%s (%d Hz)", connectedUsers[i].callsign.c_str(), freq);
+        snprintf(item_text, sizeof(item_text), "%s (%d Hz)", connectedUsers[i].callsign, freq);
         lv_label_set_text(item, item_text);
         lv_obj_set_style_text_font(item, getThemeFonts()->font_body, 0);
         lv_obj_set_style_text_color(item, LV_COLOR_TEXT_PRIMARY, 0);
@@ -2514,7 +2516,7 @@ static void updateVailUserList() {
 // Check if callsign is required (returns true if user needs to set callsign)
 static bool checkVailCallsignRequired() {
     // Check if callsign is empty or still the default "GUEST"
-    return (vailCallsign.length() == 0 || vailCallsign == "GUEST");
+    return (vailCallsign[0] == '\0' || strcmp(vailCallsign, "GUEST") == 0);
 }
 
 // Show overlay prompting user to set callsign
@@ -2591,7 +2593,7 @@ lv_obj_t* createVailRepeaterScreen() {
     vail_status_indicator = NULL;
     vail_chat_panel = NULL;
     vail_settings_modal = NULL;
-    vail_chat_input_text = "";
+    vail_chat_input_text[0] = '\0';
     vail_pending_room[0] = '\0';
     vail_reconnect_at_ms = 0;
     lastKnownVailState = VAIL_DISCONNECTED;
@@ -2654,7 +2656,7 @@ lv_obj_t* createVailRepeaterScreen() {
 
     // Current room name (always glanceable in the strip)
     vail_room_label = lv_label_create(strip_left);
-    lv_label_set_text(vail_room_label, vailChannel.c_str());
+    lv_label_set_text(vail_room_label, vailChannel);
     lv_obj_set_style_text_color(vail_room_label, LV_COLOR_TEXT_SECONDARY, 0);
     lv_obj_set_style_text_font(vail_room_label, getThemeFonts()->font_small, 0);
 
@@ -2963,7 +2965,7 @@ void updateVailScreenLVGL() {
     // Deferred room reconnect (scheduled by the room-switch handlers)
     if (vail_reconnect_at_ms != 0 && millis() >= vail_reconnect_at_ms) {
         vail_reconnect_at_ms = 0;
-        connectToVail(String(vail_pending_room));
+        connectToVail(vail_pending_room);
     }
 
     // Detect connection drop and reset overlay state
@@ -3049,7 +3051,7 @@ void updateVailScreenLVGL() {
 
     // Update room name label in the status strip
     if (vail_room_label != NULL) {
-        lv_label_set_text(vail_room_label, vailChannel.c_str());
+        lv_label_set_text(vail_room_label, vailChannel);
     }
 
     // Sync chat messages if new ones arrived
@@ -3057,21 +3059,20 @@ void updateVailScreenLVGL() {
         if (chatHistory.size() > vail_last_chat_count) {
             // Only append new messages (more efficient than rebuilding entire history)
             for (size_t i = vail_last_chat_count; i < chatHistory.size(); i++) {
-                lv_textarea_add_text(vail_chat_textarea, chatHistory[i].callsign.c_str());
+                lv_textarea_add_text(vail_chat_textarea, chatHistory[i].callsign);
                 lv_textarea_add_text(vail_chat_textarea, ": ");
-                lv_textarea_add_text(vail_chat_textarea, chatHistory[i].message.c_str());
+                lv_textarea_add_text(vail_chat_textarea, chatHistory[i].message);
                 lv_textarea_add_text(vail_chat_textarea, "\n");
             }
         } else {
             // History was cleared (e.g., room change) - rebuild from scratch
-            String chatText = "";
+            lv_textarea_set_text(vail_chat_textarea, "");
             for (size_t i = 0; i < chatHistory.size(); i++) {
-                chatText += chatHistory[i].callsign;
-                chatText += ": ";
-                chatText += chatHistory[i].message;
-                chatText += "\n";
+                lv_textarea_add_text(vail_chat_textarea, chatHistory[i].callsign);
+                lv_textarea_add_text(vail_chat_textarea, ": ");
+                lv_textarea_add_text(vail_chat_textarea, chatHistory[i].message);
+                lv_textarea_add_text(vail_chat_textarea, "\n");
             }
-            lv_textarea_set_text(vail_chat_textarea, chatText.c_str());
         }
         // Scroll to bottom
         lv_textarea_set_cursor_pos(vail_chat_textarea, LV_TEXTAREA_CURSOR_LAST);
@@ -3102,7 +3103,7 @@ void updateVailScreenLVGL() {
         static size_t lastUserCount = SIZE_MAX;
         static char lastFirstUser[16] = "";  // crude change-detection, heap-free
         size_t curCount = connectedUsers.size();
-        const char* curFirst = curCount > 0 ? connectedUsers[0].callsign.c_str() : "";
+        const char* curFirst = curCount > 0 ? connectedUsers[0].callsign : "";
         if (curCount != lastUserCount || strncmp(curFirst, lastFirstUser, sizeof(lastFirstUser) - 1) != 0) {
             lastUserCount = curCount;
             strlcpy(lastFirstUser, curFirst, sizeof(lastFirstUser));
@@ -3122,7 +3123,7 @@ void updateVailScreenLVGL() {
                 size_t shown = curCount < maxLines ? curCount : maxLines;
                 for (size_t i = 0; i < shown && off < (int)sizeof(buf) - 16; i++) {
                     off += snprintf(buf + off, sizeof(buf) - off,
-                        "%s%s", i == 0 ? "" : "\n", connectedUsers[i].callsign.c_str());
+                        "%s%s", i == 0 ? "" : "\n", connectedUsers[i].callsign);
                 }
                 if (curCount > shown) {
                     snprintf(buf + off, sizeof(buf) - off, "\n+%u more",

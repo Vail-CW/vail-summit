@@ -51,7 +51,7 @@ void setCwKeyTypeFromInt(int keyType);
 #include "../bluetooth/ble_keyboard_host.h"
 
 // Callsign (from vail_repeater.h)
-extern String vailCallsign;
+extern char vailCallsign[];
 extern void saveCallsign(const char* callsign);
 
 // Web password settings (from settings_web_password.h)
@@ -1064,7 +1064,7 @@ static void callsign_textarea_key_handler(lv_event_t* e) {
 
                 // Save using existing function
                 saveCallsign(callsign.c_str());
-                vailCallsign = callsign;  // Update global
+                strlcpy(vailCallsign, callsign.c_str(), VAIL_CALLSIGN_LEN);  // Update global
                 showToast("Saved");
 
                 // Note: onLVGLBackNavigation() already plays a nav beep
@@ -1132,8 +1132,8 @@ lv_obj_t* createCallsignSettingsScreen() {
     // Only pre-fill if the user has actually saved a callsign before. Loading
     // "GUEST" into the input box made users type behind it (producing strings
     // like "GUESTW1ABC") instead of replacing it.
-    if (vailCallsign.length() > 0 && vailCallsign != "GUEST") {
-        lv_textarea_set_text(callsign_textarea, vailCallsign.c_str());
+    if (vailCallsign[0] != '\0' && strcmp(vailCallsign, "GUEST") != 0) {
+        lv_textarea_set_text(callsign_textarea, vailCallsign);
     }
     applyTextareaStyle(callsign_textarea);
     lv_obj_set_style_text_font(callsign_textarea, getThemeFonts()->font_subtitle, 0);

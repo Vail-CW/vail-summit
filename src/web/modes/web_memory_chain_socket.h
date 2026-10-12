@@ -61,7 +61,7 @@ void onMemoryChainWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *c
             if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
                 data[len] = 0;
 
-                JsonDocument doc;
+                JsonDocument doc(psramJsonAllocator());
                 DeserializationError error = deserializeJson(doc, (char*)data);
 
                 if (!error) {

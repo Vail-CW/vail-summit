@@ -24,54 +24,95 @@
 #define MORSE_DECODER_TRIM_AMOUNT 100
 
 /**
- * Reverse lookup: Convert morse pattern to character or prosign
- * Prosigns return special characters that will be displayed as text
- * Returns '\0' if pattern not found
+ * Reverse lookup: morse pattern -> character or prosign as a static string.
+ * Returns "" for an unknown pattern. No heap use: every result points into
+ * flash/static tables, so the decoders can call this per character freely.
  */
-String morseToText(const String& pattern) {
-  // Check prosigns first (sent without inter-character spacing)
-  if (pattern == ".-.-.")   return "<AR>";  // End of message (+ over .)
-  if (pattern == ".-...")   return "<AS>";  // Wait
-  if (pattern == "-...-.-") return "<BK>";  // Break (B + K)
-  if (pattern == "-...-")   return "<BT>";  // Break (= over -)
-  if (pattern == "-.-.-")   return "<CT>";  // Starting signal
-  if (pattern == "........") return "<HH>";  // Error/correction (8 dits)
-  if (pattern == "...-.-")  return "<SK>";  // End of contact (. over -)
-  if (pattern == "...-.")   return "<SN>";  // Understood
-  if (pattern == "...---...") return "<SOS>";  // Distress
+static const char* const kMorseProsigns[][2] = {
+  { ".-.-.",     "<AR>"  },  // End of message (+ over .)
+  { ".-...",     "<AS>"  },  // Wait
+  { "-...-.-",   "<BK>"  },  // Break (B + K)
+  { "-...-",     "<BT>"  },  // Break (= over -)
+  { "-.-.-",     "<CT>"  },  // Starting signal
+  { "........",  "<HH>"  },  // Error/correction (8 dits)
+  { "...-.-",    "<SK>"  },  // End of contact (. over -)
+  { "...-.",     "<SN>"  },  // Understood
+  { "...---...", "<SOS>" },  // Distress
+};
 
-  // Check letters A-Z
-  for (int i = 0; i < 26; i++) {
-    if (pattern == String(morseTable[i])) {
-      return String((char)('A' + i));
-    }
+// Single-character results, in morseTable order (A-Z, 0-9, punctuation)
+static const char kMorseSingle[54][2] = {
+  {'A', 0},
+  {'B', 0},
+  {'C', 0},
+  {'D', 0},
+  {'E', 0},
+  {'F', 0},
+  {'G', 0},
+  {'H', 0},
+  {'I', 0},
+  {'J', 0},
+  {'K', 0},
+  {'L', 0},
+  {'M', 0},
+  {'N', 0},
+  {'O', 0},
+  {'P', 0},
+  {'Q', 0},
+  {'R', 0},
+  {'S', 0},
+  {'T', 0},
+  {'U', 0},
+  {'V', 0},
+  {'W', 0},
+  {'X', 0},
+  {'Y', 0},
+  {'Z', 0},
+  {'0', 0},
+  {'1', 0},
+  {'2', 0},
+  {'3', 0},
+  {'4', 0},
+  {'5', 0},
+  {'6', 0},
+  {'7', 0},
+  {'8', 0},
+  {'9', 0},
+  {'.', 0},
+  {',', 0},
+  {'?', 0},
+  {'\'', 0},
+  {'!', 0},
+  {'/', 0},
+  {'(', 0},
+  {')', 0},
+  {'&', 0},
+  {':', 0},
+  {';', 0},
+  {'=', 0},
+  {'+', 0},
+  {'-', 0},
+  {'_', 0},
+  {'\"', 0},
+  {'$', 0},
+  {'@', 0}
+};
+
+const char* morseToText(const char* pattern) {
+  // Prosigns first (sent without inter-character spacing)
+  for (size_t i = 0; i < sizeof(kMorseProsigns) / sizeof(kMorseProsigns[0]); i++) {
+    if (strcmp(pattern, kMorseProsigns[i][0]) == 0) return kMorseProsigns[i][1];
   }
-
-  // Check numbers 0-9
-  for (int i = 0; i < 10; i++) {
-    if (pattern == String(morseTable[26 + i])) {
-      return String((char)('0' + i));
-    }
+  for (int i = 0; i < 54; i++) {
+    if (strcmp(pattern, morseTable[i]) == 0) return kMorseSingle[i];
   }
-
-  // Check punctuation (must match morseTable order: period, comma, question, apostrophe, exclamation, slash, parens, etc.)
-  const char* punctuation = ".,?'!/()&:;=+-_\"$@";
-  for (int i = 0; i < 18; i++) {
-    if (pattern == String(morseTable[36 + i])) {
-      return String(punctuation[i]);
-    }
-  }
-
-  return ""; // Unknown pattern
+  return "";  // Unknown pattern
 }
 
-// Legacy single-character version for compatibility
-char morseToChar(const String& pattern) {
-  String text = morseToText(pattern);
-  if (text.length() == 1) {
-    return text[0];
-  }
-  return '\0';
+// Single-character convenience wrapper
+char morseToChar(const char* pattern) {
+  const char* text = morseToText(pattern);
+  return (text[0] != '\0' && text[1] == '\0') ? text[0] : '\0';
 }
 
 /**
@@ -268,8 +309,8 @@ public:
       } else if (c == ' ') {
         // Character boundary
         if (currentPattern.length() > 0) {
-          String decoded = morseToText(currentPattern);
-          if (decoded.length() > 0) {
+          const char* decoded = morseToText(currentPattern.c_str());
+          if (decoded[0] != '\0') {
             decodedText += decoded;
           } else {
             decodedText += '?'; // Unknown pattern
@@ -279,8 +320,8 @@ public:
       } else if (c == '/') {
         // Word boundary
         if (currentPattern.length() > 0) {
-          String decoded = morseToText(currentPattern);
-          if (decoded.length() > 0) {
+          const char* decoded = morseToText(currentPattern.c_str());
+          if (decoded[0] != '\0') {
             decodedText += decoded;
           } else {
             decodedText += '?';
@@ -293,8 +334,8 @@ public:
 
     // Handle remaining pattern
     if (currentPattern.length() > 0) {
-      String decoded = morseToText(currentPattern);
-      if (decoded.length() > 0) {
+      const char* decoded = morseToText(currentPattern.c_str());
+      if (decoded[0] != '\0') {
         decodedText += decoded;
       } else {
         decodedText += '?';

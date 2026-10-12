@@ -25,7 +25,7 @@
 String getDeviceStatusJSON() {
   extern bool isAPMode;  // From settings_wifi.h
 
-  JsonDocument doc;
+  JsonDocument doc(psramJsonAllocator());
 
   // Battery status (using external variables)
   extern bool hasLC709203;
@@ -119,7 +119,7 @@ String getDeviceStatusJSON() {
  * Reads from SD card /qso/ directory
  */
 String getQSOLogsJSON() {
-  JsonDocument doc;
+  JsonDocument doc(psramJsonAllocator());
   JsonArray logsArray = doc["logs"].to<JsonArray>();
 
   int totalCount = 0;

@@ -54,7 +54,7 @@ extern int cwTone;
 int getCwKeyTypeAsInt();
 int getVolume();
 int getBrightness();
-extern String vailCallsign;
+extern char vailCallsign[];
 
 // Namespaces that must never be dumped or restored: radio-stack internals
 // (regenerate on their own) and credentials (plaintext on a removable card).
@@ -307,7 +307,7 @@ static void captureSettingsSnapshot(SettingsBackupSnapshot& s) {
   s.decoder    = (int)decoderType;
   s.volume     = getVolume();
   s.brightness = getBrightness();
-  strncpy(s.callsign, vailCallsign.c_str(), sizeof(s.callsign) - 1);
+  strncpy(s.callsign, vailCallsign, sizeof(s.callsign) - 1);
 }
 
 void updateSettingsBackup() {

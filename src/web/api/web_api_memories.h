@@ -32,7 +32,7 @@ void setupMemoriesAPI(AsyncWebServer &webServer) {
     if (!checkWebAuth(request)) return;
     if (!ensureCWMemories()) { request->send(500, "application/json", "{\"error\":\"out of memory\"}"); return; }
 
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     JsonArray presets = doc["presets"].to<JsonArray>();
 
     for (int i = 0; i < CW_MEMORY_MAX_SLOTS; i++) {
@@ -64,7 +64,7 @@ void setupMemoriesAPI(AsyncWebServer &webServer) {
       if (!checkWebAuth(request)) return;
     if (!ensureCWMemories()) { request->send(500, "application/json", "{\"error\":\"out of memory\"}"); return; }
 
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, data, len);
 
       if (error) {
@@ -138,7 +138,7 @@ void setupMemoriesAPI(AsyncWebServer &webServer) {
       if (!checkWebAuth(request)) return;
     if (!ensureCWMemories()) { request->send(500, "application/json", "{\"error\":\"out of memory\"}"); return; }
 
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, data, len);
 
       if (error) {
@@ -212,7 +212,7 @@ void setupMemoriesAPI(AsyncWebServer &webServer) {
       if (!checkWebAuth(request)) return;
     if (!ensureCWMemories()) { request->send(500, "application/json", "{\"error\":\"out of memory\"}"); return; }
 
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, data, len);
 
       if (error) {
@@ -254,7 +254,7 @@ void setupMemoriesAPI(AsyncWebServer &webServer) {
       if (!checkWebAuth(request)) return;
     if (!ensureCWMemories()) { request->send(500, "application/json", "{\"error\":\"out of memory\"}"); return; }
 
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, data, len);
 
       if (error) {
@@ -306,7 +306,7 @@ void setupMemoriesAPI(AsyncWebServer &webServer) {
       if (!checkWebAuth(request)) return;
     if (!ensureCWMemories()) { request->send(500, "application/json", "{\"error\":\"out of memory\"}"); return; }
 
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, data, len);
 
       if (error) {

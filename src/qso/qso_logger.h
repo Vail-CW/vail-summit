@@ -154,7 +154,7 @@ String getFieldLabel(int field);
  */
 void loadOperatorSettings() {
   // Declare external variable
-  extern String vailCallsign;
+  extern char vailCallsign[];
 
   qsoPrefs.begin("qso_operator", false);
 
@@ -167,7 +167,7 @@ void loadOperatorSettings() {
 
   // If no callsign set, use the main vailCallsign from general settings
   if (strlen(operatorCallsign) == 0 || strcmp(operatorCallsign, "NOCALL") == 0) {
-    vailCallsign.toCharArray(operatorCallsign, sizeof(operatorCallsign));
+    strlcpy(operatorCallsign, vailCallsign, sizeof(operatorCallsign));
     Serial.println("Using main callsign for QSO logger");
   }
 

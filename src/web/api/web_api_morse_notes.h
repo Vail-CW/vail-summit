@@ -35,7 +35,7 @@ void handleGetMorseNotesList(AsyncWebServerRequest *request) {
     }
 
     // Build JSON response
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     JsonArray recordings = doc["recordings"].to<JsonArray>();
 
     for (int i = 0; i < mnLibraryCount; i++) {
@@ -93,7 +93,7 @@ void handleGetMorseNoteMetadata(AsyncWebServerRequest *request) {
     }
 
     // Build JSON response
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     doc["id"] = (unsigned long)metadata->id;
     doc["title"] = String(metadata->title);
     doc["timestamp"] = (unsigned long)metadata->timestamp;
