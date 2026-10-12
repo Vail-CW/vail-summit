@@ -698,6 +698,7 @@ void setup() {
   // Log memory status after full initialization
   Serial.println("\n=== MEMORY STATUS AFTER BOOT ===");
   logMemoryStatus("Boot");
+  logHeapCaps("boot");
   Serial.println("================================\n");
 
   // Startup test beeps removed - they were jarring on boot. I2S audio is
