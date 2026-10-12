@@ -135,8 +135,14 @@
  * "Transformed layers" (where transform_angle/zoom properties are used) use larger buffers
  * and can't be drawn in chunks. So these settings affects only widgets with opacity.
  */
-#define LV_LAYER_SIMPLE_BUF_SIZE          (24 * 1024)
-#define LV_LAYER_SIMPLE_FALLBACK_BUF_SIZE (3 * 1024)
+/* VAIL SUMMIT: a simple layer is only needed when a widget has style_opa < 255.
+ * The sole users are the Morse Shooter laser/explosion fade effects (small
+ * objects, well under 4096 px). 8 KB keeps those single-chunk; larger
+ * translucent widgets would be drawn in more chunks (slower, still correct).
+ * The layer buffer is a transient lv_mem allocation, so this lowers the peak
+ * heap spike during those effects rather than static RAM. */
+#define LV_LAYER_SIMPLE_BUF_SIZE          (8 * 1024)
+#define LV_LAYER_SIMPLE_FALLBACK_BUF_SIZE (2 * 1024)
 
 /*Default image cache size. Image caching keeps the images opened.
  *If only the built-in image formats are used there is no real advantage of caching. (I.e. if no new image decoder is added)
