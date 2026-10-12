@@ -343,7 +343,7 @@ void drawBTKBDeviceList(LGFX &display) {
     display.setCursor(25, itemY + 8);
 
     char nameBuf[24];
-    truncateStr(nameBuf, sizeof(nameBuf), bleKBHost.foundDevices[deviceIndex].name.c_str(), 22);
+    truncateStr(nameBuf, sizeof(nameBuf), bleKBHost.foundDevices[deviceIndex].name, 22);
     display.print(nameBuf);
 
     // RSSI indicator
@@ -420,7 +420,7 @@ void drawBTKBConnectingScreen(LGFX &display) {
 
   char nameBuf[24];
   if (btkbSelectedDevice >= 0 && btkbSelectedDevice < bleKBHost.foundCount) {
-    truncateStr(nameBuf, sizeof(nameBuf), bleKBHost.foundDevices[btkbSelectedDevice].name.c_str(), 18);
+    truncateStr(nameBuf, sizeof(nameBuf), bleKBHost.foundDevices[btkbSelectedDevice].name, 18);
   } else {
     strncpy(nameBuf, "Unknown", sizeof(nameBuf) - 1);
     nameBuf[sizeof(nameBuf) - 1] = '\0';

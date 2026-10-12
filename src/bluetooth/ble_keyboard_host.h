@@ -9,7 +9,9 @@
 
 #include <NimBLEDevice.h>
 #include <Preferences.h>
-#include <esp_task_wdt.h>
+#include <esp_attr.h>
+#include <esp_system.h>
+#include <esp_heap_caps.h>
 #include "../core/config.h"
 #include "hid_keycodes.h"
 
@@ -35,6 +37,37 @@
 #define BLE_RECONNECT_INTERVAL  30000  // 30 seconds between reconnect attempts
 #define BLE_MAX_FOUND_DEVICES   10
 
+// The connect/pair sequence runs on its own FreeRTOS task (see
+// connectToBLEKeyboardByAddress). Worst case per attempt is the 10s connect
+// timeout plus NimBLE's fixed 30s Security Manager timeout plus discovery,
+// and there are up to two attempts - so the sequence can legitimately take
+// over a minute. The main loop force-drops the link past this deadline.
+#define BLE_CONNECT_DEADLINE_MS   90000
+#define BLE_CONNECT_TASK_STACK    8192
+// NimBLE needs ~50KB of internal RAM to bring the stack up; refuse to init
+// below this rather than letting the allocation fail somewhere inside the host
+#define BLE_MIN_FREE_INTERNAL_HEAP 60000
+
+// Boot crash guard: how many consecutive abnormal resets with the keyboard
+// host active before auto-reconnect is switched off so the device boots clean
+#define BLE_CRASH_TRIP_COUNT      2
+// A connection that stays up this long proves the pairing is healthy and
+// clears the crash counter
+#define BLE_CRASH_CLEAR_UPTIME_MS 60000
+
+// What the keyboard host was doing, stored in RTC memory so it survives a
+// panic/watchdog reset. Read back at boot to attribute the crash.
+enum BLEKBPhase : uint8_t {
+  BLEKB_PHASE_NONE = 0,     // host not running
+  BLEKB_PHASE_INIT,         // NimBLE stack coming up
+  BLEKB_PHASE_ACTIVE,       // stack up (idle, connected, or between scans)
+  BLEKB_PHASE_SCANNING,     // scan in progress
+  BLEKB_PHASE_CONNECTING    // connect/pair sequence in progress
+};
+#define BLEKB_BOOT_MAGIC 0xB1E0CB01UL
+RTC_NOINIT_ATTR uint32_t bleKBBootMagic;
+RTC_NOINIT_ATTR uint8_t  bleKBBootPhase;
+
 // BLE Keyboard Host States
 enum BLEKBHostState {
   BLEKB_STATE_IDLE,           // Not active, BLE not initialized
@@ -59,8 +92,8 @@ struct PairedKeyboard {
 
 // Scan result entry
 struct ScanResult {
-  String name;
-  String address;
+  char name[32];
+  char address[18];
   uint8_t addrType;
   int rssi;
 };
@@ -92,14 +125,41 @@ struct BLEKBHostContext {
   char reconnectAddr[18];             // currently advertised address of the paired keyboard
   uint8_t reconnectAddrType;          // (keyboards rotate their private address, so the
                                       //  saved identity address may not be what's on air)
-  String lastError;
+  char lastError[40];
 
   // Activity tracking
   unsigned long lastKeyTime;
+  unsigned long connectedSince;       // millis() when the current link came up
+
+  // Boot crash guard (see bleKBCheckPreviousBoot)
+  uint8_t crashCount;                 // consecutive abnormal resets with the host active
+  uint8_t lastCrashPhase;             // BLEKBPhase the host was in when it happened
+  bool autoReconnectTripped;          // auto-reconnect was switched off by the guard
 };
 
 // Global context
 BLEKBHostContext bleKBHost;
+
+// ---- Connect worker -------------------------------------------------------
+// NimBLEClient::connect() and secureConnection() block the calling task until
+// the stack answers - and secureConnection() waits with NO timeout of its own
+// (NimBLE's Security Manager gives up after a fixed 30s). Run from the main
+// loop, a keyboard that sits in pairing mode without answering stalled loop()
+// past the 30s task watchdog and the device panic-rebooted; with auto-reconnect
+// that repeated on every boot. The sequence therefore runs on this dedicated
+// task, which is not watched by the loop WDT, and the main loop only polls
+// bleKBHost.state.
+struct BLEKBConnectRequest {
+  char address[18];
+  uint8_t addrType;
+  bool freshPair;
+  char name[32];       // advertised name, copied at launch (scan results may change)
+};
+static BLEKBConnectRequest bleKBConnectReq;
+static volatile bool bleKBConnectBusy = false;      // worker task alive
+static volatile bool bleKBConnectAborted = false;   // main loop gave up on it
+static unsigned long bleKBConnectStart = 0;
+
 
 // Forward declarations
 void initBLEKeyboardHost();
@@ -110,7 +170,11 @@ bool connectToBLEKeyboard(int deviceIndex);
 // freshPair: user-initiated pairing from the scan list. Deletes any stale
 // bond first - a bond we remember but the keyboard forgot (it's back in
 // pairing mode) makes encryption fail until both sides are power-cycled.
+// Both connect functions are NON-BLOCKING: they launch the connect/pair
+// sequence on a worker task and return true if it was started. Watch
+// bleKBHost.state (CONNECTING -> CONNECTED / ERROR) for the outcome.
 bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool freshPair = false);
+bool isBLEKeyboardConnectBusy();
 void disconnectBLEKeyboard();
 void updateBLEKeyboardHost();
 bool isBLEKeyboardConnected();
@@ -119,13 +183,21 @@ char getBLEKeyboardKey();
 void saveBLEKeyboardSettings();
 void loadBLEKeyboardSettings();
 void forgetBLEKeyboardPairing();
+void bleKBClearCrashCount();
 const char* getBLEKBStateString();
+const char* getBLEKBPhaseString(uint8_t phase);
+static void bleKBSetLastError(const char* msg);
 
 // NimBLE Client callbacks for connection state
 class BLEKBClientCallbacks : public NimBLEClientCallbacks {
   void onConnect(NimBLEClient* pClient) override {
-    Serial.println("BLEKB: Connected to keyboard");
-    bleKBHost.state = BLEKB_STATE_CONNECTED;
+    Serial.println("BLEKB: Link up");
+    // The link is up but pairing and enumeration are still ahead; the
+    // connect worker publishes CONNECTED once the keyboard can actually type
+    if (!bleKBConnectBusy) {
+      bleKBHost.state = BLEKB_STATE_CONNECTED;
+      bleKBHost.connectedSince = millis();
+    }
     bleKBHost.lastKeyTime = millis();
   }
 
@@ -190,10 +262,14 @@ class BLEKBScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     }
     if (!isHid) return;
 
-    String addr = advertisedDevice->getAddress().toString().c_str();
-    String name = advertisedDevice->getName().c_str();
-    if (name.length() == 0) {
-      name = "Unknown Device";
+    char addr[18];
+    char name[32];
+    strncpy(addr, advertisedDevice->getAddress().toString().c_str(), sizeof(addr) - 1);
+    addr[sizeof(addr) - 1] = '\0';
+    strncpy(name, advertisedDevice->getName().c_str(), sizeof(name) - 1);
+    name[sizeof(name) - 1] = '\0';
+    if (name[0] == '\0') {
+      strcpy(name, "Unknown Device");
     }
 
     // If this is the paired keyboard, flag it so the main loop can reconnect
@@ -201,12 +277,12 @@ class BLEKBScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     // identity address or by name - keyboards advertise with a rotating
     // private address, so the address alone stops matching within minutes.
     if (bleKBHost.pairedDevice.valid &&
-        (addr.equalsIgnoreCase(bleKBHost.pairedDevice.address) ||
+        (strcasecmp(addr, bleKBHost.pairedDevice.address) == 0 ||
          (bleKBHost.pairedDevice.name[0] != '\0' &&
-          name == bleKBHost.pairedDevice.name))) {
+          strcmp(name, bleKBHost.pairedDevice.name) == 0))) {
       // Record what's actually on the air right now - connecting to the
       // advertised address always works; the stored identity may not
-      strncpy(bleKBHost.reconnectAddr, addr.c_str(), sizeof(bleKBHost.reconnectAddr) - 1);
+      strncpy(bleKBHost.reconnectAddr, addr, sizeof(bleKBHost.reconnectAddr) - 1);
       bleKBHost.reconnectAddr[sizeof(bleKBHost.reconnectAddr) - 1] = '\0';
       bleKBHost.reconnectAddrType = advertisedDevice->getAddress().getType();
       bleKBHost.reconnectDeviceSeen = true;
@@ -215,23 +291,19 @@ class BLEKBScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     if (bleKBHost.foundCount < BLE_MAX_FOUND_DEVICES) {
       // Check for duplicates
       for (int i = 0; i < bleKBHost.foundCount; i++) {
-        if (bleKBHost.foundDevices[i].address == addr) {
+        if (strcasecmp(bleKBHost.foundDevices[i].address, addr) == 0) {
           return;  // Already found this device
         }
       }
 
-      bleKBHost.foundDevices[bleKBHost.foundCount].name = name;
-      bleKBHost.foundDevices[bleKBHost.foundCount].address = addr;
-      bleKBHost.foundDevices[bleKBHost.foundCount].addrType = advertisedDevice->getAddress().getType();
-      bleKBHost.foundDevices[bleKBHost.foundCount].rssi = advertisedDevice->getRSSI();
+      ScanResult* r = &bleKBHost.foundDevices[bleKBHost.foundCount];
+      strcpy(r->name, name);
+      strcpy(r->address, addr);
+      r->addrType = advertisedDevice->getAddress().getType();
+      r->rssi = advertisedDevice->getRSSI();
       bleKBHost.foundCount++;
 
-      Serial.print("BLEKB: Found HID device: ");
-      Serial.print(name);
-      Serial.print(" [");
-      Serial.print(addr);
-      Serial.print("] RSSI: ");
-      Serial.println(advertisedDevice->getRSSI());
+      Serial.printf("BLEKB: Found HID device: %s [%s] RSSI: %d\n", name, addr, r->rssi);
     }
   }
 };
@@ -239,6 +311,15 @@ class BLEKBScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
 // Static callback instances (a new'd instance per scan/connect would leak)
 static BLEKBClientCallbacks bleKBClientCallbacks;
 static BLEKBScanCallbacks bleKBScanCallbacks;
+
+static void bleKBSetLastError(const char* msg) {
+  strncpy(bleKBHost.lastError, msg, sizeof(bleKBHost.lastError) - 1);
+  bleKBHost.lastError[sizeof(bleKBHost.lastError) - 1] = '\0';
+}
+
+bool isBLEKeyboardConnectBusy() {
+  return bleKBConnectBusy;
+}
 
 // Scan-complete callback. Runs on the NimBLE host task, so it must not touch
 // LVGL or connect - updateBLEKeyboardHost() advances the state machine from
@@ -263,14 +344,12 @@ void hidReportNotifyCallback(NimBLERemoteCharacteristic* pChar,
   // [0] = Modifier keys (Ctrl, Shift, Alt, GUI)
   // [1] = Reserved (always 0)
   // [2-7] = Up to 6 key codes
-
-  if (length < 8) {
-    // Non-standard report, try to handle anyway
-    if (length >= 3) {
-      // At least modifier + reserved + 1 key
-    } else {
-      return;
-    }
+  //
+  // Anything shorter than modifier + reserved + one key is a media/mouse/
+  // vendor report from a combo device: ignore it. Longer reports are parsed
+  // as keyboard reports, capped at 6 keys.
+  if (pData == nullptr || length < 3) {
+    return;
   }
 
   uint8_t modifiers = pData[0];
@@ -334,6 +413,17 @@ void initBLEKeyboardHost() {
 
   Serial.println("BLEKB: Initializing BLE Keyboard Host...");
 
+  // NimBLE allocates its controller/host memory from internal RAM; starting
+  // it on a starved heap fails deep inside the stack instead of cleanly here
+  size_t freeInternal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  if (freeInternal < BLE_MIN_FREE_INTERNAL_HEAP) {
+    Serial.printf("BLEKB: Not enough internal heap to start BLE (%u free)\n",
+                  (unsigned)freeInternal);
+    bleKBSetLastError("Low memory, BLE off");
+    return;
+  }
+  bleKBBootPhase = BLEKB_PHASE_INIT;
+
   // Initialize context
   bleKBHost.pClient = nullptr;
   bleKBHost.pReportChar = nullptr;
@@ -348,10 +438,18 @@ void initBLEKeyboardHost() {
   bleKBHost.reconnectAddr[0] = '\0';
   bleKBHost.reconnectAddrType = 0;
   bleKBHost.lastKeyTime = 0;
+  bleKBHost.connectedSince = 0;
+  bleKBHost.lastError[0] = '\0';
   memset(bleKBHost.prevKeys, 0, sizeof(bleKBHost.prevKeys));
 
   // Initialize NimBLE in Central mode
   NimBLEDevice::init("VAIL-SUMMIT-KB");
+  if (!NimBLEDevice::getInitialized()) {
+    Serial.println("BLEKB: NimBLE init failed");
+    bleKBSetLastError("BLE init failed");
+    bleKBBootPhase = BLEKB_PHASE_NONE;
+    return;
+  }
 
   // Set power level for better range
   NimBLEDevice::setPower(ESP_PWR_LVL_P9);
@@ -365,7 +463,9 @@ void initBLEKeyboardHost() {
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
 
   bleKBHost.state = BLEKB_STATE_READY;
-  Serial.println("BLEKB: Initialized successfully");
+  bleKBBootPhase = BLEKB_PHASE_ACTIVE;
+  Serial.printf("BLEKB: Initialized successfully (%u internal heap free)\n",
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
 }
 
 // Deinitialize BLE keyboard host
@@ -375,6 +475,23 @@ void deinitBLEKeyboardHost() {
   }
 
   Serial.println("BLEKB: Deinitializing...");
+
+  // A connect/pair sequence still running on the worker task would be left
+  // holding a dangling client after NimBLEDevice::deinit. Drop the link so
+  // the worker unblocks and give it a moment to finish.
+  if (bleKBConnectBusy) {
+    Serial.println("BLEKB: Connect in progress, aborting it first");
+    if (bleKBHost.pClient != nullptr && bleKBHost.pClient->isConnected()) {
+      bleKBHost.pClient->disconnect();
+    }
+    for (int i = 0; i < 300 && bleKBConnectBusy; i++) {
+      delay(10);
+    }
+    if (bleKBConnectBusy) {
+      Serial.println("BLEKB: Connect worker still busy, deinit postponed");
+      return;
+    }
+  }
 
   // Disconnect if connected
   if (bleKBHost.pClient != nullptr && bleKBHost.pClient->isConnected()) {
@@ -398,6 +515,7 @@ void deinitBLEKeyboardHost() {
   bleKBHost.state = BLEKB_STATE_IDLE;
   bleKBHost.pReportChar = nullptr;
   bleKBHost.reconnectDeviceSeen = false;
+  bleKBBootPhase = BLEKB_PHASE_NONE;
 
   Serial.println("BLEKB: Deinitialized");
 }
@@ -408,8 +526,19 @@ void startBLEKeyboardScan() {
     initBLEKeyboardHost();
   }
 
+  if (bleKBHost.state == BLEKB_STATE_IDLE) {
+    return;  // init refused (low memory) - nothing to scan with
+  }
+
   if (bleKBHost.state == BLEKB_STATE_SCANNING) {
     Serial.println("BLEKB: Already scanning");
+    return;
+  }
+
+  // NimBLE cannot scan and connect at the same time; the worker owns the
+  // radio until the connect sequence finishes
+  if (bleKBConnectBusy) {
+    Serial.println("BLEKB: Connect in progress, scan skipped");
     return;
   }
 
@@ -432,9 +561,15 @@ void startBLEKeyboardScan() {
   pScan->setWindow(99);
 
   bleKBHost.state = BLEKB_STATE_SCANNING;
+  bleKBBootPhase = BLEKB_PHASE_SCANNING;
   // The callback overload is the non-blocking one; start(duration, bool)
   // blocks the calling task until the scan completes
-  pScan->start(BLE_SCAN_DURATION_SEC, bleKBScanCompleteCB, false);
+  if (!pScan->start(BLE_SCAN_DURATION_SEC, bleKBScanCompleteCB, false)) {
+    Serial.println("BLEKB: Scan failed to start");
+    bleKBHost.state = BLEKB_STATE_ERROR;
+    bleKBSetLastError("Scan failed to start");
+    bleKBBootPhase = BLEKB_PHASE_ACTIVE;
+  }
 }
 
 // Stop scanning
@@ -442,6 +577,7 @@ void stopBLEKeyboardScan() {
   if (bleKBHost.state == BLEKB_STATE_SCANNING) {
     NimBLEDevice::getScan()->stop();
     bleKBHost.state = BLEKB_STATE_SCAN_COMPLETE;
+    bleKBBootPhase = BLEKB_PHASE_ACTIVE;
     Serial.println("BLEKB: Scan stopped");
   }
 }
@@ -454,34 +590,28 @@ bool connectToBLEKeyboard(int deviceIndex) {
   }
 
   return connectToBLEKeyboardByAddress(
-    bleKBHost.foundDevices[deviceIndex].address.c_str(),
+    bleKBHost.foundDevices[deviceIndex].address,
     bleKBHost.foundDevices[deviceIndex].addrType,
     true /* user-initiated fresh pairing */);
 }
 
-// Connect to a keyboard by address
-bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool freshPair) {
-  if (bleKBHost.state == BLEKB_STATE_IDLE) {
-    initBLEKeyboardHost();
-  }
-
-  // NimBLE cannot initiate a connection while a scan is running
-  if (NimBLEDevice::getScan()->isScanning()) {
-    NimBLEDevice::getScan()->stop();
-  }
-
-  Serial.print("BLEKB: Connecting to ");
-  Serial.println(address);
-
-  bleKBHost.state = BLEKB_STATE_CONNECTING;
-  bleKBHost.lastError = "";
+// The actual connect/pair/enumerate sequence. Runs on the worker task; must
+// not touch LVGL. Everything blocking in here is bounded by NimBLE's own
+// timeouts (10s connect, 30s SM) and by the main loop's deadline disconnect.
+static bool bleKBRunConnect(const BLEKBConnectRequest& req) {
+  Serial.printf("BLEKB: Connecting to %s (%s)%s\n", req.address, req.name,
+                req.freshPair ? " [fresh pairing]" : "");
 
   // Create client if needed
   if (bleKBHost.pClient == nullptr) {
     bleKBHost.pClient = NimBLEDevice::createClient();
+    if (bleKBHost.pClient == nullptr) {
+      bleKBSetLastError("No memory for BLE client");
+      return false;
+    }
     bleKBHost.pClient->setClientCallbacks(&bleKBClientCallbacks, false);
-    // Connect blocks the main loop; keep the timeout well under the 30s loop
-    // watchdog or a failed attempt would panic-reboot the device
+    // Bounds the connect() wait; a keyboard that stops advertising mid-connect
+    // otherwise holds the worker for NimBLE's 30s default
     bleKBHost.pClient->setConnectTimeout(10);
   }
 
@@ -498,7 +628,7 @@ bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool f
   // drop the connection and redo it - by then the bond exists, so attempt 2
   // encrypts immediately (this replaces the manual disconnect/reconnect that
   // used to be needed after the first pairing).
-  NimBLEAddress bleAddr(std::string(address), addrType);
+  NimBLEAddress bleAddr(std::string(req.address), req.addrType);
 
   // Fresh pairing: the keyboard is in pairing mode and expects a full SMP
   // pairing exchange. A bond left on our side makes NimBLE silently RESUME
@@ -506,7 +636,7 @@ bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool f
   // subscribes fine, but the keyboard's pairing slot never completes, so it
   // keeps blinking and never sends a report. Delete our bonds for both the
   // target address and the previously saved identity so a real pairing runs.
-  if (freshPair) {
+  if (req.freshPair) {
     NimBLEDevice::deleteBond(bleAddr);  // no-op if absent
     if (bleKBHost.pairedDevice.valid && bleKBHost.pairedDevice.address[0] != '\0') {
       NimBLEAddress oldAddr(std::string(bleKBHost.pairedDevice.address),
@@ -520,27 +650,37 @@ bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool f
   for (int attempt = 0; attempt < 2; attempt++) {
     subscribedCount = 0;
     bleKBHost.pReportChar = nullptr;
+    // onDisconnect (from attempt 0's intentional drop, or a keyboard that
+    // bounced) may have moved the state; we are still connecting
+    bleKBHost.state = BLEKB_STATE_CONNECTING;
 
-    // The connect/pair sequence can block for tens of seconds worst-case
-    // (10s connect timeout + SM procedure); feed the loop watchdog between
-    // attempts so a slow pairing doesn't panic-reboot the device
-    esp_task_wdt_reset();
+    if (bleKBConnectAborted) {
+      bleKBSetLastError("Connect timed out");
+      return false;
+    }
 
     // Connect to the device (address type matters: keyboards almost always use
     // random-static addresses, and a connect with the wrong type never succeeds)
     if (!bleKBHost.pClient->connect(bleAddr)) {
       Serial.println("BLEKB: Connection failed");
-      bleKBHost.state = BLEKB_STATE_ERROR;
-      bleKBHost.lastError = "Connection failed";
+      bleKBSetLastError("Connection failed");
       return false;
     }
 
     Serial.println("BLEKB: Connected, requesting encryption...");
 
     // Pair/bond and encrypt the link. Most keyboards refuse to send input
-    // reports (or reject the subscribe) on an unencrypted link.
+    // reports (or reject the subscribe) on an unencrypted link. This is the
+    // call that can wait up to 30s for a keyboard that never answers.
     if (!bleKBHost.pClient->secureConnection()) {
       Serial.println("BLEKB: Pairing failed (continuing, some keyboards allow it)");
+    }
+    if (!bleKBHost.pClient->isConnected()) {
+      // Keyboard dropped the link during pairing (wrong PIN, pairing mode
+      // timed out, or the main loop's deadline disconnect)
+      Serial.println("BLEKB: Link dropped during pairing");
+      bleKBSetLastError(bleKBConnectAborted ? "Connect timed out" : "Pairing rejected");
+      return false;
     }
 
     Serial.println("BLEKB: Discovering services...");
@@ -550,8 +690,7 @@ bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool f
     if (pService == nullptr) {
       Serial.println("BLEKB: HID service not found");
       bleKBHost.pClient->disconnect();
-      bleKBHost.state = BLEKB_STATE_ERROR;
-      bleKBHost.lastError = "HID service not found";
+      bleKBSetLastError("HID service not found");
       return false;
     }
 
@@ -593,8 +732,15 @@ bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool f
     // notify callback parses keyboard-format reports and ignores the rest.
     // Fall back to the Boot Keyboard Input Report (2A22) if no 2A4D notifies.
     std::vector<NimBLERemoteCharacteristic*>* chars = pService->getCharacteristics(true);
+    if (chars == nullptr) {
+      Serial.println("BLEKB: Characteristic discovery failed");
+      bleKBHost.pClient->disconnect();
+      bleKBSetLastError("Discovery failed");
+      return false;
+    }
 
     for (auto pChar : *chars) {
+      if (!bleKBHost.pClient->isConnected()) break;
       bool isInputReport = (pChar->getUUID() == NimBLEUUID(HID_REPORT_CHAR_UUID) ||
                             pChar->getUUID() == NimBLEUUID(HID_BOOT_INPUT_UUID)) &&
                            pChar->canNotify();
@@ -630,8 +776,7 @@ bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool f
     if (subscribedCount == 0) {
       Serial.println("BLEKB: No input report characteristic could be subscribed");
       bleKBHost.pClient->disconnect();
-      bleKBHost.state = BLEKB_STATE_ERROR;
-      bleKBHost.lastError = "Report char not found";
+      bleKBSetLastError("Report char not found");
       return false;
     }
 
@@ -654,6 +799,11 @@ bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool f
     }
   }
 
+  if (!bleKBHost.pClient->isConnected()) {
+    bleKBSetLastError("Link dropped");
+    return false;
+  }
+
   Serial.println("BLEKB: Subscribed to keyboard input notifications");
 
   // Nudge quirky firmwares: read the first input report once - some only
@@ -674,29 +824,105 @@ bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool f
                 connInfo.getMTU(), connInfo.getConnInterval());
   strncpy(bleKBHost.pairedDevice.address, idAddr.toString().c_str(),
           sizeof(bleKBHost.pairedDevice.address) - 1);
+  bleKBHost.pairedDevice.address[sizeof(bleKBHost.pairedDevice.address) - 1] = '\0';
   bleKBHost.pairedDevice.addrType = idAddr.getType();
 
-  // Get device name
-  String deviceName = bleKBHost.pClient->getPeerAddress().toString().c_str();
-  for (int i = 0; i < bleKBHost.foundCount; i++) {
-    if (bleKBHost.foundDevices[i].address == address) {
-      deviceName = bleKBHost.foundDevices[i].name;
-      break;
-    }
+  // Device name: the advertised name captured at launch, else the address
+  if (req.name[0] != '\0') {
+    strncpy(bleKBHost.pairedDevice.name, req.name, sizeof(bleKBHost.pairedDevice.name) - 1);
+  } else {
+    strncpy(bleKBHost.pairedDevice.name, req.address, sizeof(bleKBHost.pairedDevice.name) - 1);
   }
-  strncpy(bleKBHost.pairedDevice.name, deviceName.c_str(),
-          sizeof(bleKBHost.pairedDevice.name) - 1);
+  bleKBHost.pairedDevice.name[sizeof(bleKBHost.pairedDevice.name) - 1] = '\0';
   bleKBHost.pairedDevice.valid = true;
 
   // Save to preferences
   saveBLEKeyboardSettings();
 
-  bleKBHost.state = BLEKB_STATE_CONNECTED;
-  bleKBHost.lastKeyTime = millis();
+  Serial.printf("BLEKB: Successfully connected to %s\n", bleKBHost.pairedDevice.name);
+  return true;
+}
 
-  Serial.print("BLEKB: Successfully connected to ");
-  Serial.println(bleKBHost.pairedDevice.name);
+// Worker task entry: run the sequence, publish the outcome, exit
+static void bleKBConnectTask(void* arg) {
+  bool ok = bleKBRunConnect(bleKBConnectReq);
+  if (ok) {
+    bleKBHost.state = BLEKB_STATE_CONNECTED;
+    bleKBHost.lastKeyTime = millis();
+    bleKBHost.connectedSince = millis();
+  } else {
+    // ERROR rather than whatever onDisconnect left behind, so the settings
+    // screen shows lastError; auto-reconnect scans resume from ERROR too
+    bleKBHost.state = BLEKB_STATE_ERROR;
+  }
+  bleKBBootPhase = BLEKB_PHASE_ACTIVE;
+  Serial.printf("BLEKB: Connect worker done: %s%s%s\n", ok ? "success" : "failed",
+                ok ? "" : " - ", ok ? "" : bleKBHost.lastError);
+  bleKBConnectBusy = false;
+  vTaskDelete(NULL);
+}
 
+// Connect to a keyboard by address (non-blocking: launches the worker task)
+bool connectToBLEKeyboardByAddress(const char* address, uint8_t addrType, bool freshPair) {
+  if (bleKBHost.state == BLEKB_STATE_IDLE) {
+    initBLEKeyboardHost();
+    if (bleKBHost.state == BLEKB_STATE_IDLE) {
+      return false;  // init refused (low memory)
+    }
+  }
+
+  if (bleKBConnectBusy) {
+    Serial.println("BLEKB: Connect already in progress");
+    return false;
+  }
+
+  if (address == nullptr || address[0] == '\0') {
+    bleKBSetLastError("No address");
+    return false;
+  }
+
+  // NimBLE cannot initiate a connection while a scan is running
+  if (NimBLEDevice::getScan()->isScanning()) {
+    NimBLEDevice::getScan()->stop();
+  }
+
+  memset(&bleKBConnectReq, 0, sizeof(bleKBConnectReq));
+  strncpy(bleKBConnectReq.address, address, sizeof(bleKBConnectReq.address) - 1);
+  bleKBConnectReq.addrType = addrType;
+  bleKBConnectReq.freshPair = freshPair;
+  for (int i = 0; i < bleKBHost.foundCount; i++) {
+    if (strcasecmp(bleKBHost.foundDevices[i].address, address) == 0) {
+      strncpy(bleKBConnectReq.name, bleKBHost.foundDevices[i].name,
+              sizeof(bleKBConnectReq.name) - 1);
+      break;
+    }
+  }
+  if (bleKBConnectReq.name[0] == '\0' && bleKBHost.pairedDevice.valid) {
+    // Reconnect to the paired keyboard: keep the name we already know
+    strncpy(bleKBConnectReq.name, bleKBHost.pairedDevice.name,
+            sizeof(bleKBConnectReq.name) - 1);
+  }
+
+  bleKBHost.state = BLEKB_STATE_CONNECTING;
+  bleKBHost.lastError[0] = '\0';
+  bleKBConnectStart = millis();
+  bleKBConnectAborted = false;
+  bleKBConnectBusy = true;
+  bleKBBootPhase = BLEKB_PHASE_CONNECTING;
+
+  // Same core as loop() so the NimBLE host task (core 0) and audio keep
+  // their core to themselves; priority matches loop()
+  TaskHandle_t handle = NULL;
+  BaseType_t rc = xTaskCreatePinnedToCore(bleKBConnectTask, "blekb_conn",
+                                          BLE_CONNECT_TASK_STACK, NULL, 1, &handle, 1);
+  if (rc != pdPASS) {
+    Serial.println("BLEKB: Could not start connect worker (no memory)");
+    bleKBConnectBusy = false;
+    bleKBHost.state = BLEKB_STATE_ERROR;
+    bleKBSetLastError("No memory for connect");
+    bleKBBootPhase = BLEKB_PHASE_ACTIVE;
+    return false;
+  }
   return true;
 }
 
@@ -706,7 +932,9 @@ void disconnectBLEKeyboard() {
     Serial.println("BLEKB: Disconnecting...");
     bleKBHost.pClient->disconnect();
   }
-  bleKBHost.state = BLEKB_STATE_READY;
+  if (!bleKBConnectBusy) {
+    bleKBHost.state = BLEKB_STATE_READY;
+  }
   bleKBHost.pReportChar = nullptr;
 }
 
@@ -717,16 +945,41 @@ void updateBLEKeyboardHost() {
     return;
   }
 
+  unsigned long now = millis();
+
+  // Connect worker supervision. The worker is bounded by NimBLE's own
+  // timeouts, but a keyboard that keeps the link up without ever finishing
+  // pairing could hold it for a long time: past the deadline, drop the link
+  // so every blocking call inside the worker returns.
+  if (bleKBConnectBusy) {
+    if (!bleKBConnectAborted && now - bleKBConnectStart > BLE_CONNECT_DEADLINE_MS) {
+      Serial.println("BLEKB: Connect deadline passed, dropping link");
+      bleKBConnectAborted = true;
+      if (bleKBHost.pClient != nullptr && bleKBHost.pClient->isConnected()) {
+        bleKBHost.pClient->disconnect();
+      }
+    }
+    return;  // the worker owns the radio; no scans or reconnects meanwhile
+  }
+
   // Detect scan completion (NimBLE stops on its own after BLE_SCAN_DURATION_SEC,
   // but nothing else advances our state machine out of SCANNING)
   if (bleKBHost.state == BLEKB_STATE_SCANNING && !NimBLEDevice::getScan()->isScanning()) {
     bleKBHost.state = BLEKB_STATE_SCAN_COMPLETE;
+    bleKBBootPhase = BLEKB_PHASE_ACTIVE;
     Serial.printf("BLEKB: Scan complete, %d device(s) found\n", bleKBHost.foundCount);
   }
 
+  // A link that has stayed up for a while proves this pairing is healthy:
+  // clear the boot crash counter so an unrelated crash later can't trip it
+  if (bleKBHost.state == BLEKB_STATE_CONNECTED && bleKBHost.crashCount > 0 &&
+      now - bleKBHost.connectedSince > BLE_CRASH_CLEAR_UPTIME_MS) {
+    bleKBClearCrashCount();
+  }
+
   // The paired keyboard was spotted advertising: connect now. The device is
-  // in range, so the blocking connect resolves quickly instead of eating the
-  // full 10s timeout.
+  // in range, so the connect resolves quickly instead of eating the full
+  // 10s timeout.
   if (bleKBHost.reconnectDeviceSeen) {
     bleKBHost.reconnectDeviceSeen = false;
     if (bleKBHost.autoReconnect && bleKBHost.pairedDevice.valid &&
@@ -742,19 +995,19 @@ void updateBLEKeyboardHost() {
         connectToBLEKeyboardByAddress(bleKBHost.pairedDevice.address,
                                       bleKBHost.pairedDevice.addrType);
       }
+      return;
     }
   }
 
   // Handle auto-reconnect by scanning for the paired keyboard rather than
   // blind-connecting: a connect attempt while the keyboard is off/asleep
-  // blocks the main loop for the full connect timeout, whereas a scan runs
-  // in the background and only triggers a connect once the keyboard is seen.
+  // would eat the full connect timeout, whereas a scan runs in the
+  // background and only triggers a connect once the keyboard is seen.
   if (bleKBHost.state == BLEKB_STATE_DISCONNECTED ||
       bleKBHost.state == BLEKB_STATE_READY ||
       bleKBHost.state == BLEKB_STATE_SCAN_COMPLETE ||
       bleKBHost.state == BLEKB_STATE_ERROR) {
     if (bleKBHost.autoReconnect && bleKBHost.pairedDevice.valid) {
-      unsigned long now = millis();
       if (now - bleKBHost.lastReconnectAttempt >= BLE_RECONNECT_INTERVAL) {
         bleKBHost.lastReconnectAttempt = now;
         Serial.println("BLEKB: Scanning for paired keyboard...");
@@ -804,6 +1057,69 @@ void saveBLEKeyboardSettings() {
   Serial.println("BLEKB: Settings saved");
 }
 
+// Reset the boot crash counter (healthy connection, user re-enabled
+// auto-reconnect, or pairing forgotten)
+void bleKBClearCrashCount() {
+  if (bleKBHost.crashCount == 0 && !bleKBHost.autoReconnectTripped) return;
+  bleKBHost.crashCount = 0;
+  bleKBHost.autoReconnectTripped = false;
+  Preferences prefs;
+  prefs.begin("btkeyboard", false);
+  prefs.putUChar("crashCnt", 0);
+  prefs.end();
+  Serial.println("BLEKB: Crash counter cleared");
+}
+
+// Boot crash guard. The keyboard host records what it is doing in RTC memory
+// (bleKBBootPhase survives panic and watchdog resets). If the previous boot
+// ended abnormally while the host was active, count it; after
+// BLE_CRASH_TRIP_COUNT consecutive such resets, switch auto-reconnect off and
+// persist that, so the device comes up to a usable menu instead of crashing
+// on every boot until the owner reflashes it. Runs once, from
+// loadBLEKeyboardSettings() (before the host is started at boot).
+static void bleKBCheckPreviousBoot() {
+  static bool checked = false;
+  if (checked) return;
+  checked = true;
+
+  esp_reset_reason_t reason = esp_reset_reason();
+  bool abnormal = (reason == ESP_RST_PANIC || reason == ESP_RST_TASK_WDT ||
+                   reason == ESP_RST_INT_WDT || reason == ESP_RST_WDT);
+  uint8_t phase = (bleKBBootMagic == BLEKB_BOOT_MAGIC) ? bleKBBootPhase : BLEKB_PHASE_NONE;
+
+  // Arm the marker for this boot
+  bleKBBootMagic = BLEKB_BOOT_MAGIC;
+  bleKBBootPhase = BLEKB_PHASE_NONE;
+
+  if (!abnormal) {
+    return;  // clean boot (power-on, software restart): nothing to attribute
+  }
+  if (phase == BLEKB_PHASE_NONE) {
+    Serial.println("BLEKB: Previous reset was abnormal but the keyboard host was off");
+    return;
+  }
+
+  Preferences prefs;
+  prefs.begin("btkeyboard", false);
+  uint8_t count = prefs.getUChar("crashCnt", 0);
+  if (count < 255) count++;
+  prefs.putUChar("crashCnt", count);
+  prefs.putUChar("crashPhase", phase);
+  bleKBHost.crashCount = count;
+  bleKBHost.lastCrashPhase = phase;
+  Serial.printf("BLEKB: Previous boot crashed while %s (%d in a row)\n",
+                getBLEKBPhaseString(phase), count);
+
+  if (count >= BLE_CRASH_TRIP_COUNT && bleKBHost.autoReconnect) {
+    bleKBHost.autoReconnect = false;
+    bleKBHost.autoReconnectTripped = true;
+    prefs.putBool("autoRecon", false);
+    Serial.println("BLEKB: Auto-reconnect switched OFF after repeated crashes; "
+                   "re-enable it in External Keyboard settings");
+  }
+  prefs.end();
+}
+
 // Load settings from Preferences
 void loadBLEKeyboardSettings() {
   Preferences prefs;
@@ -811,17 +1127,28 @@ void loadBLEKeyboardSettings() {
 
   bleKBHost.pairedDevice.valid = prefs.getBool("valid", false);
   if (bleKBHost.pairedDevice.valid) {
-    String name = prefs.getString("name", "");
-    String addr = prefs.getString("addr", "");
-    strncpy(bleKBHost.pairedDevice.name, name.c_str(),
-            sizeof(bleKBHost.pairedDevice.name) - 1);
-    strncpy(bleKBHost.pairedDevice.address, addr.c_str(),
-            sizeof(bleKBHost.pairedDevice.address) - 1);
+    char name[32] = {0};
+    char addr[18] = {0};
+    prefs.getString("name", name, sizeof(name));
+    prefs.getString("addr", addr, sizeof(addr));
+    strncpy(bleKBHost.pairedDevice.name, name, sizeof(bleKBHost.pairedDevice.name) - 1);
+    bleKBHost.pairedDevice.name[sizeof(bleKBHost.pairedDevice.name) - 1] = '\0';
+    strncpy(bleKBHost.pairedDevice.address, addr, sizeof(bleKBHost.pairedDevice.address) - 1);
+    bleKBHost.pairedDevice.address[sizeof(bleKBHost.pairedDevice.address) - 1] = '\0';
     // Default to random-static: what nearly all BLE keyboards use, and what
     // pairings saved before the type was persisted most likely need
     bleKBHost.pairedDevice.addrType = prefs.getUChar("addrType", BLE_ADDR_RANDOM);
+    // A saved pairing with no address is unusable; drop it rather than
+    // letting the reconnect path chew on an empty string every 30s
+    if (bleKBHost.pairedDevice.address[0] == '\0') {
+      Serial.println("BLEKB: Saved pairing has no address, ignoring it");
+      bleKBHost.pairedDevice.valid = false;
+    }
   }
   bleKBHost.autoReconnect = prefs.getBool("autoRecon", true);
+  bleKBHost.crashCount = prefs.getUChar("crashCnt", 0);
+  bleKBHost.lastCrashPhase = prefs.getUChar("crashPhase", BLEKB_PHASE_NONE);
+  bleKBHost.autoReconnectTripped = false;
 
   prefs.end();
 
@@ -831,6 +1158,8 @@ void loadBLEKeyboardSettings() {
   } else {
     Serial.println("None");
   }
+
+  bleKBCheckPreviousBoot();
 }
 
 // Forget paired keyboard
@@ -854,11 +1183,16 @@ void forgetBLEKeyboardPairing() {
   bleKBHost.pairedDevice.valid = false;
   memset(bleKBHost.pairedDevice.name, 0, sizeof(bleKBHost.pairedDevice.name));
   memset(bleKBHost.pairedDevice.address, 0, sizeof(bleKBHost.pairedDevice.address));
+  bleKBHost.reconnectAddr[0] = '\0';
+  bleKBHost.reconnectDeviceSeen = false;
 
   // Save to preferences
   saveBLEKeyboardSettings();
+  bleKBClearCrashCount();
 
-  bleKBHost.state = BLEKB_STATE_READY;
+  if (!bleKBConnectBusy && bleKBHost.state != BLEKB_STATE_IDLE) {
+    bleKBHost.state = BLEKB_STATE_READY;
+  }
   Serial.println("BLEKB: Pairing forgotten");
 }
 
@@ -884,6 +1218,21 @@ const char* getBLEKBStateString() {
     default:
       return "Unknown";
   }
+}
+
+// Human-readable boot phase (for crash attribution logs and the settings screen)
+const char* getBLEKBPhaseString(uint8_t phase) {
+  switch (phase) {
+    case BLEKB_PHASE_INIT:       return "starting BLE";
+    case BLEKB_PHASE_ACTIVE:     return "BLE active";
+    case BLEKB_PHASE_SCANNING:   return "scanning";
+    case BLEKB_PHASE_CONNECTING: return "connecting/pairing";
+    default:                     return "off";
+  }
+}
+
+const char* getBLEKBLastError() {
+  return bleKBHost.lastError;
 }
 
 #endif // BLE_KEYBOARD_HOST_H
