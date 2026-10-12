@@ -59,6 +59,9 @@ extern char webPassword[];
 extern bool webAuthEnabled;
 extern void saveWebPassword(const char* password);
 extern void clearWebPassword();
+extern bool webServerAlwaysOn;
+extern void saveWebServerAlwaysOn(bool alwaysOn);
+extern void requestWebServer();
 
 // ============================================
 // Volume Settings Screen
@@ -1178,6 +1181,8 @@ static lv_obj_t* web_password_toggle_label = NULL;
 static lv_obj_t* web_password_field_container = NULL;
 static lv_obj_t* web_password_error_label = NULL;
 static bool web_password_enabled_state = false;
+static lv_obj_t* web_server_toggle_btn = NULL;
+static lv_obj_t* web_server_toggle_label = NULL;
 
 // Forward declarations
 static void update_web_password_display();
@@ -1268,6 +1273,46 @@ static void web_password_cancel_and_exit() {
     lv_async_call(web_password_deferred_back_nav, NULL);
 }
 
+static void update_web_server_toggle_display() {
+    if (web_server_toggle_label != NULL) {
+        lv_label_set_text(web_server_toggle_label, webServerAlwaysOn ? "ALWAYS ON" : "ON DEMAND");
+        lv_obj_set_style_text_color(web_server_toggle_label,
+            webServerAlwaysOn ? LV_COLOR_SUCCESS : LV_COLOR_WARNING, 0);
+    }
+}
+
+// Key handler for the web server policy toggle (last widget on the screen).
+// ENTER flips always-on / on-demand and saves immediately.
+static void web_server_toggle_key_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
+
+    if (key == LV_KEY_ESC) {
+        lv_event_stop_processing(e);
+        web_password_cancel_and_exit();
+        return;
+    }
+    if (key == LV_KEY_ENTER) {
+        saveWebServerAlwaysOn(!webServerAlwaysOn);
+        update_web_server_toggle_display();
+        beep(TONE_SELECT, BEEP_SHORT);
+        if (webServerAlwaysOn) requestWebServer();
+        lv_event_stop_processing(e);
+        return;
+    }
+    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
+        if (web_password_enabled_state && web_password_textarea != NULL) {
+            lv_group_focus_obj(web_password_textarea);
+        } else if (web_password_toggle_btn != NULL) {
+            lv_group_focus_obj(web_password_toggle_btn);
+        }
+        lv_event_stop_processing(e);
+        return;
+    }
+    // DOWN and everything else: last widget, swallow
+    lv_event_stop_processing(e);
+}
+
 // Update the toggle button display and show/hide password field
 static void update_web_password_display() {
     if (web_password_toggle_label != NULL) {
@@ -1329,10 +1374,12 @@ static void web_password_toggle_key_handler(lv_event_t* e) {
         return;
     }
 
-    // DOWN - move to textarea if enabled
+    // DOWN - move to textarea if enabled, else to the server policy toggle
     if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
         if (web_password_enabled_state && web_password_textarea != NULL) {
             lv_group_focus_obj(web_password_textarea);
+        } else if (web_server_toggle_btn != NULL) {
+            lv_group_focus_obj(web_server_toggle_btn);
         }
         lv_event_stop_processing(e);
         return;
@@ -1379,8 +1426,11 @@ static void web_password_field_key_handler(lv_event_t* e) {
         return;
     }
 
-    // DOWN - can't go down (last widget)
+    // DOWN - move to the server policy toggle
     if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
+        if (web_server_toggle_btn != NULL) {
+            lv_group_focus_obj(web_server_toggle_btn);
+        }
         lv_event_stop_processing(e);
         return;
     }
@@ -1400,7 +1450,7 @@ lv_obj_t* createWebPasswordSettingsScreen() {
     lv_obj_clear_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* title = lv_label_create(title_bar);
-    lv_label_set_text(title, "WEB PASSWORD");
+    lv_label_set_text(title, "WEB INTERFACE");
     lv_obj_add_style(title, getStyleLabelTitle(), 0);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 15, 0);
 
@@ -1409,12 +1459,12 @@ lv_obj_t* createWebPasswordSettingsScreen() {
 
     // Content card
     lv_obj_t* content = lv_obj_create(screen);
-    lv_obj_set_size(content, SCREEN_WIDTH - 60, 180);
+    lv_obj_set_size(content, SCREEN_WIDTH - 60, 230);
     lv_obj_center(content);
     lv_obj_set_layout(content, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(content, 15, 0);
-    lv_obj_set_style_pad_all(content, 20, 0);
+    lv_obj_set_style_pad_row(content, 10, 0);
+    lv_obj_set_style_pad_all(content, 16, 0);
     applyCardStyle(content);
 
     // Toggle button row
@@ -1502,8 +1552,47 @@ lv_obj_t* createWebPasswordSettingsScreen() {
     lv_obj_set_style_text_font(web_password_error_label, getThemeFonts()->font_small, 0);
     lv_obj_add_flag(web_password_error_label, LV_OBJ_FLAG_HIDDEN);
 
+    // Web server policy row: ON DEMAND (default, saves ~20 KB internal RAM
+    // while the browser is not in use) or ALWAYS ON (start with WiFi)
+    lv_obj_t* srv_row = lv_obj_create(content);
+    lv_obj_set_size(srv_row, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_layout(srv_row, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(srv_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(srv_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_bg_opa(srv_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(srv_row, 0, 0);
+    lv_obj_set_style_pad_all(srv_row, 0, 0);
+
+    lv_obj_t* srv_text = lv_label_create(srv_row);
+    lv_label_set_text(srv_text, "Web Server");
+    lv_obj_add_style(srv_text, getStyleLabelSubtitle(), 0);
+
+    web_server_toggle_btn = lv_btn_create(srv_row);
+    lv_obj_set_size(web_server_toggle_btn, 96, 28);
+    lv_obj_set_style_bg_color(web_server_toggle_btn, LV_COLOR_BG_CARD, 0);
+    lv_obj_set_style_bg_color(web_server_toggle_btn, LV_COLOR_BG_CARD, LV_STATE_FOCUSED);
+    lv_obj_set_style_radius(web_server_toggle_btn, 4, 0);
+    lv_obj_set_style_border_width(web_server_toggle_btn, 1, 0);
+    lv_obj_set_style_border_color(web_server_toggle_btn, LV_COLOR_BORDER_LIGHT, 0);
+    lv_obj_set_style_border_color(web_server_toggle_btn, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(web_server_toggle_btn, 2, LV_STATE_FOCUSED);
+    lv_obj_set_style_pad_all(web_server_toggle_btn, 4, 0);
+
+    web_server_toggle_label = lv_label_create(web_server_toggle_btn);
+    lv_obj_center(web_server_toggle_label);
+    lv_obj_set_style_text_font(web_server_toggle_label, getThemeFonts()->font_small, 0);
+
+    lv_obj_add_event_cb(web_server_toggle_btn, web_server_toggle_key_handler, LV_EVENT_KEY, NULL);
+    addNavigableWidget(web_server_toggle_btn);
+
+    lv_obj_t* srv_hint = lv_label_create(content);
+    lv_label_set_text(srv_hint, "On demand: runs while System Info or WiFi\nscreens are open, stops after 10 min idle.");
+    lv_obj_set_style_text_color(srv_hint, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_style_text_font(srv_hint, getThemeFonts()->font_small, 0);
+
     // Update display (shows/hides password field based on state)
     update_web_password_display();
+    update_web_server_toggle_display();
 
     // Footer
     lv_obj_t* footer = lv_obj_create(screen);

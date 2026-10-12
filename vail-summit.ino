@@ -563,8 +563,14 @@ void setup() {
   // Note: Web files check is now triggered by internet_check.h when INET_CONNECTED is verified
   WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
     if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
-      Serial.println("WiFi connected! Starting web server...");
-      setupWebServer();
+      // Web server is on demand by default (see updateWebServerLifecycle);
+      // only the always-on setting starts it straight away.
+      if (webServerAlwaysOn) {
+        Serial.println("WiFi connected! Starting web server...");
+        setupWebServer();
+      } else {
+        Serial.println("WiFi connected (web server on demand)");
+      }
       // Web files check moved to after internet verification (see internet_check.h)
     } else if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
       Serial.println("WiFi disconnected. Stopping web server...");
@@ -866,6 +872,9 @@ void loop() {
   if (isWebServerRestartPending()) {
     restartWebServer();
   }
+
+  // On-demand web server start/stop (URL screens, web modes, idle timeout)
+  updateWebServerLifecycle();
 
   // Check for deferred web mode starts (safe to call LVGL from main loop)
   extern volatile bool webPracticeStartPending;

@@ -487,6 +487,13 @@ void showWebFilesDownloadProgress() {
 void showWebFilesDownloadComplete(bool success, const char* message) {
     Serial.printf("[WebDownload] Download complete: %s - %s\n", success ? "SUCCESS" : "FAILED", message);
 
+    // The screen advertises http://vail-summit.local, so bring the on-demand
+    // web server up (no-op if it is already running)
+    if (success) {
+        extern void requestWebServer();
+        requestWebServer();
+    }
+
     // Clear screen content
     lv_obj_clean(web_download_screen);
     clearNavigationGroup();

@@ -30,6 +30,20 @@ PasswordState passwordState = PASSWORD_STATE_NORMAL;
 char webPassword[WEB_PASSWORD_MAX_LEN] = "";
 bool webAuthEnabled = false;
 
+// Web server start policy (used by web_server.h). false = on demand: the
+// server (and its AsyncTCP task) only starts when a screen that shows the
+// web URL is opened or a web mode runs, and stops again after idle time.
+// true = classic behaviour, start as soon as WiFi connects.
+bool webServerAlwaysOn = false;
+
+void saveWebServerAlwaysOn(bool alwaysOn) {
+  webServerAlwaysOn = alwaysOn;
+  webPasswordPrefs.begin("webpw", false);
+  webPasswordPrefs.putBool("srvAlways", alwaysOn);
+  webPasswordPrefs.end();
+  Serial.printf("[WebPW] Web server policy: %s\n", alwaysOn ? "always on" : "on demand");
+}
+
 // LVGL mode flag - when true, skip legacy draw functions (LVGL handles display)
 bool webPasswordUseLVGL = true;  // Default to LVGL mode
 
@@ -388,7 +402,9 @@ void loadSavedWebPassword() {
   webPasswordPrefs.begin("webpw", true);  // read-only probe
   bool provisioned = webPasswordPrefs.getBool("provisioned", false);
   bool enabled = webPasswordPrefs.getBool("enabled", false);
-  String stored = webPasswordPrefs.getString("pw", "");
+  webServerAlwaysOn = webPasswordPrefs.getBool("srvAlways", false);
+  char stored[WEB_PASSWORD_MAX_LEN] = "";
+  webPasswordPrefs.getString("pw", stored, sizeof(stored));
   webPasswordPrefs.end();
 
   if (!provisioned) {
@@ -407,8 +423,8 @@ void loadSavedWebPassword() {
     return;
   }
 
-  if (enabled && stored.length() > 0) {
-    strncpy(webPassword, stored.c_str(), sizeof(webPassword) - 1);
+  if (enabled && strlen(stored) > 0) {
+    strncpy(webPassword, stored, sizeof(webPassword) - 1);
     webPassword[sizeof(webPassword) - 1] = '\0';
     webAuthEnabled = true;
     Serial.println("[WebPW] Web password protection enabled");
