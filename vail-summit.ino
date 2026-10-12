@@ -4,9 +4,9 @@
  */
 
 // Note: PSRAM is enabled via Arduino IDE board settings (PSRAM: "OPI PSRAM")
-// No explicit PSRAM initialization code needed for Arduino ESP32 core 2.0.14
+// No explicit PSRAM initialization code needed (the core enables it at boot)
 
-// LovyanGFX for ST7796S 4.0" display (requires Arduino ESP32 core 2.0.14)
+// LovyanGFX for ST7796S 4.0" display
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
 
@@ -357,7 +357,7 @@ void setup() {
   Serial.printf("ESP.getPsramSize(): %d bytes\n", ESP.getPsramSize());
 
   // PSRAM is auto-initialized when "OPI PSRAM" is selected in Arduino IDE
-  // Manual initialization (esp_psram_init) is not available in Arduino ESP32 core 2.0.14
+  // Manual initialization (esp_psram_init) is not needed; the core does it at boot
   if (psramFound() && ESP.getPsramSize() == 0) {
     Serial.println("\nWARNING: PSRAM detected but reports 0 bytes size.");
     Serial.println("This may indicate a board configuration issue.");
@@ -680,21 +680,17 @@ void setup() {
   // itself can legitimately take many seconds, so it must not be watched). If
   // loop() ever stalls > LOOP_WDT_TIMEOUT_S, panic=true reboots the device with
   // a backtrace instead of leaving it hung. loop() feeds it via esp_task_wdt_reset().
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
   esp_task_wdt_config_t wdt_cfg = {
       .timeout_ms = LOOP_WDT_TIMEOUT_S * 1000,
       .idle_core_mask = 0,
       .trigger_panic = true,
   };
-  // Core 3.x already initialises the TWDT during startup (CONFIG_ESP_TASK_WDT_INIT),
-  // so a plain init returns ESP_ERR_INVALID_STATE and logs "TWDT already
-  // initialized". Try init for cores built without it, then reconfigure.
+  // The core already initialises the TWDT during startup (CONFIG_ESP_TASK_WDT_INIT,
+  // 5 s default), so a plain init returns ESP_ERR_INVALID_STATE; reconfigure it
+  // with our timeout instead.
   if (esp_task_wdt_init(&wdt_cfg) == ESP_ERR_INVALID_STATE) {
     esp_task_wdt_reconfigure(&wdt_cfg);
   }
-#else
-  esp_task_wdt_init(LOOP_WDT_TIMEOUT_S, true);
-#endif
   esp_task_wdt_add(NULL);   // subscribe the Arduino loop task
   Serial.printf("[WDT] Loop watchdog armed (%ds)\n", LOOP_WDT_TIMEOUT_S);
 

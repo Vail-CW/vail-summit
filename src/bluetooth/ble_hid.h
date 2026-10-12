@@ -333,43 +333,29 @@ void startBTHID(LGFX& display) {
   // This correctly sets up all required services and characteristics
   btHID.hid = new NimBLEHIDDevice(bleCore.pServer);
 
-#if SUMMIT_NIMBLE_V2
-  // NimBLE 2.x renamed the HID helper setters/getters (set*/get* prefixes)
-  btHID.hid->setManufacturer(std::string("VAIL SUMMIT"));
-  btHID.hid->setPnp(0x02, 0x05ac, 0x820a, 0x0001);
-  btHID.hid->setHidInfo(0x00, 0x01);
-  btHID.hid->setReportMap((uint8_t*)hidReportDescriptor, sizeof(hidReportDescriptor));
-  btHID.inputReport = btHID.hid->getInputReport(KEYBOARD_REPORT_ID);
-#else
   // Set manufacturer name (optional but nice)
-  btHID.hid->manufacturer(std::string("VAIL SUMMIT"));
+  btHID.hid->setManufacturer(std::string("VAIL SUMMIT"));
 
   // Set PnP ID (vendor, product, version)
   // Using 0x02 = USB vendor ID source, Apple VID for HID compatibility
-  btHID.hid->pnp(0x02, 0x05ac, 0x820a, 0x0001);
+  btHID.hid->setPnp(0x02, 0x05ac, 0x820a, 0x0001);
 
   // Set HID information (country = 0, flags = 0x01 = normally connectable)
-  btHID.hid->hidInfo(0x00, 0x01);
+  btHID.hid->setHidInfo(0x00, 0x01);
 
   // Set report map (HID descriptor)
-  btHID.hid->reportMap((uint8_t*)hidReportDescriptor, sizeof(hidReportDescriptor));
+  btHID.hid->setReportMap((uint8_t*)hidReportDescriptor, sizeof(hidReportDescriptor));
 
   // Get input report characteristic for keyboard (Report ID 1)
   // This also creates the Report Reference descriptor automatically
-  btHID.inputReport = btHID.hid->inputReport(KEYBOARD_REPORT_ID);
-#endif
+  btHID.inputReport = btHID.hid->getInputReport(KEYBOARD_REPORT_ID);
 
   // Set security: bonding + MITM + secure connections
   // This is critical for HID to work properly
   NimBLEDevice::setSecurityAuth(true, true, true);
 
-  // Start HID services (this starts HID, Device Info, and Battery services).
-  // NimBLE 2.x starts every service when the server starts, which
-  // NimBLEDevice::startAdvertising() does implicitly; startServices() is
-  // deprecated there.
-#if !SUMMIT_NIMBLE_V2
-  btHID.hid->startServices();
-#endif
+  // HID, Device Info and Battery services start with the GATT server (see
+  // startBLEAdvertising)
 
   // Set up advertising with explicit configuration for Android/Linux compatibility
   // NimBLE 2.0+ defaults have scan response disabled and no name/TX power advertised
@@ -378,16 +364,12 @@ void startBTHID(LGFX& display) {
   // Set HID keyboard appearance
   advertising->setAppearance(HID_KEYBOARD_APPEARANCE);
 
-  // Add HID Service UUID to advertising data; enable scan response (OFF by
-  // default in NimBLE 2.0+) because Android and Linux rely on scan response
-  // data to identify devices
-#if SUMMIT_NIMBLE_V2
+  // Add HID Service UUID to advertising data
   advertising->addServiceUUID(btHID.hid->getHidService()->getUUID());
+
+  // Enable scan response (OFF by default in NimBLE 2.0+)
+  // Android and Linux rely on scan response data to identify devices
   advertising->enableScanResponse(true);
-#else
-  advertising->addServiceUUID(btHID.hid->hidService()->getUUID());
-  advertising->setScanResponse(true);
-#endif
 
   // Set device name explicitly (not advertised by default in NimBLE 2.0+)
   advertising->setName(getBLEDeviceName().c_str());

@@ -131,36 +131,21 @@ int getDitDuration() {
   return DIT_DURATION(cwSpeed);
 }
 
-// MIDI characteristic callback for receiving data. NimBLE 2.x adds a
-// NimBLEConnInfo& parameter to onWrite/onRead; the body is shared.
-static void midiOnCharacteristicWrite(NimBLECharacteristic* pCharacteristic) {
-  NimBLEAttValue value = pCharacteristic->getValue();
-  Serial.print("MIDI onWrite: ");
-  Serial.print(value.size());
-  Serial.println(" bytes");
-  if (value.size() > 0) {
-    onMIDIReceived((uint8_t*)value.data(), value.size());
-  }
-}
-
+// MIDI characteristic callback for receiving data
 class MIDICharacteristicCallbacks : public NimBLECharacteristicCallbacks {
-#if SUMMIT_NIMBLE_V2
   void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
-    midiOnCharacteristicWrite(pCharacteristic);
+    NimBLEAttValue value = pCharacteristic->getValue();
+    Serial.print("MIDI onWrite: ");
+    Serial.print(value.size());
+    Serial.println(" bytes");
+    if (value.size() > 0) {
+      onMIDIReceived((uint8_t*)value.data(), value.size());
+    }
   }
 
   void onRead(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
     Serial.println("MIDI onRead");
   }
-#else
-  void onWrite(NimBLECharacteristic* pCharacteristic) override {
-    midiOnCharacteristicWrite(pCharacteristic);
-  }
-
-  void onRead(NimBLECharacteristic* pCharacteristic) override {
-    Serial.println("MIDI onRead");
-  }
-#endif
 };
 
 // Process received MIDI data
@@ -369,13 +354,8 @@ void startBTMIDI(LGFX& display) {
   // Set security for bonding (required for some BLE MIDI clients)
   NimBLEDevice::setSecurityAuth(true, false, true);  // bonding, MITM, SC
 
-  // Start service. NimBLE 2.x starts services with the server (implicitly
-  // from NimBLEDevice::startAdvertising()); NimBLEService::start() is a
-  // deprecated no-op there.
-#if !SUMMIT_NIMBLE_V2
-  btMIDI.midiService->start();
-#endif
-  Serial.println("BLE MIDI: Service started");
+  // The service starts with the GATT server (see startBLEAdvertising)
+  Serial.println("BLE MIDI: Service created");
 
   // Set up advertising
   NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();

@@ -28,14 +28,9 @@ void drawBrightnessDisplay(LGFX &display);
  * Call this once during setup() before using brightness functions
  */
 void setupBrightnessPWM() {
-#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
-  // Core 3.x: ledcSetup()/ledcAttachPin() were removed. ledcAttach() picks a
-  // channel internally and ledcWrite() is addressed by pin from here on.
+  // ledcAttach() allocates an LEDC channel internally; ledcWrite() is
+  // addressed by pin.
   ledcAttach(TFT_BL, BRIGHTNESS_PWM_FREQ, BRIGHTNESS_PWM_RESOLUTION);
-#else
-  ledcSetup(BRIGHTNESS_PWM_CHANNEL, BRIGHTNESS_PWM_FREQ, BRIGHTNESS_PWM_RESOLUTION);
-  ledcAttachPin(TFT_BL, BRIGHTNESS_PWM_CHANNEL);
-#endif
 }
 
 /*
@@ -43,11 +38,7 @@ void setupBrightnessPWM() {
  */
 void applyBrightness(int percent) {
   int pwmValue = map(percent, 0, 100, 0, 255);
-#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
-  ledcWrite(TFT_BL, pwmValue);   // core 3.x: addressed by pin, not channel
-#else
-  ledcWrite(BRIGHTNESS_PWM_CHANNEL, pwmValue);
-#endif
+  ledcWrite(TFT_BL, pwmValue);
 }
 
 /*

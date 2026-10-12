@@ -25,28 +25,28 @@ Select **Adafruit Feather ESP32-S3 2MB PSRAM** from the boards menu, then config
 
 ### ESP32 Core Version
 
-**Release builds use Arduino ESP32 core 2.0.14** with LovyanGFX 1.1.16. That is what the release workflow, the bundled `arduino-cli/` environment and the web flasher binaries are built with.
+This project builds on **Arduino ESP32 core 3.3.12** (ESP-IDF 5.5.5). That is what the release workflow, the bundled `arduino-cli/` environment and the web flasher binaries are built with. Core 2.x is not supported any more: the firmware uses the core 3 LEDC, task watchdog and NVS iterator APIs and NimBLE-Arduino 2.x.
 
 **To install/verify in Arduino IDE:**
 1. Go to Tools → Board → Boards Manager
 2. Search for "esp32"
 3. Find "esp32 by Espressif Systems"
-4. Select version **2.0.14** from dropdown
+4. Select version **3.3.12** from dropdown
 5. Click "Install" or verify current version
 
-**Core 3.x status (October 2026):** this document used to claim that newer cores boot-loop with the ST7796S display. A bench test on real hardware disproved that: core **3.3.12** (ESP-IDF 5.5.5) with LovyanGFX **1.2.32** boots, drives the display with the unchanged LGFX class, plays I2S audio with the unchanged legacy driver config and reads the touch pads. The firmware now compiles on both cores from the same source (the handful of API differences are behind `ESP_ARDUINO_VERSION` checks). Core 3.x is still **experimental** until the hardware checklist in [core3-port-notes.md](core3-port-notes.md) has been run; keep shipping 2.0.14 until then. The parallel core 3.x build environment is described under "Option 2b" below.
+**History:** earlier versions of this document claimed that cores newer than 2.0.14 boot-loop with the ST7796S display. A bench test in October 2026 disproved that (the unchanged LGFX class, I2S audio config and touch pads all worked on 3.3.12), and the firmware was moved to core 3. The API changes that were needed are recorded in [core3-port-notes.md](core3-port-notes.md).
 
 ### Required Libraries
 
 Install via Arduino Library Manager:
 
-1. **LovyanGFX by lovyan03** - Advanced display graphics library for ST7796S 4.0" display
+1. **LovyanGFX by lovyan03** (1.2.32) - Advanced display graphics library for ST7796S 4.0" display
 2. **lvgl v8.3.x** - UI framework (**must be v8.3.x, NOT v9.x** - API incompatible)
 3. **Adafruit MAX1704X** - Battery monitoring for MAX17048
 4. **Adafruit LC709203F** - Backup battery monitor support
-5. **WebSockets by Markus Sattler** - WebSocket client for Vail repeater
+5. **WebSockets by Markus Sattler** (2.6.1 or newer; 2.4.x does not compile on core 3) - WebSocket client for Vail repeater
 6. **ArduinoJson by Benoit Blanchon** - JSON parsing/serialization
-7. **NimBLE-Arduino** - Bluetooth Low Energy for BLE HID/MIDI
+7. **NimBLE-Arduino** (2.5.1; the 1.x line crashes the BLE controller on core 3) - Bluetooth Low Energy for BLE HID/MIDI
 
 **Install from GitHub** (not in Library Manager):
 - **ESPAsyncWebServer** - `https://github.com/me-no-dev/ESPAsyncWebServer`
@@ -169,7 +169,7 @@ The repository includes a GitHub Actions workflow that builds the firmware AND p
 5. Click the green **"Run workflow"** button
 
 The workflow:
-- Installs the pinned ESP32 core 2.0.14 and the pinned third-party libraries (LovyanGFX 1.1.16, lvgl 8.3.11, NimBLE-Arduino 1.4.2, ArduinoJson 7.0.4, ESP Async WebServer 3.6.0, etc. — versions live as `env:` vars at the top of the workflow file)
+- Installs the pinned ESP32 core 3.3.12 and the pinned third-party libraries (LovyanGFX 1.2.32, lvgl 8.3.11, NimBLE-Arduino 2.5.1, WebSockets 2.6.1, ArduinoJson 7.0.4, ESP Async WebServer 3.6.0, etc. — versions live as `env:` vars at the top of the workflow file)
 - Copies the in-repo `lv_conf.h` next to the lvgl library so LVGL finds its config
 - Compiles with `--clean` and `-mtext-section-literals` for a clean reproducible build
 - Captures `FIRMWARE_VERSION` from `src/core/config.h` and uses it to derive the tag (e.g. `v0.529`)
@@ -201,51 +201,22 @@ cd C:\acli
 
 The compiled binaries land in `C:\vs\build\` as `vail-summit.ino.bin`, `vail-summit.ino.bootloader.bin`, and `vail-summit.ino.partitions.bin`. To distribute via the flasher, attach them to a GitHub Release on `Vail-CW/vail-summit` (or use Option 1 instead, which does this for you).
 
-#### Option 2b: Core 3.x Build (Windows, experimental)
-
-A second, fully isolated environment at `C:\acli3` builds the same source against ESP32 core 3.3.12, LovyanGFX 1.2.32, WebSockets 2.6.1 (2.4.1 does not compile on core 3.x) and NimBLE-Arduino 2.5.1 (1.4.2 compiles on core 3.x but crashes the device when BLE starts; see `docs/core3-port-notes.md`). `C:\acli` is left untouched, so the 2.0.14 release build is always available as a fallback. Both environments share every other library at the same pinned version.
-
-**One-Time Setup:**
+**Upgrading an existing `C:\acli` from core 2.0.14:** the bundled environment was pinned to 2.0.14 until October 2026. Bring it to the current pins with:
 ```powershell
-# Fresh folder with its own data/downloads/user dirs
-New-Item -ItemType Directory -Force C:\acli3\user\libraries
-Copy-Item C:\acli\arduino-cli.exe C:\acli3\
-
-# Config: copy C:\acli\arduino-cli.yaml and change the three directories to
-#   data: C:\acli3\data   downloads: C:\acli3\downloads   user: C:\acli3\user
-# (absolute paths, so the command can be run from anywhere)
-
-cd C:\acli3
+cd C:\acli
 .\arduino-cli.exe core update-index --config-file arduino-cli.yaml
 .\arduino-cli.exe core install esp32:esp32@3.3.12 --config-file arduino-cli.yaml
+.\arduino-cli.exe core uninstall esp32:esp32@2.0.14 --config-file arduino-cli.yaml
 .\arduino-cli.exe lib install "LovyanGFX@1.2.32" --config-file arduino-cli.yaml
 .\arduino-cli.exe lib install "WebSockets@2.6.1" --config-file arduino-cli.yaml
 .\arduino-cli.exe lib install "NimBLE-Arduino@2.5.1" --config-file arduino-cli.yaml
-
-# Every other library is identical to the 2.0.14 environment: copy them over
-Get-ChildItem C:\acli\user\libraries -Directory | Where-Object Name -notin 'LovyanGFX','WebSockets','NimBLE-Arduino' |
-  ForEach-Object { Copy-Item $_.FullName "C:\acli3\user\libraries\$($_.Name)" -Recurse -Force }
-
-# lv_conf.h must sit next to the lvgl folder, same as the 2.0.14 setup
-Copy-Item -Force 'C:\vs\lv_conf.h' 'C:\acli3\user\libraries\lv_conf.h'
 ```
+Then delete any stale arduino-cli build cache for the sketch (`%TEMP%\arduino\sketches\*`) or pass an explicit `--build-path` on the next compile: arduino-cli keys its intermediate folder on the sketch path only, and objects compiled with the old core will be mixed into the new build otherwise (the symptom is a binary with the wrong bootloader).
 
-**Compiling:**
-```powershell
-cd C:\acli3
-.\arduino-cli.exe compile --config-file arduino-cli.yaml --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M,USBMode=hwcdc" --build-path C:\b3 --output-dir C:\vs\build\core3 --export-binaries C:\vs
-```
-
-`--build-path C:\b3` matters: arduino-cli derives its default intermediate build folder from the sketch path alone, so the 2.0.14 and 3.x environments compiling the same sketch would share one object cache. Running both without separate build paths (or even alternating them) mixes 2.0.14 and 3.x objects and produces a binary with the wrong bootloader. Give the 2.0.14 build `--build-path C:\b2` when both are in use.
-
-Upload is the same command as the 2.0.14 build with `--input-dir C:\vs\build\core3` and the current COM port. The bootloader and partition table differ between cores, so always flash all three binaries from the same build.
-
-Building a git worktree instead of the main checkout: arduino-cli resolves junctions to their real path and requires the folder name to match the sketch (`vail-summit`), so a junction alone does not work for worktrees. Mirror the worktree into a short real path first, then compile that:
+**Building a git worktree** instead of the main checkout: arduino-cli resolves junctions to their real path and requires the folder name to match the sketch (`vail-summit`), so a junction alone does not work for worktrees. Mirror the worktree into a short real path first and compile that:
 ```powershell
 robocopy "<worktree path>" C:\vs3\vail-summit /MIR /XD .git build
 ```
-
-CI runs the same core 3.x compile as a non-blocking check in `.github/workflows/build_core3.yml`. It never publishes a release.
 
 #### Option 3: Manual Build (Linux/macOS)
 
@@ -345,4 +316,4 @@ Device performs full restart from `setup()` after wake.
 
 **Cause:** Wrong ESP32 core version or display configuration.
 
-**Fix:** Ensure Arduino ESP32 core version 2.0.14 is installed. Newer versions (2.0.15+, 3.x) have compatibility issues with the ST7796S display.
+**Fix:** Ensure Arduino ESP32 core version 3.3.12 and LovyanGFX 1.2.32 are installed, and that the build cache does not contain objects from another core version (clean build or explicit `--build-path`).

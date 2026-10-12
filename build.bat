@@ -37,7 +37,7 @@ echo  VAIL SUMMIT - Compiling Firmware
 echo ========================================
 echo.
 echo Board: Adafruit Feather ESP32-S3 2MB PSRAM
-echo Core: ESP32 2.0.14
+echo Core: ESP32 3.3.12
 echo.
 
 "%ARDUINO_CLI%" compile ^
@@ -167,7 +167,7 @@ echo Environment:
 echo   Arduino CLI:   %ARDUINO_CLI%
 echo   Config File:   %CONFIG_FILE%
 echo   Board:         Adafruit Feather ESP32-S3 2MB PSRAM
-echo   ESP32 Core:    2.0.14
+echo   ESP32 Core:    3.3.12
 echo.
 
 :end
