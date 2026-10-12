@@ -69,8 +69,7 @@ enum CWMemoryEditMode {
 // ============================================
 
 // Load all CW memories from Preferences
-void loadCWMemories() {
-  if (!cwMemories) return;
+void loadCWMemoriesInto(CWMemoryPreset* tbl) {
   cwMemoryPrefs.begin("cw_memories", true);  // Read-only
 
   for (int i = 0; i < CW_MEMORY_MAX_SLOTS; i++) {
@@ -81,21 +80,21 @@ void loadCWMemories() {
     String message = cwMemoryPrefs.getString(messageKey.c_str(), "");
 
     if (label.length() == 0 && message.length() == 0) {
-      cwMemories[i].isEmpty = true;
-      cwMemories[i].label[0] = '\0';
-      cwMemories[i].message[0] = '\0';
+      tbl[i].isEmpty = true;
+      tbl[i].label[0] = '\0';
+      tbl[i].message[0] = '\0';
     } else {
-      cwMemories[i].isEmpty = false;
-      strlcpy(cwMemories[i].label, label.c_str(), CW_MEMORY_LABEL_MAX_LENGTH + 1);
-      strlcpy(cwMemories[i].message, message.c_str(), CW_MEMORY_MESSAGE_MAX_LENGTH + 1);
+      tbl[i].isEmpty = false;
+      strlcpy(tbl[i].label, label.c_str(), CW_MEMORY_LABEL_MAX_LENGTH + 1);
+      strlcpy(tbl[i].message, message.c_str(), CW_MEMORY_MESSAGE_MAX_LENGTH + 1);
 
       // Debug logging
       Serial.print("Loaded slot ");
       Serial.print(i + 1);
       Serial.print(": Label='");
-      Serial.print(cwMemories[i].label);
+      Serial.print(tbl[i].label);
       Serial.print("' Message='");
-      Serial.print(cwMemories[i].message);
+      Serial.print(tbl[i].message);
       Serial.println("'");
     }
   }
@@ -106,14 +105,22 @@ void loadCWMemories() {
 }
 
 // Make sure the table exists and holds the saved presets.
+static portMUX_TYPE cwMemAllocMux = portMUX_INITIALIZER_UNLOCKED;
 bool ensureCWMemories() {
   if (cwMemories) return true;
-  cwMemories = (CWMemoryPreset*)lazyAlloc(sizeof(CWMemoryPreset) * CW_MEMORY_MAX_SLOTS);
-  if (!cwMemories) {
+  // Main loop and the async web task can both get here: allocate and load
+  // outside the lock, publish under it, drop the loser's copy.
+  CWMemoryPreset* t = (CWMemoryPreset*)lazyAlloc(sizeof(CWMemoryPreset) * CW_MEMORY_MAX_SLOTS);
+  if (!t) {
     Serial.println("[CWMem] alloc failed");
     return false;
   }
-  loadCWMemories();
+  loadCWMemoriesInto(t);
+  bool used = false;
+  portENTER_CRITICAL(&cwMemAllocMux);
+  if (cwMemories == nullptr) { cwMemories = t; used = true; }
+  portEXIT_CRITICAL(&cwMemAllocMux);
+  if (!used) free(t);
   return true;
 }
 

@@ -604,7 +604,8 @@ static void cw_update_focus() {
             lv_obj_set_style_border_color(cw_speed_row, LV_COLOR_ACCENT_PRIMARY, 0);
             lv_obj_set_style_border_width(cw_speed_row, 2, 0);
         } else {
-            lv_obj_add_style(cw_speed_row, getStyleTransparent(), 0);
+            lv_obj_set_style_bg_opa(cw_speed_row, LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(cw_speed_row, 0, 0);
         }
     }
     if (cw_speed_slider) {
@@ -623,7 +624,8 @@ static void cw_update_focus() {
             lv_obj_set_style_border_color(cw_tone_row, LV_COLOR_ACCENT_PRIMARY, 0);
             lv_obj_set_style_border_width(cw_tone_row, 2, 0);
         } else {
-            lv_obj_add_style(cw_tone_row, getStyleTransparent(), 0);
+            lv_obj_set_style_bg_opa(cw_tone_row, LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(cw_tone_row, 0, 0);
         }
     }
     if (cw_tone_slider) {
@@ -642,7 +644,8 @@ static void cw_update_focus() {
             lv_obj_set_style_border_color(cw_keytype_row, LV_COLOR_ACCENT_PRIMARY, 0);
             lv_obj_set_style_border_width(cw_keytype_row, 2, 0);
         } else {
-            lv_obj_add_style(cw_keytype_row, getStyleTransparent(), 0);
+            lv_obj_set_style_bg_opa(cw_keytype_row, LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(cw_keytype_row, 0, 0);
         }
     }
     if (cw_keytype_value) {
@@ -658,7 +661,8 @@ static void cw_update_focus() {
             lv_obj_set_style_border_color(cw_decoder_row, LV_COLOR_ACCENT_PRIMARY, 0);
             lv_obj_set_style_border_width(cw_decoder_row, 2, 0);
         } else {
-            lv_obj_add_style(cw_decoder_row, getStyleTransparent(), 0);
+            lv_obj_set_style_bg_opa(cw_decoder_row, LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(cw_decoder_row, 0, 0);
         }
     }
     if (cw_decoder_value) {
@@ -1272,7 +1276,7 @@ static void web_server_toggle_key_handler(lv_event_t* e) {
         lv_event_stop_processing(e);
         return;
     }
-    if (key == LV_KEY_UP || key == LV_KEY_PREV) {
+    if (key == LV_KEY_UP) {
         if (web_password_enabled_state && web_password_textarea != NULL) {
             lv_group_focus_obj(web_password_textarea);
         } else if (web_password_toggle_btn != NULL) {
@@ -1398,8 +1402,8 @@ static void web_password_field_key_handler(lv_event_t* e) {
         return;
     }
 
-    // DOWN - move to the server policy toggle
-    if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
+    // DOWN - move to the server policy toggle (TAB/NEXT stays blocked)
+    if (key == LV_KEY_DOWN) {
         if (web_server_toggle_btn != NULL) {
             lv_group_focus_obj(web_server_toggle_btn);
         }
@@ -1431,7 +1435,8 @@ lv_obj_t* createWebPasswordSettingsScreen() {
 
     // Content card
     lv_obj_t* content = lv_obj_create(screen);
-    lv_obj_set_size(content, SCREEN_WIDTH - 60, 230);
+    lv_obj_set_size(content, SCREEN_WIDTH - 60, LV_SIZE_CONTENT);
+    lv_obj_set_style_max_height(content, SCREEN_HEIGHT - HEADER_HEIGHT - FOOTER_HEIGHT - 8, 0);
     lv_obj_center(content);
     lv_obj_set_layout(content, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
@@ -1551,7 +1556,7 @@ lv_obj_t* createWebPasswordSettingsScreen() {
     addNavigableWidget(web_server_toggle_btn);
 
     lv_obj_t* srv_hint = lv_label_create(content);
-    lv_label_set_text(srv_hint, "On demand: runs while System Info or WiFi\nscreens are open, stops after 10 min idle.");
+    lv_label_set_text(srv_hint, "On demand: stops after 10 min idle.");
     lv_obj_add_style(srv_hint, getStyleLabelSecondarySmall(), 0);
 
     // Update display (shows/hides password field based on state)
@@ -1928,7 +1933,7 @@ static NavPanelContext btkb_nav_ctx = {
 
 static void btkb_update_status_labels() {
     if (btkb_status_label != NULL) {
-        if (bleKBHost.state == BLEKB_STATE_ERROR && bleKBHost.lastError[0] != ' ') {
+        if (bleKBHost.state == BLEKB_STATE_ERROR && bleKBHost.lastError[0] != '\0') {
             lv_label_set_text_fmt(btkb_status_label, "Error: %s", bleKBHost.lastError);
         } else if (bleKBHost.state == BLEKB_STATE_CONNECTING) {
             lv_label_set_text(btkb_status_label, "Connecting... (PIN 123456 if asked)");

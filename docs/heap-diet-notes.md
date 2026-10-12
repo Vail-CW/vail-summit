@@ -9,7 +9,7 @@ Branch: `brett/elegant-leavitt-e8a73f`. Built with the core 3.3.12 toolchain
 |-------|-----------:|-------|
 | main (0d3c5c1), core 2.0.14 | 81,428 B | baseline |
 | core 3 port alone (gracious-liskov) | 85,452 B | from core3-port-notes.md |
-| this branch, core 3, after all changes | 79,332 B | includes the core 3 port and the BT pairing branch |
+| this branch, core 3, after all changes | 80,180 B | includes the core 3 port, the BT pairing branch, and the review fixes (an 848 B idle satellite-search fallback so a failed allocation never dereferences null) |
 
 Flash is at 93% of the huge_app partition on core 3 (about 200 KB headroom).
 

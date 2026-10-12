@@ -136,7 +136,7 @@ void cleanupSatelliteScreens() {
     if (sat_win_timer) { lv_timer_del(sat_win_timer); sat_win_timer = NULL; }
     sat_np_current = -1;
     sat_win_inflight = false;
-    satS().active = false;
+    satStopSearch();
 
     sat_list_table = NULL;
     sat_list_count_label = NULL;

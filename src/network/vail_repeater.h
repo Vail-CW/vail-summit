@@ -346,8 +346,6 @@ int64_t getCurrentTimestamp() {
   return timestamp;
 }
 
-// Forward declaration of drawHeader (defined in main .ino file)
-void drawHeader();
 
 // Start Vail repeater mode
 void startVailRepeater() {

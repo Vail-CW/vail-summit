@@ -39,14 +39,22 @@ struct RadioMessageQueue {
 // screen is left with nothing pending (freeRadioMessageQueue)
 RadioMessageQueue* radioMessageQueue = nullptr;
 
+static portMUX_TYPE radioQueueAllocMux = portMUX_INITIALIZER_UNLOCKED;
 static bool ensureRadioMessageQueue() {
-  if (!radioMessageQueue) {
-    radioMessageQueue = (RadioMessageQueue*)lazyAlloc(sizeof(RadioMessageQueue));
-  }
-  return radioMessageQueue != nullptr;
+  if (radioMessageQueue) return true;
+  RadioMessageQueue* q = (RadioMessageQueue*)lazyAlloc(sizeof(RadioMessageQueue));
+  if (!q) return false;
+  bool used = false;
+  portENTER_CRITICAL(&radioQueueAllocMux);
+  if (!radioMessageQueue) { radioMessageQueue = q; used = true; }
+  portEXIT_CRITICAL(&radioQueueAllocMux);
+  if (!used) free(q);  // another task won the race
+  return true;
 }
 
 void freeRadioMessageQueue() {
+  extern bool webServerRunning;
+  if (webServerRunning) return;  // web API may queue from the async task
   if (radioMessageQueue && radioMessageQueue->count == 0) {
     lazyFree(radioMessageQueue);
   }

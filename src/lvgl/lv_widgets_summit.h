@@ -77,8 +77,8 @@ lv_obj_t* createKeyCatcher(lv_obj_t* parent, lv_event_cb_t key_cb, bool editing 
     lv_obj_set_pos(obj, -10, -10);
     lv_obj_add_style(obj, getStyleKeyCatcher(), 0);
     lv_obj_add_style(obj, getStyleKeyCatcher(), LV_STATE_FOCUSED);
-    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_IGNORE_LAYOUT);
     if (key_cb) lv_obj_add_event_cb(obj, key_cb, LV_EVENT_KEY, NULL);
     addNavigableWidget(obj);
     if (editing) {

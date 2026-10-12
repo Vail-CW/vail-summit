@@ -33,6 +33,7 @@
 #include "../modes/web_memory_chain_socket.h"
 #include "../modes/web_hear_it_socket.h"
 #include "../../storage/sd_card.h"
+#include "../../core/mode_registry.h"
 
 // Global web server instance
 AsyncWebServer webServer(80);
@@ -535,7 +536,7 @@ void updateWebServerLifecycle() {
     webLastActivity = now;
     return;
   }
-  if (now - webLastActivity >= WEB_SERVER_IDLE_TIMEOUT_MS) {
+  if (now - webLastActivity >= WEB_SERVER_IDLE_TIMEOUT_MS && !isModeAudioCritical((int)currentMode)) {
     Serial.println("[WebServer] Idle - stopping to free RAM");
     stopWebServer();
   }
