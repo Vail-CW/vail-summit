@@ -37,7 +37,10 @@ extern void saveRadioSettings();
 
 // CW Memories - use values from radio_cw_memories.h (already included before this file)
 // CWMemoryPreset struct and CW_MEMORY_MAX_SLOTS defined there
-extern CWMemoryPreset cwMemories[];
+extern CWMemoryPreset* cwMemories;
+extern bool ensureCWMemories();
+extern void freeCWMemories();
+extern void freeRadioMessageQueue();
 
 // Radio screen state
 static lv_obj_t* radio_screen = NULL;
@@ -558,6 +561,7 @@ static void radio_key_event_cb(lv_event_t* e) {
 }
 
 lv_obj_t* createRadioOutputScreen() {
+    ensureCWMemories();  // memory selector overlay reads the table
     lv_obj_t* screen = createScreen();
     applyScreenStyle(screen);
 
@@ -770,6 +774,8 @@ void updateRadioStatus(const char* status) {
 
 void cleanupRadioOutputScreen() {
     closeRadioOverlay();
+    freeCWMemories();
+    freeRadioMessageQueue();
     radio_screen = NULL;
     radio_mode_label = NULL;
     radio_status_label = NULL;
@@ -1423,6 +1429,7 @@ static void cwmem_key_event_cb(lv_event_t* e) {
 }
 
 lv_obj_t* createCWMemoriesScreen() {
+    ensureCWMemories();
     // Reset state
     cwmem_selection = 0;
     cwmem_scroll_offset = 0;
@@ -1515,6 +1522,7 @@ lv_obj_t* createCWMemoriesScreen() {
 // pointers are never dereferenced after the screen is deleted.
 void cleanupCWMemoriesScreen() {
     closeCWMemOverlay();
+    freeCWMemories();
     cwmem_screen = NULL;
     for (int i = 0; i < 5; i++) {
         cwmem_rows[i] = NULL;

@@ -136,7 +136,7 @@ void cleanupSatelliteScreens() {
     if (sat_win_timer) { lv_timer_del(sat_win_timer); sat_win_timer = NULL; }
     sat_np_current = -1;
     sat_win_inflight = false;
-    satSearch.active = false;
+    satS().active = false;
 
     sat_list_table = NULL;
     sat_list_count_label = NULL;
@@ -172,6 +172,7 @@ void freeSatelliteData() {
     cleanupSatelliteScreens();
     freeSatCatalog();
     freeSatXmtrs();
+    freeSatPredictor();
 }
 
 
@@ -538,16 +539,16 @@ static void sat_list_np_timer_cb(lv_timer_t* t) {
     }
 
     satPassSearchStep(25);
-    if (satSearch.count > 0 || satSearch.done) {
-        if (satSearch.count > 0) {
-            sat_np_aos[sat_np_current] = satSearch.passes[0].aos;
-            sat_np_los[sat_np_current] = satSearch.passes[0].los;
+    if (satS().count > 0 || satS().done) {
+        if (satS().count > 0) {
+            sat_np_aos[sat_np_current] = satS().passes[0].aos;
+            sat_np_los[sat_np_current] = satS().passes[0].los;
         } else {
             sat_np_aos[sat_np_current] = (time_t)-1;
             sat_np_los[sat_np_current] = (time_t)-1;
         }
-        satSearch.active = false;
-        satSearch.done = true;
+        satS().active = false;
+        satS().done = true;
         sat_np_current = -1;
         satRefreshListTable();
     }
@@ -930,19 +931,19 @@ lv_obj_t* createSatMenuScreen() {
 static void satRefreshPassesTable() {
     if (!sat_passes_table || !lv_obj_is_valid(sat_passes_table)) return;
 
-    if (satSearch.count == 0) {
+    if (satS().count == 0) {
         lv_table_set_row_cnt(sat_passes_table, 1);
         char msg[64];
         snprintf(msg, sizeof(msg), "No passes above %d deg in next %dh",
                  satSettings.minElevation, satSettings.lookaheadHours);
-        lv_table_set_cell_value(sat_passes_table, 0, 0, satSearch.done ? msg : "");
+        lv_table_set_cell_value(sat_passes_table, 0, 0, satS().done ? msg : "");
         for (int c = 1; c < 5; c++) lv_table_set_cell_value(sat_passes_table, 0, c, "");
         return;
     }
 
-    lv_table_set_row_cnt(sat_passes_table, satSearch.count);
-    for (int i = 0; i < satSearch.count; i++) {
-        SatPass& p = satSearch.passes[i];
+    lv_table_set_row_cnt(sat_passes_table, satS().count);
+    for (int i = 0; i < satS().count; i++) {
+        SatPass& p = satS().passes[i];
         char buf[40];
 
         satFmtLocalDate(p.aos, buf, sizeof(buf));
@@ -965,8 +966,8 @@ static void satRefreshPassesTable() {
         lv_table_set_cell_value(sat_passes_table, i, 4, buf);
     }
 
-    if (sat_passes_selected_row >= satSearch.count) {
-        sat_passes_selected_row = satSearch.count - 1;
+    if (sat_passes_selected_row >= satS().count) {
+        sat_passes_selected_row = satS().count - 1;
     }
     if (sat_passes_selected_row < 0) sat_passes_selected_row = 0;
     lv_obj_invalidate(sat_passes_table);
@@ -980,7 +981,7 @@ static void sat_passes_search_timer_cb(lv_timer_t* timer) {
     if (!finished) {
         char buf[48];
         snprintf(buf, sizeof(buf), "Searching... %d%% (%d found)",
-                 satPassSearchProgress(), satSearch.count);
+                 satPassSearchProgress(), satS().count);
         lv_label_set_text(sat_passes_status_label, buf);
         return;
     }
@@ -989,7 +990,7 @@ static void sat_passes_search_timer_cb(lv_timer_t* timer) {
     if (sat_passes_timer) { lv_timer_del(sat_passes_timer); sat_passes_timer = NULL; }
     char buf[64];
     snprintf(buf, sizeof(buf), "%d passes in next %dh (min el %d deg)",
-             satSearch.count, satSettings.lookaheadHours, satSettings.minElevation);
+             satS().count, satSettings.lookaheadHours, satSettings.minElevation);
     lv_label_set_text(sat_passes_status_label, buf);
     satRefreshPassesTable();
 }
@@ -1016,22 +1017,22 @@ static void sat_passes_key_handler(lv_event_t* e) {
     if (key == LV_KEY_UP || key == LV_KEY_PREV) {
         if (sat_passes_selected_row > 0) {
             sat_passes_selected_row--;
-            satScrollTableToRow(sat_passes_table, sat_passes_selected_row, satSearch.count);
+            satScrollTableToRow(sat_passes_table, sat_passes_selected_row, satS().count);
         }
         lv_event_stop_processing(e);
         return;
     }
     if (key == LV_KEY_DOWN || key == LV_KEY_NEXT) {
-        if (sat_passes_selected_row < satSearch.count - 1) {
+        if (sat_passes_selected_row < satS().count - 1) {
             sat_passes_selected_row++;
-            satScrollTableToRow(sat_passes_table, sat_passes_selected_row, satSearch.count);
+            satScrollTableToRow(sat_passes_table, sat_passes_selected_row, satS().count);
         }
         lv_event_stop_processing(e);
         return;
     }
 
     if (key == 'R' || key == 'r') {
-        if (!satSearch.active) {
+        if (!satS().active) {
             satRefreshPassesTable();
             satStartPassesSearchUI();
         }
@@ -1040,8 +1041,8 @@ static void sat_passes_key_handler(lv_event_t* e) {
     }
 
     if (key == LV_KEY_ENTER) {
-        if (satSearch.done && satSearch.count > 0 && sat_passes_selected_row < satSearch.count) {
-            satSelectedPass = satSearch.passes[sat_passes_selected_row];
+        if (satS().done && satS().count > 0 && sat_passes_selected_row < satS().count) {
+            satSelectedPass = satS().passes[sat_passes_selected_row];
             satSelectedPassValid = true;
             satFlushEnterRelease();  // else the release clicks LIVE VIEW on the detail screen
             onLVGLMenuSelect(MODE_SAT_PASS_DETAIL);
@@ -1748,7 +1749,7 @@ static void satWinRestartScan() {
     sat_win_scan = 0;
     sat_win_selected_row = 0;
     sat_win_inflight = false;
-    satSearch.active = false;
+    satS().active = false;
     if (sat_win_timer) lv_timer_set_period(sat_win_timer, 60);
     satWinRefreshTable();
 }
@@ -1784,17 +1785,17 @@ static void sat_win_timer_cb(lv_timer_t* t) {
     }
 
     satPassSearchStep(25);
-    if (satSearch.count > 0 || satSearch.done) {
+    if (satS().count > 0 || satS().done) {
         time_t winEnd = sat_win_start + SAT_WIN_MINUTES * 60;
-        for (int i = 0; i < satSearch.count; i++) {
-            SatPass& p = satSearch.passes[i];
+        for (int i = 0; i < satS().count; i++) {
+            SatPass& p = satS().passes[i];
             if (p.aos <= winEnd && p.los >= sat_win_start) {
                 satWinInsertResult(sat_win_scan, &p);
                 break;  // one entry per satellite
             }
         }
-        satSearch.active = false;
-        satSearch.done = true;
+        satS().active = false;
+        satS().done = true;
         sat_win_inflight = false;
         sat_win_scan++;
         // Refresh every few birds (and at the end) to keep redraw cost down

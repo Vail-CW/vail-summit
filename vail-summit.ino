@@ -601,9 +601,8 @@ void setup() {
   Serial.println("Loading radio settings...");
   loadRadioSettings();
 
-  // Load CW memories from preferences
-  Serial.println("Loading CW memories...");
-  loadCWMemories();
+  // CW memories are loaded on demand (ensureCWMemories) by the screens
+  // and the web API that use them
 
   // Load saved callsign
   Serial.println("Loading callsign...");

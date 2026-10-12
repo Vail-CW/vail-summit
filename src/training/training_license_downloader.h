@@ -79,7 +79,14 @@ DownloadStatus downloadFile(const char* url, const char* filepath) {
 
     // Download in chunks
     WiFiClient* stream = http.getStreamPtr();
-    uint8_t buffer[1024];
+    // Heap chunk buffer instead of 1 KB on the loop task stack
+    const size_t bufferSize = 1024;
+    uint8_t* buffer = (uint8_t*)malloc(bufferSize);
+    if (!buffer) {
+      file.close();
+      http.end();
+      return DOWNLOAD_FAILED_WRITE;
+    }
     int bytesRead = 0;
     int totalRead = 0;
 
@@ -87,7 +94,7 @@ DownloadStatus downloadFile(const char* url, const char* filepath) {
       size_t size = stream->available();
 
       if (size) {
-        int c = stream->readBytes(buffer, ((size > sizeof(buffer)) ? sizeof(buffer) : size));
+        int c = stream->readBytes(buffer, ((size > bufferSize) ? bufferSize : size));
         file.write(buffer, c);
         totalRead += c;
 
@@ -106,6 +113,7 @@ DownloadStatus downloadFile(const char* url, const char* filepath) {
       delay(1);
     }
 
+    free(buffer);
     file.close();
     http.end();
 
