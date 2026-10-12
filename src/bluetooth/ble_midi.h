@@ -74,9 +74,7 @@ static bool btMIDIDitPressed = false;
 static bool btMIDIDahPressed = false;
 
 // Forward declarations
-void startBTMIDI(LGFX& display);
-void drawBTMIDIUI(LGFX& display);
-int handleBTMIDIInput(char key, LGFX& display);
+void startBTMIDI();
 void updateBTMIDI();
 void stopBTMIDI();
 void sendMIDINoteOn(uint8_t note, uint8_t velocity);
@@ -297,7 +295,7 @@ void sendMIDINoteOff(uint8_t note) {
 }
 
 // Start BT MIDI mode
-void startBTMIDI(LGFX& display) {
+void startBTMIDI() {
   Serial.println("Starting BT MIDI mode");
 
   // Reset state
@@ -395,108 +393,6 @@ void stopBTMIDI() {
   if (bleKBHost.pairedDevice.valid && bleKBHost.autoReconnect) {
     initBLEKeyboardHost();
   }
-}
-
-// Draw BT MIDI UI
-void drawBTMIDIUI(LGFX& display) {
-  // Clear screen (preserve header)
-  display.fillRect(0, 42, SCREEN_WIDTH, SCREEN_HEIGHT - 42, COLOR_BACKGROUND);
-
-  // Status card
-  int cardX = 20;
-  int cardY = 55;
-  int cardW = SCREEN_WIDTH - 40;
-  int cardH = 100;
-
-  display.fillRoundRect(cardX, cardY, cardW, cardH, 12, 0x1082);
-  display.drawRoundRect(cardX, cardY, cardW, cardH, 12, 0x34BF);
-
-  // Connection status
-  display.setFont(&FreeSansBold12pt7b);
-  display.setTextSize(1);
-
-  int yPos = cardY + 30;
-  display.setCursor(cardX + 15, yPos);
-
-  if (isBLEConnected()) {
-    display.setTextColor(ST77XX_GREEN);
-    display.print("Connected");
-  } else if (isBLEAdvertising()) {
-    display.setTextColor(ST77XX_YELLOW);
-    display.print("Advertising...");
-  } else {
-    display.setTextColor(ST77XX_RED);
-    display.print("Disconnected");
-  }
-
-  // Device name
-  display.setFont(nullptr);
-  display.setTextSize(2);
-  display.setTextColor(ST77XX_CYAN);
-  yPos += 35;
-  display.setCursor(cardX + 15, yPos);
-  display.print(getBLEDeviceName());
-
-  // Settings card
-  cardY = 170;
-  cardH = 90;
-  display.fillRoundRect(cardX, cardY, cardW, cardH, 12, 0x1082);
-  display.drawRoundRect(cardX, cardY, cardW, cardH, 12, 0x34BF);
-
-  display.setTextSize(1);
-  display.setTextColor(0x7BEF);
-  yPos = cardY + 12;
-  display.setCursor(cardX + 15, yPos);
-  display.print("Current Settings:");
-
-  display.setTextSize(2);
-  display.setTextColor(ST77XX_WHITE);
-
-  // Speed
-  yPos += 20;
-  display.setCursor(cardX + 15, yPos);
-  display.print("Speed: ");
-  if (btMIDI.midiDitDuration > 0) {
-    int wpm = 1200 / btMIDI.midiDitDuration;
-    display.print(wpm);
-    display.print(" WPM (MIDI)");
-  } else {
-    display.print(cwSpeed);
-    display.print(" WPM");
-  }
-
-  // Keyer type
-  yPos += 22;
-  display.setCursor(cardX + 15, yPos);
-  display.print("Keyer: ");
-  switch (btMIDI.midiKeyerProgram) {
-    case MIDI_KEYER_PASSTHROUGH: display.print("Passthrough"); break;
-    case MIDI_KEYER_STRAIGHT: display.print("Straight"); break;
-    case MIDI_KEYER_BUG: display.print("Bug"); break;
-    case MIDI_KEYER_IAMBIC_A: display.print("Iambic A"); break;
-    case MIDI_KEYER_IAMBIC_B: display.print("Iambic B"); break;
-    default: display.print("Unknown"); break;
-  }
-
-  // Instructions
-  display.setTextSize(1);
-  display.setTextColor(ST77XX_YELLOW);
-  display.setCursor(cardX + 15, SCREEN_HEIGHT - 50);
-  display.print("macOS: Works with Web MIDI natively");
-  display.setCursor(cardX + 15, SCREEN_HEIGHT - 35);
-  display.print("Windows: Needs MIDIberry or similar app");
-
-  display.setFont(nullptr);
-}
-
-// Handle BT MIDI keyboard input
-int handleBTMIDIInput(char key, LGFX& display) {
-  if (key == KEY_ESC) {
-    stopBTMIDI();
-    return -1;  // Exit mode
-  }
-
-  return 0;  // Normal input
 }
 
 // Keyer callback for unified keyer - sends MIDI notes

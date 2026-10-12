@@ -13,14 +13,10 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 
-// Set to 1 if you have the libraries installed, 0 if not
-#define VAIL_ENABLED 1
 
-#if VAIL_ENABLED
   #include <WebSocketsClient.h>
   #include <ArduinoJson.h>
   #include <deque>
-#endif
 
 #include "../core/config.h"
 #include "../core/task_manager.h"  // For dual-core audio API
@@ -68,7 +64,6 @@ uint8_t vailTxTone = 72;        // MIDI note 72 = C5 (523 Hz) - default CW tone
 // When false, received morse plays at sender's TX tone frequency (original behavior)
 #define VAIL_USE_LOCAL_TONE_FOR_RECEIVE true
 
-#if VAIL_ENABLED
 
 // Vail repeater state
 enum VailState {
@@ -81,11 +76,9 @@ enum VailState {
 // Vail globals
 WebSocketsClient webSocket;
 VailState vailState = VAIL_DISCONNECTED;
-VailState lastVailState = VAIL_DISCONNECTED;
 String vailServer = "vailmorse.com";
 int vailPort = 443;  // WSS (secure WebSocket)
 int connectedClients = 0;
-int lastConnectedClients = 0;
 String statusText = "";
 // Note: needsUIRedraw removed - LVGL handles all UI updates via updateVailScreenLVGL()
 unsigned long lastKeepaliveTime = 0;  // Track last keepalive message
@@ -276,7 +269,6 @@ static int playbackToneFrequency = 0;  // Current playback tone frequency
 
 // Chat mode state
 bool vailChatMode = false;  // false = vail info, true = chat view
-bool hasUnreadMessages = false;  // Indicator for new messages
 struct ChatMessage {
   String callsign;
   String message;
@@ -284,18 +276,11 @@ struct ChatMessage {
 };
 std::vector<ChatMessage> chatHistory;
 String chatInput = "";
-unsigned long chatLastBlink = 0;
-bool chatCursorVisible = true;
 const int MAX_CHAT_MESSAGES = 20;  // Keep last 20 messages
 const int MAX_CHAT_INPUT = 40;     // Max 40 chars per message
 
 // Room selection state
-bool vailRoomSelectionMode = false;  // Room selection menu active
-int roomMenuSelection = 0;  // Current menu selection
-bool roomCustomInput = false;  // Custom room name input mode
 String roomInput = "";
-unsigned long roomLastBlink = 0;
-bool roomCursorVisible = true;
 struct RoomInfo {
   String name;
   int users;
@@ -305,7 +290,6 @@ std::vector<RoomInfo> activeRooms;
 const int MAX_ROOM_NAME = 30;  // Max room name length
 
 // User list state
-bool vailUserListMode = false;  // User list view active
 struct UserInfo {
   String callsign;
   uint8_t txTone;
@@ -313,18 +297,8 @@ struct UserInfo {
 std::vector<UserInfo> connectedUsers;
 
 // Forward declarations
-void startVailRepeater(LGFX &display);
+void startVailRepeater();
 void vailKeyerCallback(bool txOn, int element);
-void drawVailUI(LGFX &display);
-void drawChatUI(LGFX &display);
-void drawRoomSelectionUI(LGFX &display);
-void drawRoomInputUI(LGFX &display);
-void drawUserListUI(LGFX &display);
-int handleVailInput(char key, LGFX &display);
-int handleChatInput(char key, LGFX &display);
-int handleRoomSelectionInput(char key, LGFX &display);
-int handleRoomInputInput(char key, LGFX &display);
-int handleUserListInput(char key, LGFX &display);
 void updateVailRepeater();
 void connectToVail(String channel);
 void disconnectFromVail();
@@ -373,7 +347,7 @@ int64_t getCurrentTimestamp() {
 void drawHeader();
 
 // Start Vail repeater mode
-void startVailRepeater(LGFX &display) {
+void startVailRepeater() {
   vailState = VAIL_DISCONNECTED;
   statusText = "Enter channel name";
   vailIsTransmitting = false;
@@ -394,19 +368,14 @@ void startVailRepeater(LGFX &display) {
 
   // Initialize chat mode
   vailChatMode = false;
-  hasUnreadMessages = false;
   chatInput = "";
   chatHistory.clear();
 
   // Initialize room selection
-  vailRoomSelectionMode = false;
-  roomCustomInput = false;
-  roomMenuSelection = 0;
   roomInput = "";
   activeRooms.clear();
 
   // Initialize user list
-  vailUserListMode = false;
   connectedUsers.clear();
 
   // UI is now handled by LVGL - see lv_mode_screens.h
@@ -881,7 +850,7 @@ void vailKeyerCallback(bool txOn, int element) {
 
 // Update Vail repeater (call in main loop)
 // Note: Legacy UI rendering removed - LVGL handles all UI updates via updateVailScreenLVGL()
-void updateVailRepeater(LGFX &display) {
+void updateVailRepeater() {
   webSocket.loop();
 
   // Send keepalive every 15 seconds (aggressive keepalive prevents Cloud Run and load balancer timeouts)
@@ -1028,384 +997,6 @@ void playbackMessages() {
   }
 }
 
-// Draw Vail UI
-void drawVailUI(LGFX &display) {
-  // Clear screen (preserve header)
-  display.fillRect(0, 42, SCREEN_WIDTH, SCREEN_HEIGHT - 42, COLOR_BACKGROUND);
-
-  // Clean main info card
-  int cardX = 20;
-  int cardY = 60;
-  int cardW = SCREEN_WIDTH - 40;
-  int cardH = 120;
-
-  // Solid card background
-  display.fillRoundRect(cardX, cardY, cardW, cardH, 10, COLOR_BG_LAYER2);
-
-  // Subtle border
-  display.drawRoundRect(cardX, cardY, cardW, cardH, 10, COLOR_BORDER_SUBTLE);
-
-  // Channel
-  display.setTextSize(1);
-  display.setTextColor(COLOR_TEXT_SECONDARY);
-  display.setCursor(cardX + 15, cardY + 15);
-  display.print("Channel");
-
-  display.setTextColor(COLOR_TEXT_PRIMARY);
-  display.setTextSize(2);
-  display.setCursor(cardX + 15, cardY + 30);
-  display.print(vailChannel);
-
-  // Status
-  display.setTextSize(1);
-  display.setTextColor(COLOR_TEXT_SECONDARY);
-  display.setCursor(cardX + 15, cardY + 60);
-  display.print("Status");
-
-  display.setTextSize(1);
-  display.setCursor(cardX + 15, cardY + 75);
-  if (vailState == VAIL_CONNECTED) {
-    display.setTextColor(COLOR_SUCCESS_PASTEL);
-    display.print("Connected");
-  } else if (vailState == VAIL_CONNECTING) {
-    display.setTextColor(COLOR_WARNING_PASTEL);
-    display.print("Connecting...");
-  } else if (vailState == VAIL_ERROR) {
-    display.setTextColor(COLOR_ERROR_PASTEL);
-    display.print("Error");
-  } else {
-    display.setTextColor(COLOR_ERROR_PASTEL);
-    display.print("Disconnected");
-  }
-
-  // Speed
-  display.setTextSize(1);
-  display.setTextColor(COLOR_TEXT_SECONDARY);
-  display.setCursor(cardX + 15, cardY + 100);
-  display.print("Speed");
-
-  display.setTextColor(COLOR_ACCENT_CYAN);
-  display.setTextSize(1);
-  display.setCursor(cardX + 70, cardY + 100);
-  display.print(cwSpeed);
-  display.print(" WPM");
-
-  // Operators (only when connected)
-  if (vailState == VAIL_CONNECTED) {
-    display.setTextColor(COLOR_TEXT_SECONDARY);
-    display.setCursor(cardX + 170, cardY + 100);
-    display.print("Ops");
-
-    display.setTextColor(COLOR_SUCCESS_PASTEL);
-    display.setCursor(cardX + 210, cardY + 100);
-    display.print(connectedClients);
-  }
-
-  // TX indicator on card
-  if (vailIsTransmitting) {
-    display.fillCircle(cardX + cardW - 25, cardY + 25, 8, ST77XX_RED);
-    display.setTextSize(1);
-    display.setTextColor(ST77XX_WHITE);
-    display.setCursor(cardX + cardW - 65, cardY + 22);
-    display.print("TX");
-  }
-
-  // Instructions
-  display.setTextSize(1);
-  display.setTextColor(0x7BEF); // Light gray
-  display.setCursor(30, 200);
-  display.print("Use paddle to transmit");
-
-  // Message notification indicator
-  if (hasUnreadMessages) {
-    // Draw pulsing "NEW MSG" indicator
-    display.fillRoundRect(SCREEN_WIDTH - 80, 195, 70, 18, 4, ST77XX_RED);
-    display.drawRoundRect(SCREEN_WIDTH - 80, 195, 70, 18, 4, ST77XX_WHITE);
-    display.setTextSize(1);
-    display.setTextColor(ST77XX_WHITE);
-    display.setCursor(SCREEN_WIDTH - 72, 203);
-    display.print("NEW MSG!");
-  }
-
-  // Footer with controls
-  display.setTextColor(COLOR_WARNING);
-  display.setTextSize(1);
-  display.setCursor(5, SCREEN_HEIGHT - 12);
-  if (hasUnreadMessages) {
-    display.print("\x18Rooms \x19Chat(!) U Users \x1B\x1ASpd ESC Exit");
-  } else {
-    display.print("\x18Rooms \x19Chat U Users \x1B\x1ASpd ESC Exit");
-  }
-}
-
-// Draw Chat UI
-void drawChatUI(LGFX &display) {
-  // Clear screen (preserve header)
-  display.fillRect(0, 42, SCREEN_WIDTH, SCREEN_HEIGHT - 42, COLOR_BACKGROUND);
-
-  // Title
-  display.setFont(nullptr);  // Use default font
-  display.setTextColor(COLOR_TITLE);
-  display.setTextSize(1);
-
-  int16_t x1, y1;
-  uint16_t w, h;
-  String title = "TEXT CHAT";
-  getTextBounds_compat(display, title.c_str(), 0, 0, &x1, &y1, &w, &h);
-  display.setCursor((SCREEN_WIDTH - w) / 2, 70);
-  display.print(title);
-  display.setFont(nullptr); // Reset font
-
-  // Channel indicator
-  display.setTextSize(1);
-  display.setTextColor(0x7BEF); // Light gray
-  String channelText = "Channel: " + vailChannel;
-  display.setCursor((SCREEN_WIDTH - channelText.length() * 6) / 2, 85);
-  display.print(channelText);
-
-  // Message history area (scrollable)
-  int historyY = 95;
-  int historyHeight = 90;
-  int lineHeight = 15;
-
-  display.setTextSize(1);
-  int startIndex = max(0, (int)chatHistory.size() - 6);  // Show last 6 messages
-
-  for (int i = startIndex; i < chatHistory.size(); i++) {
-    int yPos = historyY + (i - startIndex) * lineHeight;
-
-    // Draw callsign in color
-    display.setTextColor(COLOR_WARNING);
-    display.setCursor(5, yPos);
-    display.print(chatHistory[i].callsign);
-    display.print(":");
-
-    // Draw message in white
-    display.setTextColor(ST77XX_WHITE);
-    int msgX = 5 + (chatHistory[i].callsign.length() + 1) * 6;
-    display.setCursor(msgX, yPos);
-
-    // Truncate message if too long
-    String msg = chatHistory[i].message;
-    int maxMsgLen = (SCREEN_WIDTH - msgX) / 6 - 1;
-    if (msg.length() > maxMsgLen) {
-      msg = msg.substring(0, maxMsgLen - 3) + "...";
-    }
-    display.print(msg);
-  }
-
-  // Input box
-  int boxX = 5;
-  int boxY = 190;
-  int boxW = SCREEN_WIDTH - 10;
-  int boxH = 30;
-
-  display.fillRoundRect(boxX, boxY, boxW, boxH, 8, 0x1082); // Dark blue fill
-  display.drawRoundRect(boxX, boxY, boxW, boxH, 8, 0x34BF); // Light blue outline
-
-  // Display chat input
-  display.setTextColor(ST77XX_WHITE);
-  display.setTextSize(1);
-  display.setCursor(boxX + 8, boxY + 12);
-
-  // Show last N characters if input is too long
-  String displayInput = chatInput;
-  int maxInputDisplay = (boxW - 20) / 6;
-  if (displayInput.length() > maxInputDisplay) {
-    displayInput = displayInput.substring(displayInput.length() - maxInputDisplay);
-  }
-  display.print(displayInput);
-
-  // Blinking cursor
-  if (chatCursorVisible) {
-    int cursorX = boxX + 8 + (displayInput.length() * 6);
-    if (cursorX < boxX + boxW - 10) {
-      display.fillRect(cursorX, boxY + 10, 2, 10, COLOR_WARNING);
-    }
-  }
-
-  // Footer with controls
-  display.setTextColor(COLOR_WARNING);
-  display.setTextSize(1);
-  display.setCursor(10, SCREEN_HEIGHT - 12);
-  display.print("Type msg  ENTER Send  \x18 Back  ESC Exit");
-}
-
-// Handle chat input
-int handleChatInput(char key, LGFX &display) {
-  // Update cursor blink
-  if (millis() - chatLastBlink > 500) {
-    chatCursorVisible = !chatCursorVisible;
-    chatLastBlink = millis();
-    drawChatUI(display);
-  }
-
-  if (key == KEY_BACKSPACE) {
-    if (chatInput.length() > 0) {
-      chatInput.remove(chatInput.length() - 1);
-      chatCursorVisible = true;
-      chatLastBlink = millis();
-      drawChatUI(display);
-    }
-    return 0;
-  }
-  else if (key == KEY_ENTER || key == KEY_ENTER_ALT) {
-    // Send message
-    if (chatInput.length() > 0) {
-      sendChatMessage(chatInput);
-      addChatMessage(vailCallsign, chatInput);  // Add our own message to history
-      chatInput = "";
-      chatCursorVisible = true;
-      chatLastBlink = millis();
-      // No beep - would conflict with repeater audio playback
-      drawChatUI(display);
-    }
-    return 0;
-  }
-  else if (key >= 32 && key <= 126 && chatInput.length() < MAX_CHAT_INPUT) {
-    // Add printable character
-    chatInput += key;
-    chatCursorVisible = true;
-    chatLastBlink = millis();
-    // No beep - would conflict with repeater audio playback
-    drawChatUI(display);
-    return 0;
-  }
-
-  return 0;
-}
-
-// Handle Vail input
-int handleVailInput(char key, LGFX &display) {
-  if (key == KEY_ESC) {
-    // If in user list, go back to vail info
-    if (vailUserListMode) {
-      vailUserListMode = false;
-      beep(TONE_MENU_NAV, BEEP_SHORT);
-      drawVailUI(display);
-      return 0;
-    }
-    // If in room custom input, go back to room selection
-    if (roomCustomInput) {
-      roomCustomInput = false;
-      roomInput = "";
-      beep(TONE_MENU_NAV, BEEP_SHORT);
-      drawRoomSelectionUI(display);
-      return 0;
-    }
-    // If in room selection, go back to vail info
-    if (vailRoomSelectionMode) {
-      vailRoomSelectionMode = false;
-      beep(TONE_MENU_NAV, BEEP_SHORT);
-      drawVailUI(display);
-      return 0;
-    }
-    // If in chat mode, go back to vail info
-    if (vailChatMode) {
-      vailChatMode = false;
-      chatInput = "";
-      beep(TONE_MENU_NAV, BEEP_SHORT);
-      drawVailUI(display);
-      return 0;
-    }
-    // Otherwise exit Vail mode
-    disconnectFromVail();
-    return -1;
-  }
-
-  // If in user list mode, handle input
-  if (vailUserListMode) {
-    return handleUserListInput(key, display);
-  }
-
-  // If in room custom input mode, handle input
-  if (roomCustomInput) {
-    return handleRoomInputInput(key, display);
-  }
-
-  // If in room selection mode, handle selection
-  if (vailRoomSelectionMode) {
-    return handleRoomSelectionInput(key, display);
-  }
-
-  // Arrow Up: Open room selection menu (if in vail info mode)
-  if (key == KEY_UP) {
-    if (vailChatMode) {
-      // Go back to vail info from chat
-      vailChatMode = false;
-      chatInput = "";
-      beep(TONE_MENU_NAV, BEEP_SHORT);
-      drawVailUI(display);
-      return 0;
-    }
-    // In vail info, open room selection
-    vailRoomSelectionMode = true;
-    roomMenuSelection = 0;
-    beep(TONE_MENU_NAV, BEEP_SHORT);
-    drawRoomSelectionUI(display);
-    return 0;
-  }
-
-  // Arrow Down: Go to chat mode
-  if (key == KEY_DOWN) {
-    if (!vailChatMode) {
-      // Enter chat mode
-      vailChatMode = true;
-      chatInput = "";
-      chatCursorVisible = true;
-      chatLastBlink = millis();
-      hasUnreadMessages = false;  // Clear notification when entering chat
-      beep(TONE_MENU_NAV, BEEP_SHORT);
-      drawChatUI(display);
-      return 0;
-    }
-    // Already in chat mode, ignore
-    return 0;
-  }
-
-  // If in chat mode, handle chat input
-  if (vailChatMode) {
-    return handleChatInput(key, display);
-  }
-
-  // Arrow Left/Right: Adjust speed
-  if (key == KEY_LEFT) {
-    if (cwSpeed > 5) {
-      cwSpeed--;
-      if (vailKeyer) {
-        vailKeyer->setDitDuration(DIT_DURATION(cwSpeed));
-      }
-      saveCWSettings();
-      beep(TONE_MENU_NAV, BEEP_SHORT);
-    }
-    return 0;
-  }
-
-  if (key == KEY_RIGHT) {
-    if (cwSpeed < 40) {
-      cwSpeed++;
-      if (vailKeyer) {
-        vailKeyer->setDitDuration(DIT_DURATION(cwSpeed));
-      }
-      saveCWSettings();
-      beep(TONE_MENU_NAV, BEEP_SHORT);
-    }
-    return 0;
-  }
-
-  // 'U' key: Open user list (only in vail info mode)
-  if (key == 'u' || key == 'U') {
-    if (!vailChatMode && !vailRoomSelectionMode && !roomCustomInput) {
-      vailUserListMode = true;
-      beep(TONE_MENU_NAV, BEEP_SHORT);
-      drawUserListUI(display);
-      return 0;
-    }
-  }
-
-  return 0;
-}
-
 // Add message to chat history
 void addChatMessage(String callsign, String message) {
   ChatMessage msg;
@@ -1427,7 +1018,6 @@ void addChatMessage(String callsign, String message) {
 
   // Set notification if not in chat mode (LVGL will update on next frame)
   if (!vailChatMode) {
-    hasUnreadMessages = true;
   }
 }
 
@@ -1465,376 +1055,6 @@ void sendChatMessage(String message) {
   webSocket.sendTXT(output);
 }
 
-// Draw Room Selection UI
-void drawRoomSelectionUI(LGFX &display) {
-  // Clear screen (preserve header)
-  display.fillRect(0, 42, SCREEN_WIDTH, SCREEN_HEIGHT - 42, COLOR_BACKGROUND);
 
-  // Title
-  display.setFont(nullptr);  // Use default font
-  display.setTextColor(COLOR_TITLE);
-  display.setTextSize(1);
-
-  int16_t x1, y1;
-  uint16_t w, h;
-  String title = "SELECT ROOM";
-  getTextBounds_compat(display, title.c_str(), 0, 0, &x1, &y1, &w, &h);
-  display.setCursor((SCREEN_WIDTH - w) / 2, 70);
-  display.print(title);
-  display.setFont(nullptr); // Reset font
-
-  // Build menu items
-  std::vector<String> menuItems;
-
-  // Add active public rooms
-  for (size_t i = 0; i < activeRooms.size(); i++) {
-    String item = activeRooms[i].name + " (" + String(activeRooms[i].users) + ")";
-    menuItems.push_back(item);
-  }
-
-  // Add "General" if not already in list
-  bool hasGeneral = false;
-  for (size_t i = 0; i < activeRooms.size(); i++) {
-    if (activeRooms[i].name == "General") {
-      hasGeneral = true;
-      break;
-    }
-  }
-  if (!hasGeneral) {
-    menuItems.push_back("General");
-  }
-
-  // Add "Custom room..." option
-  menuItems.push_back("Custom room...");
-
-  // Draw menu items (show up to 6 items)
-  int menuY = 90;
-  int itemHeight = 20;
-  int startIdx = max(0, roomMenuSelection - 5);
-  int endIdx = min((int)menuItems.size(), startIdx + 6);
-
-  for (int i = startIdx; i < endIdx; i++) {
-    int yPos = menuY + (i - startIdx) * itemHeight;
-
-    if (i == roomMenuSelection) {
-      // Selected item - highlighted
-      display.fillRect(10, yPos - 2, SCREEN_WIDTH - 20, itemHeight - 2, 0x249F);
-      display.setTextColor(ST77XX_WHITE);
-      display.setCursor(15, yPos + 6);
-      display.print("> ");
-      display.print(menuItems[i]);
-    } else {
-      // Unselected item
-      display.setTextColor(0x7BEF);
-      display.setCursor(20, yPos + 6);
-      display.print(menuItems[i]);
-    }
-  }
-
-  // Footer
-  display.setTextColor(COLOR_WARNING);
-  display.setTextSize(1);
-  display.setCursor(10, SCREEN_HEIGHT - 12);
-  display.print("\x18\x19 Navigate  ENTER Select  ESC Back");
-}
-
-// Handle Room Selection Input
-int handleRoomSelectionInput(char key, LGFX &display) {
-  // Calculate total menu items
-  int totalItems = activeRooms.size() + 1;  // Active rooms + "Custom room..."
-  bool hasGeneral = false;
-  for (size_t i = 0; i < activeRooms.size(); i++) {
-    if (activeRooms[i].name == "General") {
-      hasGeneral = true;
-      break;
-    }
-  }
-  if (!hasGeneral) totalItems++;  // Add "General" if not in active rooms
-
-  if (key == KEY_UP) {
-    if (roomMenuSelection > 0) {
-      roomMenuSelection--;
-      beep(TONE_MENU_NAV, BEEP_SHORT);
-      drawRoomSelectionUI(display);
-    }
-    return 0;
-  }
-  else if (key == KEY_DOWN) {
-    if (roomMenuSelection < totalItems - 1) {
-      roomMenuSelection++;
-      beep(TONE_MENU_NAV, BEEP_SHORT);
-      drawRoomSelectionUI(display);
-    }
-    return 0;
-  }
-  else if (key == KEY_ENTER || key == KEY_ENTER_ALT) {
-    beep(TONE_SELECT, BEEP_MEDIUM);
-
-    // Determine which item was selected
-    int customRoomIdx = totalItems - 1;  // Last item is always "Custom room..."
-
-    if (roomMenuSelection == customRoomIdx) {
-      // Custom room input
-      roomCustomInput = true;
-      roomInput = "";
-      roomCursorVisible = true;
-      roomLastBlink = millis();
-      drawRoomInputUI(display);
-    } else {
-      // Selected an existing room
-      String selectedRoom;
-      if (roomMenuSelection < activeRooms.size()) {
-        selectedRoom = activeRooms[roomMenuSelection].name;
-      } else {
-        selectedRoom = "General";
-      }
-
-      // Disconnect and reconnect to new room
-      disconnectFromVail();
-      delay(250);  // Allow time for clean disconnect before reconnecting
-      connectToVail(selectedRoom);
-
-      // Return to vail info
-      vailRoomSelectionMode = false;
-      drawVailUI(display);
-    }
-    return 0;
-  }
-
-  return 0;
-}
-
-// Draw Room Input UI
-void drawRoomInputUI(LGFX &display) {
-  // Clear screen (preserve header)
-  display.fillRect(0, 42, SCREEN_WIDTH, SCREEN_HEIGHT - 42, COLOR_BACKGROUND);
-
-  // Title
-  display.setFont(nullptr);  // Use default font
-  display.setTextColor(COLOR_TITLE);
-  display.setTextSize(1);
-
-  int16_t x1, y1;
-  uint16_t w, h;
-  String title = "CUSTOM ROOM";
-  getTextBounds_compat(display, title.c_str(), 0, 0, &x1, &y1, &w, &h);
-  display.setCursor((SCREEN_WIDTH - w) / 2, 70);
-  display.print(title);
-  display.setFont(nullptr); // Reset font
-
-  // Instructions
-  display.setTextSize(1);
-  display.setTextColor(0x7BEF);
-  String prompt = "Enter room name:";
-  display.setCursor((SCREEN_WIDTH - prompt.length() * 6) / 2, 90);
-  display.print(prompt);
-
-  // Input box
-  int boxX = 20;
-  int boxY = 110;
-  int boxW = SCREEN_WIDTH - 40;
-  int boxH = 40;
-
-  display.fillRoundRect(boxX, boxY, boxW, boxH, 8, 0x1082);
-  display.drawRoundRect(boxX, boxY, boxW, boxH, 8, 0x34BF);
-
-  // Display room input
-  display.setTextColor(ST77XX_WHITE);
-  display.setTextSize(1);
-  display.setCursor(boxX + 10, boxY + 18);
-
-  // Show last N characters if input is too long
-  String displayInput = roomInput;
-  int maxInputDisplay = (boxW - 25) / 6;
-  if (displayInput.length() > maxInputDisplay) {
-    displayInput = displayInput.substring(displayInput.length() - maxInputDisplay);
-  }
-  display.print(displayInput);
-
-  // Blinking cursor
-  if (roomCursorVisible) {
-    int cursorX = boxX + 10 + (displayInput.length() * 6);
-    if (cursorX < boxX + boxW - 10) {
-      display.fillRect(cursorX, boxY + 15, 2, 12, COLOR_WARNING);
-    }
-  }
-
-  // Footer
-  display.setTextColor(COLOR_WARNING);
-  display.setTextSize(1);
-  display.setCursor(10, SCREEN_HEIGHT - 12);
-  display.print("Type name  ENTER Join  ESC Cancel");
-}
-
-// Handle Room Input Input
-int handleRoomInputInput(char key, LGFX &display) {
-  // Update cursor blink
-  if (millis() - roomLastBlink > 500) {
-    roomCursorVisible = !roomCursorVisible;
-    roomLastBlink = millis();
-    drawRoomInputUI(display);
-  }
-
-  if (key == KEY_BACKSPACE) {
-    if (roomInput.length() > 0) {
-      roomInput.remove(roomInput.length() - 1);
-      roomCursorVisible = true;
-      roomLastBlink = millis();
-      drawRoomInputUI(display);
-    }
-    return 0;
-  }
-  else if (key == KEY_ENTER || key == KEY_ENTER_ALT) {
-    // Join custom room
-    if (roomInput.length() > 0) {
-      // No beep - would conflict with repeater audio playback
-
-      // Disconnect and reconnect to new room
-      disconnectFromVail();
-      delay(250);  // Allow time for clean disconnect before reconnecting
-      connectToVail(roomInput);
-
-      // Return to vail info
-      roomCustomInput = false;
-      vailRoomSelectionMode = false;
-      roomInput = "";
-      drawVailUI(display);
-    }
-    return 0;
-  }
-  else if (key >= 32 && key <= 126 && roomInput.length() < MAX_ROOM_NAME) {
-    // Add printable character
-    roomInput += key;
-    roomCursorVisible = true;
-    roomLastBlink = millis();
-    // No beep - would conflict with repeater audio playback
-    drawRoomInputUI(display);
-    return 0;
-  }
-
-  return 0;
-}
-
-// Draw User List UI
-void drawUserListUI(LGFX &display) {
-  // Clear screen (preserve header)
-  display.fillRect(0, 42, SCREEN_WIDTH, SCREEN_HEIGHT - 42, COLOR_BACKGROUND);
-
-  // Title
-  display.setFont(nullptr);  // Use default font
-  display.setTextColor(COLOR_TITLE);
-  display.setTextSize(1);
-
-  int16_t x1, y1;
-  uint16_t w, h;
-  String title = "USERS IN ROOM";
-  getTextBounds_compat(display, title.c_str(), 0, 0, &x1, &y1, &w, &h);
-  display.setCursor((SCREEN_WIDTH - w) / 2, 70);
-  display.print(title);
-  display.setFont(nullptr); // Reset font
-
-  // Room name subtitle
-  display.setTextSize(1);
-  display.setTextColor(0x7BEF);
-  String roomText = "Room: " + vailChannel;
-  display.setCursor((SCREEN_WIDTH - roomText.length() * 6) / 2, 85);
-  display.print(roomText);
-
-  // User count
-  display.setTextColor(COLOR_WARNING);
-  String countText = String(connectedUsers.size()) + " user(s) connected";
-  display.setCursor((SCREEN_WIDTH - countText.length() * 6) / 2, 100);
-  display.print(countText);
-
-  // Draw user list
-  int listY = 115;
-  int itemHeight = 18;
-  int maxVisible = 7;  // Show up to 7 users
-
-  for (size_t i = 0; i < connectedUsers.size() && i < maxVisible; i++) {
-    int yPos = listY + i * itemHeight;
-
-    // Draw callsign
-    display.setTextColor(ST77XX_WHITE);
-    display.setTextSize(1);
-    display.setCursor(15, yPos);
-    display.print(connectedUsers[i].callsign);
-
-    // Draw TX tone frequency
-    display.setTextColor(0x7BEF);
-    int freqHz = (int)midiNoteToFrequency(connectedUsers[i].txTone);
-    String freqText = String(freqHz) + " Hz";
-    int freqX = SCREEN_WIDTH - 15 - freqText.length() * 6;
-    display.setCursor(freqX, yPos);
-    display.print(freqText);
-
-    // Draw separator line
-    display.drawLine(10, yPos + 12, SCREEN_WIDTH - 10, yPos + 12, 0x2104);
-  }
-
-  // Show "..." if more users than can fit
-  if (connectedUsers.size() > maxVisible) {
-    display.setTextColor(0x7BEF);
-    display.setCursor(SCREEN_WIDTH / 2 - 6, listY + maxVisible * itemHeight);
-    display.print("...");
-  }
-
-  // Footer
-  display.setTextColor(COLOR_WARNING);
-  display.setTextSize(1);
-  display.setCursor(10, SCREEN_HEIGHT - 12);
-  display.print("ESC Back to Vail Info");
-}
-
-// Handle User List Input
-int handleUserListInput(char key, LGFX &display) {
-  // ESC handled in main handleVailInput
-  // Just return 0 for any other keys
-  return 0;
-}
-
-#else  // VAIL_ENABLED == 0
-
-// Stub functions when libraries are not installed
-void startVailRepeater(LGFX &display) {
-  display.fillRect(0, 42, SCREEN_WIDTH, SCREEN_HEIGHT - 42, COLOR_BACKGROUND);
-  display.setTextSize(1);
-  display.setTextColor(ST77XX_RED);
-  display.setCursor(20, 100);
-  display.print("Vail repeater disabled");
-  display.setCursor(20, 120);
-  display.print("Install required libraries:");
-  display.setCursor(20, 140);
-  display.print("1. WebSockets");
-  display.setCursor(20, 155);
-  display.print("   by Markus Sattler");
-  display.setCursor(20, 175);
-  display.print("2. ArduinoJson");
-  display.setCursor(20, 190);
-  display.print("   by Benoit Blanchon");
-}
-
-void drawVailUI(LGFX &display) {
-  startVailRepeater(display);
-}
-
-int handleVailInput(char key, LGFX &display) {
-  if (key == KEY_ESC) return -1;
-  return 0;
-}
-
-void updateVailRepeater(LGFX &display) {
-  // Nothing to do
-}
-
-void connectToVail(String channel) {
-  // Nothing to do
-}
-
-void disconnectFromVail() {
-  // Nothing to do
-}
-
-#endif // VAIL_ENABLED
 
 #endif // VAIL_REPEATER_H

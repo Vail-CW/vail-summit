@@ -50,35 +50,25 @@ extern LGFX tft;
 // The actual type is MenuMode but we cast it
 
 // Forward declarations for mode start functions (kept for modes with initialization logic)
-extern void startPracticeMode(LGFX& tft);
-extern void startVailRepeater(LGFX& tft);
-extern void startMorseShooter(LGFX& tft);
+extern void startPracticeMode();
+extern void startVailRepeater();
+extern void startMorseShooter();
 extern void loadShooterPrefs();  // Load shooter settings before showing settings screen
 extern void memoryChainStart();  // New Memory Chain implementation
 extern void startSparkWatch();
 extern void storyTimeStart();
-extern void startRadioOutput(LGFX& tft);
-extern void startCWMemoriesMode(LGFX& tft);
-extern void startBTHID(LGFX& tft);
-extern void startBTMIDI(LGFX& tft);
-extern void startWiFiSettings(LGFX& tft);
-extern void startCWSettings(LGFX& tft);
-extern void initVolumeSettings(LGFX& tft);
-extern void startCallsignSettings(LGFX& tft);
-extern void startWebPasswordSettings(LGFX& tft);
-extern void initBrightnessSettings(LGFX& tft);
-extern void startBTKeyboardSettings(LGFX& tft);
-extern void startViewLogs(LGFX& tft);
-extern void startStatistics(LGFX& tft);
-extern void startLoggerSettings(LGFX& tft);
+extern void startRadioOutput();
+extern void startBTHID();
+extern void startBTMIDI();
+extern void startBTKeyboardSettings();
 extern void initWebPracticeMode();
 extern void initWebHearItMode();
 extern void initWebMemoryChainMode();
 extern void cleanupWebPracticeMode();
 extern void cleanupWebHearItMode();
 extern void cleanupWebMemoryChainMode();
-extern void startLicenseQuiz(LGFX& tft, int licenseType);
-extern void startLicenseStats(LGFX& tft);
+extern void startLicenseQuiz(int licenseType);
+extern void startLicenseStats();
 extern void updateLicenseQuizDisplay();
 // CW Speeder game functions (defined in game_cw_speeder.h)
 extern void cwSpeedSelectStart();
@@ -366,11 +356,11 @@ void initializeModeInt(int mode) {
         // Training modes
         case MODE_PRACTICE:
             Serial.println("[ModeInit] Starting Practice mode");
-            startPracticeMode(tft);
+            startPracticeMode();
             break;
         case MODE_SCHOOL_SEND:
             Serial.println("[ModeInit] Starting Send Practice (school)");
-            startPracticeMode(tft);   // sets up keyer/decoder/audio
+            startPracticeMode();   // sets up keyer/decoder/audio
             schoolSendInit();         // sets pool + first target (screen already built)
             break;
         // Game modes
@@ -426,7 +416,7 @@ void initializeModeInt(int mode) {
         // Network/radio modes
         case MODE_VAIL_REPEATER:
             Serial.println("[ModeInit] Starting Vail Repeater");
-            startVailRepeater(tft);
+            startVailRepeater();
             // Auto-connect to General room only if callsign is set
             // (checkVailCallsignRequired is checked in createVailRepeaterScreen)
             if (vailCallsign.length() > 0 && vailCallsign != "GUEST") {
@@ -435,35 +425,34 @@ void initializeModeInt(int mode) {
             break;
         case MODE_RADIO_OUTPUT:
             Serial.println("[ModeInit] Starting Radio Output");
-            startRadioOutput(tft);
+            startRadioOutput();
             break;
         case MODE_CW_MEMORIES:
             Serial.println("[ModeInit] Starting CW Memories");
-            startCWMemoriesMode(tft);
             break;
         case MODE_PROPAGATION:
             Serial.println("[ModeInit] Starting Band Conditions");
-            startBandConditions(tft);
+            startBandConditions();
             break;
 
         // POTA modes
         case MODE_POTA_ACTIVE_SPOTS:
             Serial.println("[ModeInit] Starting POTA Active Spots");
-            startPOTAActiveSpots(tft);
+            startPOTAActiveSpots();
             break;
 
         // Bluetooth modes
         case MODE_BT_HID:
             Serial.println("[ModeInit] Starting BT HID");
-            startBTHID(tft);
+            startBTHID();
             break;
         case MODE_BT_MIDI:
             Serial.println("[ModeInit] Starting BT MIDI");
-            startBTMIDI(tft);
+            startBTMIDI();
             break;
         case MODE_BT_KEYBOARD_SETTINGS:
             Serial.println("[ModeInit] Starting BT Keyboard Settings");
-            startBTKeyboardSettings(tft);
+            startBTKeyboardSettings();
             break;
 
         // Settings modes
@@ -473,23 +462,19 @@ void initializeModeInt(int mode) {
             break;
         case MODE_CW_SETTINGS:
             Serial.println("[ModeInit] Starting CW Settings");
-            startCWSettings(tft);
             break;
         case MODE_VOLUME_SETTINGS:
             Serial.println("[ModeInit] Starting Volume Settings");
-            initVolumeSettings(tft);
             break;
         case MODE_BRIGHTNESS_SETTINGS:
             Serial.println("[ModeInit] Starting Brightness Settings");
-            initBrightnessSettings(tft);
+            loadBrightnessSettings();
             break;
         case MODE_CALLSIGN_SETTINGS:
             Serial.println("[ModeInit] Starting Callsign Settings");
-            startCallsignSettings(tft);
             break;
         case MODE_WEB_PASSWORD_SETTINGS:
             Serial.println("[ModeInit] Starting Web Password Settings");
-            startWebPasswordSettings(tft);
             break;
         case MODE_ONBOARDING:
             Serial.println("[ModeInit] Resuming onboarding wizard");

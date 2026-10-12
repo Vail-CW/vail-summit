@@ -1141,7 +1141,7 @@ void updateMorseInputFast() {
 /*
  * Initialize game (called when entering from Games menu)
  */
-void startMorseShooter(LGFX& tft) {
+void startMorseShooter() {
   resetGame();
 
   // Setup decoder callback: display + shoot each character as it decodes
@@ -1173,7 +1173,7 @@ void startMorseShooter(LGFX& tft) {
  * Update morse input (called every loop for responsive keying)
  * This is separate from visual updates
  */
-void updateMorseShooterInput(LGFX& tft) {
+void updateMorseShooterInput() {
   if (gameOver || gamePaused) {
     return;
   }
@@ -1186,7 +1186,7 @@ void updateMorseShooterInput(LGFX& tft) {
  * flushes that can crunch live audio, and it gives the player a fair chance
  * to finish the character they started.
  */
-void updateMorseShooterVisuals(LGFX& tft) {
+void updateMorseShooterVisuals() {
   if (gameOver || gamePaused) {
     return;
   }

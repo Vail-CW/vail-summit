@@ -124,9 +124,7 @@ bool btHIDTypingEnabled = false;
 extern int cwSpeed;
 
 // Forward declarations
-void startBTHID(LGFX& display);
-void drawBTHIDUI(LGFX& display);
-int handleBTHIDInput(char key, LGFX& display);
+void startBTHID();
 void updateBTHID();
 void sendHIDReport(uint8_t modifiers);
 void stopBTHID();
@@ -289,7 +287,7 @@ bool sendBTHIDKeystroke(uint32_t lvglKey) {
 }
 
 // Start BT HID mode
-void startBTHID(LGFX& display) {
+void startBTHID() {
   Serial.println("Starting BT HID mode");
 
   // Load saved keyer mode
@@ -417,86 +415,6 @@ void stopBTHID() {
   if (bleKBHost.pairedDevice.valid && bleKBHost.autoReconnect) {
     initBLEKeyboardHost();
   }
-}
-
-// Draw BT HID UI
-void drawBTHIDUI(LGFX& display) {
-  // Clear screen (preserve header)
-  display.fillRect(0, 42, SCREEN_WIDTH, SCREEN_HEIGHT - 42, COLOR_BACKGROUND);
-
-  // Status card
-  int cardX = 20;
-  int cardY = 55;
-  int cardW = SCREEN_WIDTH - 40;
-  int cardH = 100;
-
-  display.fillRoundRect(cardX, cardY, cardW, cardH, 12, 0x1082);
-  display.drawRoundRect(cardX, cardY, cardW, cardH, 12, 0x34BF);
-
-  // Connection status
-  display.setFont(&FreeSansBold12pt7b);
-  display.setTextSize(1);
-
-  int yPos = cardY + 30;
-  display.setCursor(cardX + 15, yPos);
-
-  if (isBLEConnected()) {
-    display.setTextColor(ST77XX_GREEN);
-    display.print("Connected");
-  } else if (isBLEAdvertising()) {
-    display.setTextColor(ST77XX_YELLOW);
-    display.print("Advertising...");
-  } else {
-    display.setTextColor(ST77XX_RED);
-    display.print("Disconnected");
-  }
-
-  // Device name
-  display.setFont(nullptr);
-  display.setTextSize(2);
-  display.setTextColor(ST77XX_CYAN);
-  yPos += 35;
-  display.setCursor(cardX + 15, yPos);
-  display.print(getBLEDeviceName());
-
-  // Key mapping info card
-  cardY = 170;
-  cardH = 80;
-  display.fillRoundRect(cardX, cardY, cardW, cardH, 12, 0x1082);
-  display.drawRoundRect(cardX, cardY, cardW, cardH, 12, 0x34BF);
-
-  display.setTextSize(1);
-  display.setTextColor(0x7BEF);  // Light gray
-  yPos = cardY + 12;
-  display.setCursor(cardX + 15, yPos);
-  display.print("Key Mapping:");
-
-  display.setTextSize(2);
-  display.setTextColor(ST77XX_WHITE);
-  yPos += 20;
-  display.setCursor(cardX + 15, yPos);
-  display.print("DIT -> Left Ctrl");
-  yPos += 22;
-  display.setCursor(cardX + 15, yPos);
-  display.print("DAH -> Right Ctrl");
-
-  // Instructions
-  display.setTextSize(1);
-  display.setTextColor(ST77XX_YELLOW);
-  display.setCursor(cardX + 15, SCREEN_HEIGHT - 35);
-  display.print("Pair device in system Bluetooth settings");
-
-  display.setFont(nullptr);
-}
-
-// Handle BT HID input
-int handleBTHIDInput(char key, LGFX& display) {
-  if (key == KEY_ESC) {
-    stopBTHID();
-    return -1;  // Exit mode
-  }
-
-  return 0;  // Normal input
 }
 
 // Helper to start keying (key down + tone)

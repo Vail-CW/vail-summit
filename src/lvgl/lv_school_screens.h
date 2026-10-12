@@ -301,7 +301,7 @@ lv_obj_t* createSchoolHubScreen() {
 // from training_practice.h. We show a target character; the user keys it on
 // their paddle/straight key; the decoder produces a character; we compare and
 // score against the same mastery as the copy modes. Engine lifecycle:
-//   init    (initializeModeInt): startPracticeMode(tft) + schoolSendInit()
+//   init    (initializeModeInt): startPracticeMode() + schoolSendInit()
 //   poll    (pollTable):         schoolSendPoll() -> updatePracticeOscillator() + compare
 //   cleanup (cleanupTable):      schoolSendCleanup() -> practiceHandleEsc()
 
@@ -342,7 +342,7 @@ static void schoolSendNewTarget() {
     }
 }
 
-// Called from initializeModeInt AFTER startPracticeMode(tft) has set up the
+// Called from initializeModeInt AFTER startPracticeMode() has set up the
 // keyer/decoder/audio for the current CW settings.
 void schoolSendInit() {
     s_send_pool = getVailCourseLearnedChars();
@@ -491,7 +491,7 @@ lv_obj_t* createSchoolSendScreen() {
     addNavigableWidget(catcher);
     focusWidget(catcher);
 
-    // Note: startPracticeMode(tft) + schoolSendInit() run from initializeModeInt
+    // Note: startPracticeMode() + schoolSendInit() run from initializeModeInt
     // (where the LGFX display handle is in scope). The screen exists first so its
     // label refs are ready when schoolSendInit() sets the first target.
     return screen;

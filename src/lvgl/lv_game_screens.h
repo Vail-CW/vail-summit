@@ -1022,7 +1022,7 @@ void showShooterGameOver() {
 // Note: cwSpeed, cwTone, cwKeyType are from settings_cw.h (now included above)
 extern void loadShooterPrefs();
 extern void saveShooterPrefs();
-extern void startMorseShooter(LGFX& tft);
+extern void startMorseShooter();
 
 // Screen state
 enum ShooterScreenState {
@@ -1405,7 +1405,7 @@ void startShooterFromSettings() {
     clearNavigationGroup();
     lv_obj_t* game_screen = createMorseShooterScreen();
     loadScreen(game_screen, SCREEN_ANIM_FADE);
-    startMorseShooter(tft);
+    startMorseShooter();
     drawShooterScenery();
 }
 
