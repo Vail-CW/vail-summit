@@ -686,7 +686,12 @@ void setup() {
       .idle_core_mask = 0,
       .trigger_panic = true,
   };
-  esp_task_wdt_init(&wdt_cfg);
+  // Core 3.x already initialises the TWDT during startup (CONFIG_ESP_TASK_WDT_INIT),
+  // so a plain init returns ESP_ERR_INVALID_STATE and logs "TWDT already
+  // initialized". Try init for cores built without it, then reconfigure.
+  if (esp_task_wdt_init(&wdt_cfg) == ESP_ERR_INVALID_STATE) {
+    esp_task_wdt_reconfigure(&wdt_cfg);
+  }
 #else
   esp_task_wdt_init(LOOP_WDT_TIMEOUT_S, true);
 #endif

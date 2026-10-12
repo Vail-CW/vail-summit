@@ -131,23 +131,36 @@ int getDitDuration() {
   return DIT_DURATION(cwSpeed);
 }
 
-// MIDI characteristic callback for receiving data
+// MIDI characteristic callback for receiving data. NimBLE 2.x adds a
+// NimBLEConnInfo& parameter to onWrite/onRead; the body is shared.
+static void midiOnCharacteristicWrite(NimBLECharacteristic* pCharacteristic) {
+  NimBLEAttValue value = pCharacteristic->getValue();
+  Serial.print("MIDI onWrite: ");
+  Serial.print(value.size());
+  Serial.println(" bytes");
+  if (value.size() > 0) {
+    onMIDIReceived((uint8_t*)value.data(), value.size());
+  }
+}
+
 class MIDICharacteristicCallbacks : public NimBLECharacteristicCallbacks {
+#if SUMMIT_NIMBLE_V2
+  void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
+    midiOnCharacteristicWrite(pCharacteristic);
+  }
+
+  void onRead(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
+    Serial.println("MIDI onRead");
+  }
+#else
   void onWrite(NimBLECharacteristic* pCharacteristic) override {
-    std::string value = pCharacteristic->getValue();
-    Serial.print("MIDI onWrite: ");
-    Serial.print(value.length());
-    Serial.println(" bytes");
-    if (value.length() > 0) {
-      onMIDIReceived((uint8_t*)value.data(), value.length());
-    }
+    midiOnCharacteristicWrite(pCharacteristic);
   }
 
   void onRead(NimBLECharacteristic* pCharacteristic) override {
     Serial.println("MIDI onRead");
   }
-
-  // Note: onNotify() and onStatus() removed - not in NimBLECharacteristicCallbacks base class
+#endif
 };
 
 // Process received MIDI data
@@ -325,6 +338,13 @@ void startBTMIDI(LGFX& display) {
 
   // Initialize BLE core if not already done
   initBLECore();
+  if (!bleCore.initialized || bleCore.pServer == nullptr) {
+    // Heap check or controller init refused (message in bleLastErrorMsg)
+    updateBTMIDIDeviceName(getBLEDeviceName().c_str());
+    updateBTMIDIStatus(bleLastErrorMsg[0] ? bleLastErrorMsg : "BLE init failed", false);
+    lastBTMIDIState = BLE_STATE_ERROR;
+    return;
+  }
   bleCore.activeMode = BLE_MODE_MIDI;
 
   // Create MIDI service
@@ -349,8 +369,12 @@ void startBTMIDI(LGFX& display) {
   // Set security for bonding (required for some BLE MIDI clients)
   NimBLEDevice::setSecurityAuth(true, false, true);  // bonding, MITM, SC
 
-  // Start service
+  // Start service. NimBLE 2.x starts services with the server (implicitly
+  // from NimBLEDevice::startAdvertising()); NimBLEService::start() is a
+  // deprecated no-op there.
+#if !SUMMIT_NIMBLE_V2
   btMIDI.midiService->start();
+#endif
   Serial.println("BLE MIDI: Service started");
 
   // Set up advertising
@@ -624,7 +648,7 @@ void updateBTMIDI() {
     switch (lastBTMIDIState) {
       case BLE_STATE_CONNECTED:   updateBTMIDIStatus("Connected", true); break;
       case BLE_STATE_ADVERTISING: updateBTMIDIStatus("Advertising...", false); break;
-      case BLE_STATE_ERROR:       updateBTMIDIStatus("Error", false); break;
+      case BLE_STATE_ERROR:       updateBTMIDIStatus(bleLastErrorMsg[0] ? bleLastErrorMsg : "Error", false); break;
       default:                    updateBTMIDIStatus("Off", false); break;
     }
   }

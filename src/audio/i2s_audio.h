@@ -7,7 +7,15 @@
 #ifndef I2S_AUDIO_H
 #define I2S_AUDIO_H
 
+// Legacy I2S driver. On core 3.x (IDF 5.x) driver/i2s.h still ships and every
+// call below compiles unchanged, but the header emits a #warning on include.
+// The official off-switch (CONFIG_I2S_SUPPRESS_DEPRECATE_WARN) lives in the
+// prebuilt sdkconfig, so silence -Wcpp around the include instead. Migrating to
+// driver/i2s_std.h is deferred; see docs/core3-port-notes.md.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcpp"
 #include <driver/i2s.h>
+#pragma GCC diagnostic pop
 #include <driver/gpio.h>
 #include <math.h>
 #include <Preferences.h>
@@ -33,7 +41,7 @@
 #define I2S_DMA_BUF_COUNT 16
 
 // Forward declarations
-void IRAM_ATTR continueTone(int frequency);
+void continueTone(int frequency);  // IRAM_ATTR lives on the definition only
 static void initSineLUT();
 
 // ============================================

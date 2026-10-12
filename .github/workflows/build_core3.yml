@@ -1,0 +1,110 @@
+name: Build Summit Firmware (ESP32 core 3.x, experimental)
+
+# Non-blocking compile check of the firmware against Arduino ESP32 core 3.3.x.
+# The release build in build_and_release.yml stays on the pinned 2.0.14 core;
+# this workflow never publishes a release and its result does not gate merges
+# (continue-on-error at the job level). It exists so a change that breaks the
+# core 3.x port is noticed early. See docs/core3-port-notes.md.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '**.ino'
+      - 'src/**'
+      - 'lv_conf.h'
+      - '.github/workflows/build_core3.yml'
+
+# Mirrors the local C:\acli3 environment. The core, LovyanGFX, WebSockets and
+# NimBLE-Arduino differ from build_and_release.yml (WebSockets 2.4.1 does not
+# compile on core 3.x; NimBLE-Arduino 1.4.2 compiles but corrupts the heap in
+# esp_bt_controller_init on the IDF 5 controller, see docs/core3-port-notes.md);
+# every other library is the same pinned version.
+env:
+  ESP32_CORE_VERSION: "3.3.12"
+  LIB_LOVYANGFX: "1.2.32"
+  LIB_LVGL: "8.3.11"
+  LIB_ADAFRUIT_LC709203F: "1.3.4"
+  LIB_ADAFRUIT_BUSIO: "1.17.4"
+  LIB_ADAFRUIT_MAX1704X: "1.0.3"
+  LIB_ARDUINOJSON: "7.0.4"
+  LIB_WEBSOCKETS: "2.6.1"
+  LIB_ESPASYNCWEBSERVER: "3.6.0"
+  LIB_ASYNCTCP: "3.3.2"
+  LIB_NIMBLE_ARDUINO: "2.5.1"
+
+jobs:
+  build_core3:
+    runs-on: ubuntu-latest
+    continue-on-error: true   # experimental: a failure here must not block anything
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP32 platform (core 3.x)
+        run: |
+          arduino-cli config init --overwrite
+          arduino-cli config add board_manager.additional_urls \
+            https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@${ESP32_CORE_VERSION}
+
+      - name: Install pinned libraries
+        run: |
+          arduino-cli lib install "LovyanGFX@${LIB_LOVYANGFX}"
+          arduino-cli lib install "lvgl@${LIB_LVGL}"
+          arduino-cli lib install "Adafruit LC709203F@${LIB_ADAFRUIT_LC709203F}"
+          arduino-cli lib install "Adafruit BusIO@${LIB_ADAFRUIT_BUSIO}"
+          arduino-cli lib install "Adafruit MAX1704X@${LIB_ADAFRUIT_MAX1704X}"
+          arduino-cli lib install "ArduinoJson@${LIB_ARDUINOJSON}"
+          arduino-cli lib install "WebSockets@${LIB_WEBSOCKETS}"
+          arduino-cli lib install "ESP Async WebServer@${LIB_ESPASYNCWEBSERVER}"
+          arduino-cli lib install "Async TCP@${LIB_ASYNCTCP}"
+          arduino-cli lib install "NimBLE-Arduino@${LIB_NIMBLE_ARDUINO}"
+
+      - name: Place lv_conf.h next to lvgl library
+        run: |
+          test -f lv_conf.h || { echo "ERROR: lv_conf.h not found in repo root"; exit 1; }
+          cp lv_conf.h ~/Arduino/libraries/lv_conf.h
+
+      - name: Build firmware (core 3.x)
+        run: |
+          arduino-cli compile \
+            --fqbn "esp32:esp32:adafruit_feather_esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=enabled,FlashSize=4M,USBMode=hwcdc" \
+            --build-property "compiler.cpp.extra_flags=-mtext-section-literals" \
+            --output-dir build \
+            --export-binaries \
+            --clean \
+            --warnings default \
+            .
+
+      - name: Normalize binary filenames
+        working-directory: build
+        run: |
+          [ -f vail-summit.ino.bootloader.bin ] && mv vail-summit.ino.bootloader.bin bootloader.bin
+          [ -f vail-summit.ino.partitions.bin ] && mv vail-summit.ino.partitions.bin partitions.bin
+          [ -f vail-summit.ino.bin ]            && mv vail-summit.ino.bin            vail-summit.bin
+          ls -lh
+
+      - name: Capture firmware version + source SHA
+        id: ver
+        run: |
+          VER=$(grep -E '^#define[[:space:]]+FIRMWARE_VERSION' src/core/config.h | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "version=${VER:-unknown}" >> $GITHUB_OUTPUT
+          echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vail-summit-${{ steps.ver.outputs.version }}-${{ steps.ver.outputs.short_sha }}-core3
+          path: |
+            build/bootloader.bin
+            build/partitions.bin
+            build/vail-summit.bin
+          retention-days: 30

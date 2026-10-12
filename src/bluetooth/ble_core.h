@@ -9,7 +9,9 @@
 #define BLE_CORE_H
 
 #include <NimBLEDevice.h>
+#include <esp_mac.h>   // esp_read_mac(); no longer pulled in transitively on core 3.x
 #include "../core/config.h"
+#include "nimble_compat.h"
 
 // BLE connection state
 enum BLEConnectionState {
@@ -46,26 +48,47 @@ void stopBLEAdvertising();
 String getBLEDeviceName();
 const char* getBLEStateString();
 
-// Server callbacks for connection state tracking
+// Server callbacks for connection state tracking. NimBLE 2.x passes a
+// NimBLEConnInfo& (and a disconnect reason); 1.4.2 passes the server only.
+// The bodies are shared through the two static helpers.
+static void bleCoreOnClientConnected() {
+  bleCore.connectionState = BLE_STATE_CONNECTED;
+  bleCore.lastActivityTime = millis();
+  Serial.println("BLE: Client connected");
+}
+
+static void bleCoreOnClientDisconnected(NimBLEServer* pServer) {
+  bleCore.connectionState = BLE_STATE_ADVERTISING;
+  bleCore.connectedDeviceName = "";
+  bleCore.lastActivityTime = millis();
+  Serial.println("BLE: Client disconnected");
+
+  // Restart advertising after disconnect
+  if (bleCore.activeMode != BLE_MODE_NONE) {
+    pServer->startAdvertising();
+    Serial.println("BLE: Restarted advertising");
+  }
+}
+
 class BLECoreServerCallbacks : public NimBLEServerCallbacks {
+#if SUMMIT_NIMBLE_V2
+  void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
+    bleCoreOnClientConnected();
+  }
+
+  void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override {
+    Serial.printf("BLE: Disconnect reason %d\n", reason);
+    bleCoreOnClientDisconnected(pServer);
+  }
+#else
   void onConnect(NimBLEServer* pServer) override {
-    bleCore.connectionState = BLE_STATE_CONNECTED;
-    bleCore.lastActivityTime = millis();
-    Serial.println("BLE: Client connected");
+    bleCoreOnClientConnected();
   }
 
   void onDisconnect(NimBLEServer* pServer) override {
-    bleCore.connectionState = BLE_STATE_ADVERTISING;
-    bleCore.connectedDeviceName = "";
-    bleCore.lastActivityTime = millis();
-    Serial.println("BLE: Client disconnected");
-
-    // Restart advertising after disconnect
-    if (bleCore.activeMode != BLE_MODE_NONE) {
-      pServer->startAdvertising();
-      Serial.println("BLE: Restarted advertising");
-    }
+    bleCoreOnClientDisconnected(pServer);
   }
+#endif
 };
 
 // Generate device name with MAC address suffix
@@ -107,12 +130,22 @@ void initBLECore() {
   // Small delay before init to ensure clean state
   delay(100);
 
+  // Refuse to start the controller on a starved heap (sets bleLastErrorMsg,
+  // which the HID/MIDI screens display). Callers check bleCore.initialized.
+  if (!bleHeapOkForInit("BLE")) {
+    bleCore.connectionState = BLE_STATE_ERROR;
+    return;
+  }
+
   NimBLEDevice::init(deviceName.c_str());
 
   // Create server
   bleCore.pServer = NimBLEDevice::createServer();
   if (bleCore.pServer == nullptr) {
     Serial.println("BLE: ERROR - Failed to create server!");
+    snprintf(bleLastErrorMsg, sizeof(bleLastErrorMsg), "BLE server init failed");
+    bleCore.connectionState = BLE_STATE_ERROR;
+    NimBLEDevice::deinit(true);
     return;
   }
   bleCore.pServer->setCallbacks(new BLECoreServerCallbacks());
@@ -174,6 +207,13 @@ void startBLEAdvertising(const char* serviceName) {
   NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
   // Note: setScanResponse() and setMinPreferred() removed - deprecated in newer NimBLE API
 
+#if SUMMIT_NIMBLE_V2
+  // 2.x: services go live when the GATT server starts. startAdvertising()
+  // does this implicitly, but be explicit so a failure is logged here.
+  if (!bleCore.pServer->start()) {
+    Serial.println("BLE: ERROR - server start failed");
+  }
+#endif
   NimBLEDevice::startAdvertising();
   bleCore.connectionState = BLE_STATE_ADVERTISING;
   bleCore.lastActivityTime = millis();

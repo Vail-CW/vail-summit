@@ -109,6 +109,14 @@
 #define BRIGHTNESS_PWM_FREQ     5000  // PWM frequency in Hz
 #define BRIGHTNESS_PWM_RESOLUTION 8   // 8-bit resolution (0-255)
 
+// Minimum heap required before NimBLEDevice::init() is attempted (see
+// src/bluetooth/nimble_compat.h). The BT controller + NimBLE host allocate
+// tens of KB in several blocks during init; starting them on a starved heap
+// fails deep inside the controller instead of cleanly. Tuned conservatively
+// from a core 3.x measurement of ~90 KB free / 47 KB largest with WiFi up.
+#define BLE_MIN_FREE_HEAP       60000  // bytes
+#define BLE_MIN_LARGEST_BLOCK   20000  // bytes
+
 // ============================================
 // Iambic Paddle Key - Digital Inputs
 // ============================================

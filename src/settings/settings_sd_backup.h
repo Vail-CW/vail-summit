@@ -147,6 +147,22 @@ bool dumpAllNvsToSD(const char* path) {
   if (!f) return false;
 
   int count = 0;
+#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+  // IDF 5.x: nvs_entry_find()/nvs_entry_next() take an out-pointer and return
+  // esp_err_t (ESP_ERR_NVS_NOT_FOUND when exhausted); the iterator must be
+  // released explicitly.
+  nvs_iterator_t it = NULL;
+  esp_err_t res = nvs_entry_find("nvs", NULL, NVS_TYPE_ANY, &it);
+  while (res == ESP_OK) {
+    nvs_entry_info_t info;
+    nvs_entry_info(it, &info);
+    if (!isSystemNvsNamespace(info.namespace_name) && writeNvsEntryLine(f, info)) {
+      count++;
+    }
+    res = nvs_entry_next(&it);
+  }
+  nvs_release_iterator(it);
+#else
   nvs_iterator_t it = nvs_entry_find("nvs", NULL, NVS_TYPE_ANY);
   while (it != NULL) {
     nvs_entry_info_t info;
@@ -156,6 +172,7 @@ bool dumpAllNvsToSD(const char* path) {
     }
     it = nvs_entry_next(it);  // releases the iterator when exhausted
   }
+#endif
   f.close();
 
   if (count == 0) {
