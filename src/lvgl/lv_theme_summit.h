@@ -74,6 +74,13 @@ static lv_style_t style_dropdown_focused;
 static lv_style_t style_switch_focused;
 static lv_style_t style_slider_knob_focused;
 static lv_style_t style_scrollbar;
+// Shared "utility" styles. Screens used to set these same 2-4 properties
+// inline on hundreds of objects; each inline set allocates a local style
+// entry on the object, so sharing one style saves RAM per open screen.
+static lv_style_t style_transparent;          // bg transparent, no border
+static lv_style_t style_transparent_container; // ...plus zero padding
+static lv_style_t style_label_secondary_small; // secondary colour, small font
+static lv_style_t style_key_catcher;           // invisible focus holder
 
 // Track if styles have been initialized at least once
 static bool styles_first_init = false;
@@ -476,6 +483,30 @@ void initStyleScrollbar() {
     lv_style_set_bg_opa(&style_scrollbar, LV_OPA_60);
     lv_style_set_radius(&style_scrollbar, LV_RADIUS_CIRCLE);
     lv_style_set_width(&style_scrollbar, 4);
+
+    // Shared utility styles
+    if (styles_first_init) lv_style_reset(&style_transparent);
+    lv_style_init(&style_transparent);
+    lv_style_set_bg_opa(&style_transparent, LV_OPA_TRANSP);
+    lv_style_set_border_width(&style_transparent, 0);
+
+    if (styles_first_init) lv_style_reset(&style_transparent_container);
+    lv_style_init(&style_transparent_container);
+    lv_style_set_bg_opa(&style_transparent_container, LV_OPA_TRANSP);
+    lv_style_set_border_width(&style_transparent_container, 0);
+    lv_style_set_pad_all(&style_transparent_container, 0);
+
+    if (styles_first_init) lv_style_reset(&style_label_secondary_small);
+    lv_style_init(&style_label_secondary_small);
+    lv_style_set_text_color(&style_label_secondary_small, c->text_secondary);
+    lv_style_set_text_font(&style_label_secondary_small, getThemeFonts()->font_small);
+
+    if (styles_first_init) lv_style_reset(&style_key_catcher);
+    lv_style_init(&style_key_catcher);
+    lv_style_set_bg_opa(&style_key_catcher, LV_OPA_TRANSP);
+    lv_style_set_border_width(&style_key_catcher, 0);
+    lv_style_set_outline_width(&style_key_catcher, 0);
+    lv_style_set_pad_all(&style_key_catcher, 0);
 }
 
 // ============================================
@@ -551,6 +582,10 @@ lv_style_t* getStyleDropdownFocused() { return &style_dropdown_focused; }
 lv_style_t* getStyleSwitchFocused() { return &style_switch_focused; }
 lv_style_t* getStyleSliderKnobFocused() { return &style_slider_knob_focused; }
 lv_style_t* getStyleScrollbar() { return &style_scrollbar; }
+lv_style_t* getStyleTransparent() { return &style_transparent; }
+lv_style_t* getStyleTransparentContainer() { return &style_transparent_container; }
+lv_style_t* getStyleLabelSecondarySmall() { return &style_label_secondary_small; }
+lv_style_t* getStyleKeyCatcher() { return &style_key_catcher; }
 
 // ============================================
 // Helper Functions

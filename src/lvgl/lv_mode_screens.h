@@ -610,9 +610,7 @@ lv_obj_t* createRadioOutputScreen() {
     // WPM display
     lv_obj_t* wpm_container = lv_obj_create(settings_card);
     lv_obj_set_size(wpm_container, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(wpm_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(wpm_container, 0, 0);
-    lv_obj_set_style_pad_all(wpm_container, 0, 0);
+    lv_obj_add_style(wpm_container, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(wpm_container, LV_OBJ_FLAG_SCROLLABLE);
 
     radio_wpm_label = lv_label_create(wpm_container);
@@ -623,9 +621,7 @@ lv_obj_t* createRadioOutputScreen() {
     // Key Type display
     lv_obj_t* keytype_container = lv_obj_create(settings_card);
     lv_obj_set_size(keytype_container, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(keytype_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(keytype_container, 0, 0);
-    lv_obj_set_style_pad_all(keytype_container, 0, 0);
+    lv_obj_add_style(keytype_container, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(keytype_container, LV_OBJ_FLAG_SCROLLABLE);
 
     radio_keytype_label = lv_label_create(keytype_container);
@@ -636,9 +632,7 @@ lv_obj_t* createRadioOutputScreen() {
     // Tone display
     lv_obj_t* tone_container = lv_obj_create(settings_card);
     lv_obj_set_size(tone_container, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(tone_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(tone_container, 0, 0);
-    lv_obj_set_style_pad_all(tone_container, 0, 0);
+    lv_obj_add_style(tone_container, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(tone_container, LV_OBJ_FLAG_SCROLLABLE);
 
     radio_tone_label = lv_label_create(tone_container);
@@ -659,9 +653,7 @@ lv_obj_t* createRadioOutputScreen() {
     lv_obj_set_layout(action_bar, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(action_bar, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(action_bar, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(action_bar, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(action_bar, 0, 0);
-    lv_obj_set_style_pad_all(action_bar, 0, 0);
+    lv_obj_add_style(action_bar, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(action_bar, LV_OBJ_FLAG_SCROLLABLE);
 
     // Mode button
@@ -716,8 +708,7 @@ lv_obj_t* createRadioOutputScreen() {
     lv_obj_t* footer = lv_obj_create(screen);
     lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
     lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_add_style(footer, getStyleTransparent(), 0);
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
@@ -727,17 +718,7 @@ lv_obj_t* createRadioOutputScreen() {
     lv_obj_center(help);
 
     // Invisible focus container for keyboard input
-    lv_obj_t* focus_container = lv_obj_create(screen);
-    lv_obj_set_size(focus_container, 1, 1);
-    lv_obj_set_pos(focus_container, -10, -10);
-    lv_obj_set_style_bg_opa(focus_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(focus_container, 0, 0);
-    lv_obj_set_style_outline_width(focus_container, 0, 0);
-    lv_obj_set_style_outline_width(focus_container, 0, LV_STATE_FOCUSED);
-    lv_obj_clear_flag(focus_container, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(focus_container, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(focus_container, radio_key_event_cb, LV_EVENT_KEY, NULL);
-    addNavigableWidget(focus_container);
+    lv_obj_t* focus_container = createKeyCatcher(screen, radio_key_event_cb);
     lv_group_t* group = getLVGLInputGroup();
     if (group != NULL) {
         lv_group_set_editing(group, true);
@@ -1464,8 +1445,7 @@ lv_obj_t* createCWMemoriesScreen() {
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(list, 5, 0);
     lv_obj_set_style_pad_all(list, 5, 0);
-    lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(list, 0, 0);
+    lv_obj_add_style(list, getStyleTransparent(), 0);
     lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
 
     // Create 5 visible slot rows
@@ -1487,21 +1467,13 @@ lv_obj_t* createCWMemoriesScreen() {
     }
 
     // Focus container for key events
-    lv_obj_t* focus_container = lv_obj_create(screen);
-    lv_obj_set_size(focus_container, 1, 1);
-    lv_obj_set_pos(focus_container, 0, 0);
-    lv_obj_set_style_bg_opa(focus_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(focus_container, 0, 0);
-    lv_obj_add_flag(focus_container, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(focus_container, cwmem_key_event_cb, LV_EVENT_KEY, NULL);
-    addNavigableWidget(focus_container);
+    lv_obj_t* focus_container = createKeyCatcher(screen, cwmem_key_event_cb);
 
     // Footer
     lv_obj_t* footer = lv_obj_create(screen);
     lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
     lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_add_style(footer, getStyleTransparent(), 0);
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
@@ -1864,8 +1836,7 @@ static void showVailSettingsModal(int type) {
         // Help text
         lv_obj_t* help = lv_label_create(vail_settings_modal);
         lv_label_set_text(help, "L/R Setting   UP/DN Adjust   ENTER Save   ESC Cancel");
-        lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
-        lv_obj_set_style_text_color(help, LV_COLOR_TEXT_SECONDARY, 0);
+        lv_obj_add_style(help, getStyleLabelSecondarySmall(), 0);
         lv_obj_align(help, LV_ALIGN_BOTTOM_MID, 0, 0);
     }
 
@@ -2295,8 +2266,7 @@ static void showVailRoomOverlay() {
     vail_room_list = lv_obj_create(vail_room_overlay);
     lv_obj_set_size(vail_room_list, 340, 140);
     lv_obj_align(vail_room_list, LV_ALIGN_TOP_MID, 0, 30);
-    lv_obj_set_style_bg_opa(vail_room_list, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(vail_room_list, 0, 0);
+    lv_obj_add_style(vail_room_list, getStyleTransparent(), 0);
     lv_obj_set_style_pad_all(vail_room_list, 5, 0);
     lv_obj_set_flex_flow(vail_room_list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(vail_room_list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
@@ -2462,8 +2432,7 @@ static void showVailUserListOverlay() {
     vail_user_list = lv_obj_create(vail_user_list_overlay);
     lv_obj_set_size(vail_user_list, 300, 120);
     lv_obj_align(vail_user_list, LV_ALIGN_TOP_MID, 0, 30);
-    lv_obj_set_style_bg_opa(vail_user_list, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(vail_user_list, 0, 0);
+    lv_obj_add_style(vail_user_list, getStyleTransparent(), 0);
     lv_obj_set_style_pad_all(vail_user_list, 5, 0);
     lv_obj_set_flex_flow(vail_user_list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(vail_user_list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
@@ -2630,9 +2599,7 @@ lv_obj_t* createVailRepeaterScreen() {
     // Left cluster: receiver lamp + title + current room (transparent flex row)
     lv_obj_t* strip_left = lv_obj_create(strip);
     lv_obj_set_size(strip_left, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(strip_left, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(strip_left, 0, 0);
-    lv_obj_set_style_pad_all(strip_left, 0, 0);
+    lv_obj_add_style(strip_left, getStyleTransparentContainer(), 0);
     lv_obj_set_style_pad_gap(strip_left, 8, 0);
     lv_obj_set_layout(strip_left, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(strip_left, LV_FLEX_FLOW_ROW);
@@ -2657,8 +2624,7 @@ lv_obj_t* createVailRepeaterScreen() {
     // Current room name (always glanceable in the strip)
     vail_room_label = lv_label_create(strip_left);
     lv_label_set_text(vail_room_label, vailChannel);
-    lv_obj_set_style_text_color(vail_room_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(vail_room_label, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(vail_room_label, getStyleLabelSecondarySmall(), 0);
 
     // Right cluster: battery, WiFi, WPM, listen-only badge (absolute, like home)
     vail_strip_batt = lv_label_create(strip);
@@ -2673,8 +2639,7 @@ lv_obj_t* createVailRepeaterScreen() {
     vailApplyStripWifi(vail_strip_wifi);
 
     vail_wpm_label = lv_label_create(strip);
-    lv_obj_set_style_text_font(vail_wpm_label, getThemeFonts()->font_small, 0);
-    lv_obj_set_style_text_color(vail_wpm_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_add_style(vail_wpm_label, getStyleLabelSecondarySmall(), 0);
     lv_obj_align(vail_wpm_label, LV_ALIGN_RIGHT_MID, -78, 0);
     updateVailSettingsDisplay();
 
@@ -2702,9 +2667,7 @@ lv_obj_t* createVailRepeaterScreen() {
     vail_chat_panel = lv_obj_create(screen);
     lv_obj_set_size(vail_chat_panel, SCREEN_WIDTH, content_height);
     lv_obj_set_pos(vail_chat_panel, 0, content_top);
-    lv_obj_set_style_bg_opa(vail_chat_panel, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(vail_chat_panel, 0, 0);
-    lv_obj_set_style_pad_all(vail_chat_panel, 0, 0);
+    lv_obj_add_style(vail_chat_panel, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(vail_chat_panel, LV_OBJ_FLAG_SCROLLABLE);
     // Chat panel is the default visible view — no add_flag(HIDDEN) here.
 
@@ -2731,9 +2694,7 @@ lv_obj_t* createVailRepeaterScreen() {
     lv_obj_align(vail_chat_textarea, LV_ALIGN_TOP_LEFT, 0, 22);
     lv_textarea_set_text(vail_chat_textarea, "");
     lv_textarea_set_placeholder_text(vail_chat_textarea, "Messages appear here...");
-    lv_obj_set_style_bg_opa(vail_chat_textarea, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(vail_chat_textarea, 0, 0);
-    lv_obj_set_style_pad_all(vail_chat_textarea, 0, 0);
+    lv_obj_add_style(vail_chat_textarea, getStyleTransparentContainer(), 0);
     lv_obj_set_style_text_font(vail_chat_textarea, getThemeFonts()->font_body, 0);
     lv_obj_set_style_text_color(vail_chat_textarea, LV_COLOR_TEXT_PRIMARY, 0);
     lv_obj_clear_flag(vail_chat_textarea, LV_OBJ_FLAG_CLICK_FOCUSABLE);
@@ -2854,9 +2815,7 @@ lv_obj_t* createVailRepeaterScreen() {
     vail_settings_panel = lv_obj_create(screen);
     lv_obj_set_size(vail_settings_panel, SCREEN_WIDTH, content_height);
     lv_obj_set_pos(vail_settings_panel, 0, content_top);
-    lv_obj_set_style_bg_opa(vail_settings_panel, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(vail_settings_panel, 0, 0);
-    lv_obj_set_style_pad_all(vail_settings_panel, 0, 0);
+    lv_obj_add_style(vail_settings_panel, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(vail_settings_panel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(vail_settings_panel, LV_OBJ_FLAG_HIDDEN);
 
@@ -2909,17 +2868,7 @@ lv_obj_t* createVailRepeaterScreen() {
     updateVailFooter();
 
     // Invisible focus container for keyboard input
-    lv_obj_t* focus_container = lv_obj_create(screen);
-    lv_obj_set_size(focus_container, 1, 1);
-    lv_obj_set_pos(focus_container, -10, -10);
-    lv_obj_set_style_bg_opa(focus_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(focus_container, 0, 0);
-    lv_obj_set_style_outline_width(focus_container, 0, 0);
-    lv_obj_set_style_outline_width(focus_container, 0, LV_STATE_FOCUSED);
-    lv_obj_clear_flag(focus_container, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(focus_container, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(focus_container, vail_key_event_cb, LV_EVENT_KEY, NULL);
-    addNavigableWidget(focus_container);
+    lv_obj_t* focus_container = createKeyCatcher(screen, vail_key_event_cb);
     lv_group_t* group = getLVGLInputGroup();
     if (group != NULL) {
         lv_group_set_editing(group, true);
@@ -3050,9 +2999,7 @@ void updateVailScreenLVGL() {
     }
 
     // Update room name label in the status strip
-    if (vail_room_label != NULL) {
-        lv_label_set_text(vail_room_label, vailChannel);
-    }
+    lvLabelSetIfChanged(vail_room_label, vailChannel);
 
     // Sync chat messages if new ones arrived
     if (chatHistory.size() != vail_last_chat_count && vail_chat_textarea != NULL) {
@@ -3473,16 +3420,14 @@ lv_obj_t* createQSOLogEntryScreen() {
     lv_obj_set_flex_flow(form, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(form, 8, 0);
     lv_obj_set_style_pad_all(form, 10, 0);
-    lv_obj_set_style_bg_opa(form, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(form, 0, 0);
+    lv_obj_add_style(form, getStyleTransparent(), 0);
     lv_obj_add_flag(form, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scrollbar_mode(form, LV_SCROLLBAR_MODE_AUTO);
 
     // Row 1: Callsign
     lv_obj_t* call_label = lv_label_create(form);
     lv_label_set_text(call_label, "Callsign *");
-    lv_obj_set_style_text_color(call_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(call_label, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(call_label, getStyleLabelSecondarySmall(), 0);
 
     qso_callsign_input = lv_textarea_create(form);
     lv_obj_set_size(qso_callsign_input, lv_pct(100), 35);
@@ -3499,9 +3444,7 @@ lv_obj_t* createQSOLogEntryScreen() {
     lv_obj_set_layout(freq_mode_row, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(freq_mode_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(freq_mode_row, 15, 0);
-    lv_obj_set_style_bg_opa(freq_mode_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(freq_mode_row, 0, 0);
-    lv_obj_set_style_pad_all(freq_mode_row, 0, 0);
+    lv_obj_add_style(freq_mode_row, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(freq_mode_row, LV_OBJ_FLAG_SCROLLABLE);
 
     // Frequency column
@@ -3510,15 +3453,12 @@ lv_obj_t* createQSOLogEntryScreen() {
     lv_obj_set_layout(freq_col, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(freq_col, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(freq_col, 3, 0);
-    lv_obj_set_style_bg_opa(freq_col, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(freq_col, 0, 0);
-    lv_obj_set_style_pad_all(freq_col, 0, 0);
+    lv_obj_add_style(freq_col, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(freq_col, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* freq_label = lv_label_create(freq_col);
     lv_label_set_text(freq_label, "Frequency (kHz)");
-    lv_obj_set_style_text_color(freq_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(freq_label, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(freq_label, getStyleLabelSecondarySmall(), 0);
 
     qso_freq_input = lv_textarea_create(freq_col);
     lv_obj_set_size(qso_freq_input, lv_pct(100), 35);
@@ -3535,15 +3475,12 @@ lv_obj_t* createQSOLogEntryScreen() {
     lv_obj_set_layout(mode_col, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(mode_col, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(mode_col, 3, 0);
-    lv_obj_set_style_bg_opa(mode_col, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(mode_col, 0, 0);
-    lv_obj_set_style_pad_all(mode_col, 0, 0);
+    lv_obj_add_style(mode_col, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(mode_col, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* mode_title = lv_label_create(mode_col);
     lv_label_set_text(mode_title, "Mode");
-    lv_obj_set_style_text_color(mode_title, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(mode_title, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(mode_title, getStyleLabelSecondarySmall(), 0);
 
     qso_mode_row = lv_obj_create(mode_col);
     lv_obj_set_size(qso_mode_row, lv_pct(100), 35);
@@ -3574,9 +3511,7 @@ lv_obj_t* createQSOLogEntryScreen() {
     lv_obj_set_layout(rst_row, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(rst_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(rst_row, 15, 0);
-    lv_obj_set_style_bg_opa(rst_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(rst_row, 0, 0);
-    lv_obj_set_style_pad_all(rst_row, 0, 0);
+    lv_obj_add_style(rst_row, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(rst_row, LV_OBJ_FLAG_SCROLLABLE);
 
     // RST Sent column
@@ -3585,15 +3520,12 @@ lv_obj_t* createQSOLogEntryScreen() {
     lv_obj_set_layout(rst_sent_col, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(rst_sent_col, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(rst_sent_col, 3, 0);
-    lv_obj_set_style_bg_opa(rst_sent_col, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(rst_sent_col, 0, 0);
-    lv_obj_set_style_pad_all(rst_sent_col, 0, 0);
+    lv_obj_add_style(rst_sent_col, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(rst_sent_col, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* rst_sent_label = lv_label_create(rst_sent_col);
     lv_label_set_text(rst_sent_label, "RST Sent");
-    lv_obj_set_style_text_color(rst_sent_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(rst_sent_label, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(rst_sent_label, getStyleLabelSecondarySmall(), 0);
 
     qso_rst_sent_input = lv_textarea_create(rst_sent_col);
     lv_obj_set_size(qso_rst_sent_input, lv_pct(100), 35);
@@ -3610,15 +3542,12 @@ lv_obj_t* createQSOLogEntryScreen() {
     lv_obj_set_layout(rst_rcvd_col, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(rst_rcvd_col, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(rst_rcvd_col, 3, 0);
-    lv_obj_set_style_bg_opa(rst_rcvd_col, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(rst_rcvd_col, 0, 0);
-    lv_obj_set_style_pad_all(rst_rcvd_col, 0, 0);
+    lv_obj_add_style(rst_rcvd_col, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(rst_rcvd_col, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* rst_rcvd_label = lv_label_create(rst_rcvd_col);
     lv_label_set_text(rst_rcvd_label, "RST Rcvd");
-    lv_obj_set_style_text_color(rst_rcvd_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(rst_rcvd_label, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(rst_rcvd_label, getStyleLabelSecondarySmall(), 0);
 
     qso_rst_rcvd_input = lv_textarea_create(rst_rcvd_col);
     lv_obj_set_size(qso_rst_rcvd_input, lv_pct(100), 35);
@@ -3635,9 +3564,7 @@ lv_obj_t* createQSOLogEntryScreen() {
     lv_obj_set_layout(datetime_row, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(datetime_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(datetime_row, 15, 0);
-    lv_obj_set_style_bg_opa(datetime_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(datetime_row, 0, 0);
-    lv_obj_set_style_pad_all(datetime_row, 0, 0);
+    lv_obj_add_style(datetime_row, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(datetime_row, LV_OBJ_FLAG_SCROLLABLE);
 
     // Date column
@@ -3646,15 +3573,12 @@ lv_obj_t* createQSOLogEntryScreen() {
     lv_obj_set_layout(date_col, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(date_col, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(date_col, 3, 0);
-    lv_obj_set_style_bg_opa(date_col, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(date_col, 0, 0);
-    lv_obj_set_style_pad_all(date_col, 0, 0);
+    lv_obj_add_style(date_col, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(date_col, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* date_label = lv_label_create(date_col);
     lv_label_set_text(date_label, "Date (YYYYMMDD)");
-    lv_obj_set_style_text_color(date_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(date_label, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(date_label, getStyleLabelSecondarySmall(), 0);
 
     qso_date_input = lv_textarea_create(date_col);
     lv_obj_set_size(qso_date_input, lv_pct(100), 35);
@@ -3670,15 +3594,12 @@ lv_obj_t* createQSOLogEntryScreen() {
     lv_obj_set_layout(time_col, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(time_col, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(time_col, 3, 0);
-    lv_obj_set_style_bg_opa(time_col, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(time_col, 0, 0);
-    lv_obj_set_style_pad_all(time_col, 0, 0);
+    lv_obj_add_style(time_col, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(time_col, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* time_label = lv_label_create(time_col);
     lv_label_set_text(time_label, "Time UTC");
-    lv_obj_set_style_text_color(time_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(time_label, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(time_label, getStyleLabelSecondarySmall(), 0);
 
     qso_time_input = lv_textarea_create(time_col);
     lv_obj_set_size(qso_time_input, lv_pct(100), 35);
@@ -3700,9 +3621,7 @@ lv_obj_t* createQSOLogEntryScreen() {
     lv_obj_set_layout(my_loc_row, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(my_loc_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(my_loc_row, 15, 0);
-    lv_obj_set_style_bg_opa(my_loc_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(my_loc_row, 0, 0);
-    lv_obj_set_style_pad_all(my_loc_row, 0, 0);
+    lv_obj_add_style(my_loc_row, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(my_loc_row, LV_OBJ_FLAG_SCROLLABLE);
 
     // My Grid column
@@ -3711,15 +3630,12 @@ lv_obj_t* createQSOLogEntryScreen() {
     lv_obj_set_layout(my_grid_col, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(my_grid_col, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(my_grid_col, 3, 0);
-    lv_obj_set_style_bg_opa(my_grid_col, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(my_grid_col, 0, 0);
-    lv_obj_set_style_pad_all(my_grid_col, 0, 0);
+    lv_obj_add_style(my_grid_col, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(my_grid_col, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* my_grid_label = lv_label_create(my_grid_col);
     lv_label_set_text(my_grid_label, "My Grid");
-    lv_obj_set_style_text_color(my_grid_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(my_grid_label, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(my_grid_label, getStyleLabelSecondarySmall(), 0);
 
     qso_my_grid_input = lv_textarea_create(my_grid_col);
     lv_obj_set_size(qso_my_grid_input, lv_pct(100), 35);
@@ -3736,15 +3652,12 @@ lv_obj_t* createQSOLogEntryScreen() {
     lv_obj_set_layout(my_pota_col, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(my_pota_col, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(my_pota_col, 3, 0);
-    lv_obj_set_style_bg_opa(my_pota_col, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(my_pota_col, 0, 0);
-    lv_obj_set_style_pad_all(my_pota_col, 0, 0);
+    lv_obj_add_style(my_pota_col, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(my_pota_col, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* my_pota_label = lv_label_create(my_pota_col);
     lv_label_set_text(my_pota_label, "My POTA");
-    lv_obj_set_style_text_color(my_pota_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(my_pota_label, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(my_pota_label, getStyleLabelSecondarySmall(), 0);
 
     qso_my_pota_input = lv_textarea_create(my_pota_col);
     lv_obj_set_size(qso_my_pota_input, lv_pct(100), 35);
@@ -3758,8 +3671,7 @@ lv_obj_t* createQSOLogEntryScreen() {
     // Row 6: Notes
     lv_obj_t* notes_label = lv_label_create(form);
     lv_label_set_text(notes_label, "Notes");
-    lv_obj_set_style_text_color(notes_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(notes_label, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(notes_label, getStyleLabelSecondarySmall(), 0);
 
     qso_notes_input = lv_textarea_create(form);
     lv_obj_set_size(qso_notes_input, lv_pct(100), 35);
@@ -3777,8 +3689,7 @@ lv_obj_t* createQSOLogEntryScreen() {
     lv_obj_t* footer = lv_obj_create(screen);
     lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
     lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_add_style(footer, getStyleTransparent(), 0);
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
@@ -3959,9 +3870,7 @@ lv_obj_t* createQSOSaveConfirmScreen(const QSO& savedQso) {
     lv_obj_set_layout(btn_row, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(btn_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(btn_row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(btn_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(btn_row, 0, 0);
-    lv_obj_set_style_pad_all(btn_row, 0, 0);
+    lv_obj_add_style(btn_row, getStyleTransparentContainer(), 0);
     lv_obj_clear_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
 
     // Log Another button
@@ -4080,9 +3989,7 @@ lv_obj_t* createBTHIDScreen() {
     // Row 1: Bluetooth icon + Device name (top, centered)
     lv_obj_t* name_row = lv_obj_create(card);
     lv_obj_set_size(name_row, lv_pct(100), LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(name_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(name_row, 0, 0);
-    lv_obj_set_style_pad_all(name_row, 0, 0);
+    lv_obj_add_style(name_row, getStyleTransparentContainer(), 0);
     lv_obj_align(name_row, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_clear_flag(name_row, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -4108,9 +4015,7 @@ lv_obj_t* createBTHIDScreen() {
     // Row 3: Keyer mode selector (< Passthrough >)
     lv_obj_t* keyer_row = lv_obj_create(card);
     lv_obj_set_size(keyer_row, lv_pct(100), LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(keyer_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(keyer_row, 0, 0);
-    lv_obj_set_style_pad_all(keyer_row, 0, 0);
+    lv_obj_add_style(keyer_row, getStyleTransparentContainer(), 0);
     lv_obj_align(keyer_row, LV_ALIGN_TOP_MID, 0, 60);
     lv_obj_clear_flag(keyer_row, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -4129,9 +4034,7 @@ lv_obj_t* createBTHIDScreen() {
     // Row 4: Key mapping (DIT -> Left Ctrl, DAH -> Right Ctrl)
     lv_obj_t* mapping_row = lv_obj_create(card);
     lv_obj_set_size(mapping_row, lv_pct(100), LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(mapping_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(mapping_row, 0, 0);
-    lv_obj_set_style_pad_all(mapping_row, 0, 0);
+    lv_obj_add_style(mapping_row, getStyleTransparentContainer(), 0);
     lv_obj_align(mapping_row, LV_ALIGN_TOP_MID, 0, 95);
     lv_obj_clear_flag(mapping_row, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -4150,9 +4053,7 @@ lv_obj_t* createBTHIDScreen() {
     // Row 5: Paddle LED indicators at bottom
     lv_obj_t* indicator_row = lv_obj_create(card);
     lv_obj_set_size(indicator_row, lv_pct(100), 50);
-    lv_obj_set_style_bg_opa(indicator_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(indicator_row, 0, 0);
-    lv_obj_set_style_pad_all(indicator_row, 0, 0);
+    lv_obj_add_style(indicator_row, getStyleTransparentContainer(), 0);
     lv_obj_align(indicator_row, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_clear_flag(indicator_row, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -4193,28 +4094,16 @@ lv_obj_t* createBTHIDScreen() {
     lv_obj_t* footer = lv_obj_create(screen);
     lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
     lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_add_style(footer, getStyleTransparent(), 0);
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     bt_hid_footer_label = lv_label_create(footer);
     lv_label_set_text(bt_hid_footer_label, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " Keyer    " LV_SYMBOL_UP " Typing    Paddle to key    ESC Exit");
-    lv_obj_set_style_text_color(bt_hid_footer_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(bt_hid_footer_label, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(bt_hid_footer_label, getStyleLabelSecondarySmall(), 0);
     lv_obj_center(bt_hid_footer_label);
 
     // Invisible focus container for keyboard handling
-    lv_obj_t* focus_container = lv_obj_create(screen);
-    lv_obj_set_size(focus_container, 1, 1);
-    lv_obj_set_pos(focus_container, -10, -10);
-    lv_obj_set_style_bg_opa(focus_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(focus_container, 0, 0);
-    lv_obj_set_style_outline_width(focus_container, 0, 0);
-    lv_obj_set_style_outline_width(focus_container, 0, LV_STATE_FOCUSED);
-    lv_obj_clear_flag(focus_container, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(focus_container, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(focus_container, bt_hid_key_event_cb, LV_EVENT_KEY, NULL);
-    addNavigableWidget(focus_container);
+    lv_obj_t* focus_container = createKeyCatcher(screen, bt_hid_key_event_cb);
     lv_group_t* group = getLVGLInputGroup();
     if (group != NULL) {
         lv_group_set_editing(group, true);
@@ -4346,9 +4235,7 @@ lv_obj_t* createBTMIDIScreen() {
     // Row 1: Bluetooth icon + Device name (top, centered)
     lv_obj_t* name_row = lv_obj_create(card);
     lv_obj_set_size(name_row, lv_pct(100), LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(name_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(name_row, 0, 0);
-    lv_obj_set_style_pad_all(name_row, 0, 0);
+    lv_obj_add_style(name_row, getStyleTransparentContainer(), 0);
     lv_obj_align(name_row, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_clear_flag(name_row, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -4374,9 +4261,7 @@ lv_obj_t* createBTMIDIScreen() {
     // Row 3: Keyer program (host-controlled)
     lv_obj_t* keyer_row = lv_obj_create(card);
     lv_obj_set_size(keyer_row, lv_pct(100), LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(keyer_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(keyer_row, 0, 0);
-    lv_obj_set_style_pad_all(keyer_row, 0, 0);
+    lv_obj_add_style(keyer_row, getStyleTransparentContainer(), 0);
     lv_obj_align(keyer_row, LV_ALIGN_TOP_MID, 0, 62);
     lv_obj_clear_flag(keyer_row, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -4407,16 +4292,13 @@ lv_obj_t* createBTMIDIScreen() {
     // Row 4: Hint about host control
     lv_obj_t* hint = lv_label_create(card);
     lv_label_set_text(hint, "Host sets keyer and speed via MIDI (Vail Adapter spec)");
-    lv_obj_set_style_text_color(hint, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(hint, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(hint, getStyleLabelSecondarySmall(), 0);
     lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 95);
 
     // Row 5: Keying LED indicator at bottom
     lv_obj_t* indicator_row = lv_obj_create(card);
     lv_obj_set_size(indicator_row, lv_pct(100), 50);
-    lv_obj_set_style_bg_opa(indicator_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(indicator_row, 0, 0);
-    lv_obj_set_style_pad_all(indicator_row, 0, 0);
+    lv_obj_add_style(indicator_row, getStyleTransparentContainer(), 0);
     lv_obj_align(indicator_row, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_clear_flag(indicator_row, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -4436,28 +4318,16 @@ lv_obj_t* createBTMIDIScreen() {
     lv_obj_t* footer = lv_obj_create(screen);
     lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
     lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_add_style(footer, getStyleTransparent(), 0);
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
     lv_label_set_text(help, "Pair in computer Bluetooth settings    Paddle to key    ESC Exit");
-    lv_obj_set_style_text_color(help, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(help, getStyleLabelSecondarySmall(), 0);
     lv_obj_center(help);
 
     // Invisible focus container for keyboard handling
-    lv_obj_t* focus_container = lv_obj_create(screen);
-    lv_obj_set_size(focus_container, 1, 1);
-    lv_obj_set_pos(focus_container, -10, -10);
-    lv_obj_set_style_bg_opa(focus_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(focus_container, 0, 0);
-    lv_obj_set_style_outline_width(focus_container, 0, 0);
-    lv_obj_set_style_outline_width(focus_container, 0, LV_STATE_FOCUSED);
-    lv_obj_clear_flag(focus_container, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(focus_container, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(focus_container, bt_midi_key_event_cb, LV_EVENT_KEY, NULL);
-    addNavigableWidget(focus_container);
+    lv_obj_t* focus_container = createKeyCatcher(screen, bt_midi_key_event_cb);
     lv_group_t* group = getLVGLInputGroup();
     if (group != NULL) {
         lv_group_set_editing(group, true);
@@ -4790,15 +4660,13 @@ lv_obj_t* createQSOLoggerSettingsScreen() {
     // the bottom of the 320px screen.
     lv_obj_set_style_pad_row(content, 5, 0);
     lv_obj_set_style_pad_all(content, 5, 0);
-    lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(content, 0, 0);
+    lv_obj_add_style(content, getStyleTransparent(), 0);
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
 
     // Row 1: Location Mode selector
     lv_obj_t* mode_label = lv_label_create(content);
     lv_label_set_text(mode_label, "Location Mode");
-    lv_obj_set_style_text_color(mode_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(mode_label, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(mode_label, getStyleLabelSecondarySmall(), 0);
 
     logger_mode_row = lv_obj_create(content);
     lv_obj_set_size(logger_mode_row, lv_pct(100), 40);
@@ -4821,8 +4689,7 @@ lv_obj_t* createQSOLoggerSettingsScreen() {
     } else {
         lv_label_set_text(location_label, "POTA Reference (e.g., US-2256)");
     }
-    lv_obj_set_style_text_color(location_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(location_label, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(location_label, getStyleLabelSecondarySmall(), 0);
 
     logger_location_row = lv_obj_create(content);
     lv_obj_set_size(logger_location_row, lv_pct(100), 50);
@@ -4851,8 +4718,7 @@ lv_obj_t* createQSOLoggerSettingsScreen() {
     // Row 3: QTH input (Grid mode only)
     lv_obj_t* qth_label = lv_label_create(content);
     lv_label_set_text(qth_label, "QTH (Optional)");
-    lv_obj_set_style_text_color(qth_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(qth_label, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(qth_label, getStyleLabelSecondarySmall(), 0);
 
     logger_qth_row = lv_obj_create(content);
     lv_obj_set_size(logger_qth_row, lv_pct(100), 50);
@@ -4890,22 +4756,19 @@ lv_obj_t* createQSOLoggerSettingsScreen() {
 
     logger_pota_location_label = lv_label_create(logger_pota_status_card);
     lv_label_set_text(logger_pota_location_label, "");
-    lv_obj_set_style_text_font(logger_pota_location_label, getThemeFonts()->font_small, 0);
-    lv_obj_set_style_text_color(logger_pota_location_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_add_style(logger_pota_location_label, getStyleLabelSecondarySmall(), 0);
     lv_obj_align(logger_pota_location_label, LV_ALIGN_TOP_LEFT, 0, 20);
 
     logger_pota_grid_label = lv_label_create(logger_pota_status_card);
     lv_label_set_text(logger_pota_grid_label, "");
-    lv_obj_set_style_text_font(logger_pota_grid_label, getThemeFonts()->font_small, 0);
-    lv_obj_set_style_text_color(logger_pota_grid_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_add_style(logger_pota_grid_label, getStyleLabelSecondarySmall(), 0);
     lv_obj_align(logger_pota_grid_label, LV_ALIGN_TOP_LEFT, 0, 38);
 
     // Footer
     lv_obj_t* footer = lv_obj_create(screen);
     lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
     lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_add_style(footer, getStyleTransparent(), 0);
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     logger_footer_label = lv_label_create(footer);
@@ -4915,13 +4778,7 @@ lv_obj_t* createQSOLoggerSettingsScreen() {
     lv_obj_center(logger_footer_label);
 
     // Invisible focus container for key handling
-    logger_settings_focus_container = lv_obj_create(screen);
-    lv_obj_set_size(logger_settings_focus_container, 0, 0);
-    lv_obj_set_style_bg_opa(logger_settings_focus_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(logger_settings_focus_container, 0, 0);
-    lv_obj_add_flag(logger_settings_focus_container, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(logger_settings_focus_container, logger_settings_key_cb, LV_EVENT_KEY, NULL);
-    addNavigableWidget(logger_settings_focus_container);
+    logger_settings_focus_container = createKeyCatcher(screen, logger_settings_key_cb);
 
     // Add textareas to nav group (allows keyboard input to them)
     addNavigableWidget(logger_location_input);
@@ -5050,8 +4907,7 @@ lv_obj_t* createQSOStatisticsScreen() {
     lv_obj_set_flex_flow(qso_stats_scroll_container, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(qso_stats_scroll_container, 8, 0);
     lv_obj_set_style_pad_all(qso_stats_scroll_container, 5, 0);
-    lv_obj_set_style_bg_opa(qso_stats_scroll_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(qso_stats_scroll_container, 0, 0);
+    lv_obj_add_style(qso_stats_scroll_container, getStyleTransparent(), 0);
     lv_obj_add_flag(qso_stats_scroll_container, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scrollbar_mode(qso_stats_scroll_container, LV_SCROLLBAR_MODE_AUTO);
 
@@ -5072,8 +4928,7 @@ lv_obj_t* createQSOStatisticsScreen() {
         lv_obj_set_style_pad_column(cards_row, 10, 0);
         lv_obj_set_style_pad_row(cards_row, 8, 0);
         lv_obj_set_style_pad_all(cards_row, 0, 0);
-        lv_obj_set_style_bg_opa(cards_row, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(cards_row, 0, 0);
+        lv_obj_add_style(cards_row, getStyleTransparent(), 0);
         lv_obj_clear_flag(cards_row, LV_OBJ_FLAG_SCROLLABLE);
 
         // Card 1: Total QSOs
@@ -5085,8 +4940,7 @@ lv_obj_t* createQSOStatisticsScreen() {
 
         lv_obj_t* total_title = lv_label_create(total_card);
         lv_label_set_text(total_title, "Total QSOs");
-        lv_obj_set_style_text_color(total_title, LV_COLOR_TEXT_SECONDARY, 0);
-        lv_obj_set_style_text_font(total_title, getThemeFonts()->font_small, 0);
+        lv_obj_add_style(total_title, getStyleLabelSecondarySmall(), 0);
         lv_obj_align(total_title, LV_ALIGN_TOP_LEFT, 0, 0);
 
         qso_stats_total_label = lv_label_create(total_card);
@@ -5104,8 +4958,7 @@ lv_obj_t* createQSOStatisticsScreen() {
 
         lv_obj_t* unique_title = lv_label_create(unique_card);
         lv_label_set_text(unique_title, "Unique Calls");
-        lv_obj_set_style_text_color(unique_title, LV_COLOR_TEXT_SECONDARY, 0);
-        lv_obj_set_style_text_font(unique_title, getThemeFonts()->font_small, 0);
+        lv_obj_add_style(unique_title, getStyleLabelSecondarySmall(), 0);
         lv_obj_align(unique_title, LV_ALIGN_TOP_LEFT, 0, 0);
 
         qso_stats_unique_label = lv_label_create(unique_card);
@@ -5123,8 +4976,7 @@ lv_obj_t* createQSOStatisticsScreen() {
 
         lv_obj_t* active_title = lv_label_create(active_card);
         lv_label_set_text(active_title, "Most Active Day");
-        lv_obj_set_style_text_color(active_title, LV_COLOR_TEXT_SECONDARY, 0);
-        lv_obj_set_style_text_font(active_title, getThemeFonts()->font_small, 0);
+        lv_obj_add_style(active_title, getStyleLabelSecondarySmall(), 0);
         lv_obj_align(active_title, LV_ALIGN_TOP_LEFT, 0, 0);
 
         qso_stats_active_label = lv_label_create(active_card);
@@ -5148,8 +5000,7 @@ lv_obj_t* createQSOStatisticsScreen() {
 
         lv_obj_t* last_title = lv_label_create(last_card);
         lv_label_set_text(last_title, "Last QSO");
-        lv_obj_set_style_text_color(last_title, LV_COLOR_TEXT_SECONDARY, 0);
-        lv_obj_set_style_text_font(last_title, getThemeFonts()->font_small, 0);
+        lv_obj_add_style(last_title, getStyleLabelSecondarySmall(), 0);
         lv_obj_align(last_title, LV_ALIGN_TOP_LEFT, 0, 0);
 
         qso_stats_last_label = lv_label_create(last_card);
@@ -5183,9 +5034,7 @@ lv_obj_t* createQSOStatisticsScreen() {
             for (int i = 0; i < stats.bandCount && i < 10; i++) {
                 lv_obj_t* band_row = lv_obj_create(bands_section);
                 lv_obj_set_size(band_row, lv_pct(100), 20);
-                lv_obj_set_style_bg_opa(band_row, LV_OPA_TRANSP, 0);
-                lv_obj_set_style_border_width(band_row, 0, 0);
-                lv_obj_set_style_pad_all(band_row, 0, 0);
+                lv_obj_add_style(band_row, getStyleTransparentContainer(), 0);
                 lv_obj_clear_flag(band_row, LV_OBJ_FLAG_SCROLLABLE);
 
                 lv_obj_t* band_name = lv_label_create(band_row);
@@ -5231,9 +5080,7 @@ lv_obj_t* createQSOStatisticsScreen() {
             for (int i = 0; i < stats.modeCount && i < 8; i++) {
                 lv_obj_t* mode_row = lv_obj_create(modes_section);
                 lv_obj_set_size(mode_row, lv_pct(100), 20);
-                lv_obj_set_style_bg_opa(mode_row, LV_OPA_TRANSP, 0);
-                lv_obj_set_style_border_width(mode_row, 0, 0);
-                lv_obj_set_style_pad_all(mode_row, 0, 0);
+                lv_obj_add_style(mode_row, getStyleTransparentContainer(), 0);
                 lv_obj_clear_flag(mode_row, LV_OBJ_FLAG_SCROLLABLE);
 
                 lv_obj_t* mode_name = lv_label_create(mode_row);
@@ -5265,8 +5112,7 @@ lv_obj_t* createQSOStatisticsScreen() {
     lv_obj_t* footer = lv_obj_create(screen);
     lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
     lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_add_style(footer, getStyleTransparent(), 0);
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* footer_label = lv_label_create(footer);
@@ -5276,13 +5122,7 @@ lv_obj_t* createQSOStatisticsScreen() {
     lv_obj_center(footer_label);
 
     // Invisible focus container for key handling
-    qso_stats_focus_container = lv_obj_create(screen);
-    lv_obj_set_size(qso_stats_focus_container, 0, 0);
-    lv_obj_set_style_bg_opa(qso_stats_focus_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(qso_stats_focus_container, 0, 0);
-    lv_obj_add_flag(qso_stats_focus_container, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(qso_stats_focus_container, qso_stats_key_cb, LV_EVENT_KEY, NULL);
-    addNavigableWidget(qso_stats_focus_container);
+    qso_stats_focus_container = createKeyCatcher(screen, qso_stats_key_cb);
 
     // Enable edit mode
     lv_group_t* group = getLVGLInputGroup();
@@ -5684,8 +5524,7 @@ static void rebuildViewLogsList() {
         formatDateShort(qso.date, dateStr, sizeof(dateStr));
         lv_obj_t* date_label = lv_label_create(row);
         lv_label_set_text(date_label, dateStr);
-        lv_obj_set_style_text_font(date_label, getThemeFonts()->font_small, 0);
-        lv_obj_set_style_text_color(date_label, LV_COLOR_TEXT_SECONDARY, 0);
+        lv_obj_add_style(date_label, getStyleLabelSecondarySmall(), 0);
         lv_obj_align(date_label, LV_ALIGN_LEFT_MID, 0, 0);
 
         // Callsign (center)
@@ -5750,8 +5589,7 @@ lv_obj_t* createQSOViewLogsScreen() {
     lv_obj_set_flex_flow(view_logs_list_container, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(view_logs_list_container, 5, 0);
     lv_obj_set_style_pad_all(view_logs_list_container, 5, 0);
-    lv_obj_set_style_bg_opa(view_logs_list_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(view_logs_list_container, 0, 0);
+    lv_obj_add_style(view_logs_list_container, getStyleTransparent(), 0);
     lv_obj_clear_flag(view_logs_list_container, LV_OBJ_FLAG_SCROLLABLE);
 
     if (viewState.totalQSOs == 0) {
@@ -5770,8 +5608,7 @@ lv_obj_t* createQSOViewLogsScreen() {
     lv_obj_t* footer = lv_obj_create(screen);
     lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
     lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_add_style(footer, getStyleTransparent(), 0);
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* footer_label = lv_label_create(footer);
@@ -5781,13 +5618,7 @@ lv_obj_t* createQSOViewLogsScreen() {
     lv_obj_center(footer_label);
 
     // Invisible focus container for key handling
-    view_logs_focus_container = lv_obj_create(screen);
-    lv_obj_set_size(view_logs_focus_container, 0, 0);
-    lv_obj_set_style_bg_opa(view_logs_focus_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(view_logs_focus_container, 0, 0);
-    lv_obj_add_flag(view_logs_focus_container, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(view_logs_focus_container, view_logs_key_cb, LV_EVENT_KEY, NULL);
-    addNavigableWidget(view_logs_focus_container);
+    view_logs_focus_container = createKeyCatcher(screen, view_logs_key_cb);
 
     // Enable edit mode
     lv_group_t* group = getLVGLInputGroup();
