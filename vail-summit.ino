@@ -47,6 +47,7 @@ using namespace lgfx::v1::fonts;
 #include "src/core/hardware_init.h"
 
 // LVGL modules (must come after hardware_init.h for LGFX type)
+#include "src/lvgl/lv_mem_psram.h"
 #include "src/lvgl/lv_init.h"
 #include "src/lvgl/lv_screen_manager.h"
 #include "src/lvgl/lv_theme_summit.h"
