@@ -157,6 +157,9 @@ struct BLEKBConnectRequest {
 };
 static BLEKBConnectRequest bleKBConnectReq;
 static volatile bool bleKBConnectBusy = false;      // worker task alive
+// Bumped by forgetBLEKeyboardPairing(). A connect worker that started before
+// a forget sees a different value at the end and must not re-save the pairing.
+static volatile uint32_t bleKBPairEpoch = 0;
 static volatile bool bleKBConnectAborted = false;   // main loop gave up on it
 static unsigned long bleKBConnectStart = 0;
 
@@ -606,6 +609,7 @@ bool connectToBLEKeyboard(int deviceIndex) {
 // not touch LVGL. Everything blocking in here is bounded by NimBLE's own
 // timeouts (10s connect, 30s SM) and by the main loop's deadline disconnect.
 static bool bleKBRunConnect(const BLEKBConnectRequest& req) {
+  const uint32_t epochAtStart = bleKBPairEpoch;
   Serial.printf("BLEKB: Connecting to %s (%s)%s\n", req.address, req.name,
                 req.freshPair ? " [fresh pairing]" : "");
 
@@ -796,7 +800,10 @@ static bool bleKBRunConnect(const BLEKBConnectRequest& req) {
       }
       delay(300);  // let the disconnect complete before reconnecting
     } else {
-      Serial.println("BLEKB: Link still unencrypted, continuing anyway");
+      Serial.println("BLEKB: Link still unencrypted, refusing it");
+      bleKBHost.pClient->disconnect();
+      bleKBSetLastError("Pairing failed (not encrypted)");
+      return false;
     }
   }
 
@@ -835,6 +842,16 @@ static bool bleKBRunConnect(const BLEKBConnectRequest& req) {
     strncpy(bleKBHost.pairedDevice.name, req.address, sizeof(bleKBHost.pairedDevice.name) - 1);
   }
   bleKBHost.pairedDevice.name[sizeof(bleKBHost.pairedDevice.name) - 1] = '\0';
+
+  if (bleKBPairEpoch != epochAtStart) {
+    // Forgotten while we were connecting: drop the link and the new bond
+    Serial.println("BLEKB: Pairing was forgotten during connect, discarding");
+    bleKBHost.pClient->disconnect();
+    NimBLEDevice::deleteBond(idAddr);
+    memset(&bleKBHost.pairedDevice, 0, sizeof(bleKBHost.pairedDevice));
+    bleKBSetLastError("Pairing forgotten");
+    return false;
+  }
   bleKBHost.pairedDevice.valid = true;
 
   // Save to preferences
@@ -847,6 +864,10 @@ static bool bleKBRunConnect(const BLEKBConnectRequest& req) {
 // Worker task entry: run the sequence, publish the outcome, exit
 static void bleKBConnectTask(void* arg) {
   bool ok = bleKBRunConnect(bleKBConnectReq);
+  if (ok && (bleKBHost.pClient == nullptr || !bleKBHost.pClient->isConnected())) {
+    bleKBSetLastError("Link dropped");
+    ok = false;
+  }
   if (ok) {
     bleKBHost.state = BLEKB_STATE_CONNECTED;
     bleKBHost.lastKeyTime = millis();
@@ -1093,7 +1114,17 @@ static void bleKBCheckPreviousBoot() {
   bleKBBootPhase = BLEKB_PHASE_NONE;
 
   if (!abnormal) {
-    return;  // clean boot (power-on, software restart): nothing to attribute
+    // Clean boot breaks the run, so only back-to-back crashes count
+    Preferences prefs;
+    prefs.begin("btkeyboard", true);
+    uint8_t stale = prefs.getUChar("crashCnt", 0);
+    prefs.end();
+    if (stale != 0) {
+      prefs.begin("btkeyboard", false);
+      prefs.putUChar("crashCnt", 0);
+      prefs.end();
+    }
+    return;
   }
   if (phase == BLEKB_PHASE_NONE) {
     Serial.println("BLEKB: Previous reset was abnormal but the keyboard host was off");
@@ -1165,6 +1196,7 @@ void loadBLEKeyboardSettings() {
 
 // Forget paired keyboard
 void forgetBLEKeyboardPairing() {
+  bleKBPairEpoch++;  // invalidates any connect worker still running
   // Disconnect if connected
   if (bleKBHost.pClient != nullptr && bleKBHost.pClient->isConnected()) {
     bleKBHost.pClient->disconnect();

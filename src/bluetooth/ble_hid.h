@@ -313,6 +313,11 @@ void startBTHID() {
   // on exit would otherwise free the host's client out from under it
   if (bleKBHost.state != BLEKB_STATE_IDLE) {
     deinitBLEKeyboardHost();
+    if (bleKBHost.state != BLEKB_STATE_IDLE) {
+      Serial.println("BLE: keyboard host still busy, not starting");
+      btHID.active = false;
+      return;
+    }
   }
 
   // Initialize BLE core if not already done

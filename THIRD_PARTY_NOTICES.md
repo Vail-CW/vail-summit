@@ -7,14 +7,14 @@ noted. Full license texts are in each library's source (bundled under
 
 | Component | Version | License | Copyright |
 |-----------|---------|---------|-----------|
-| ESP32 Arduino core | 2.0.14 | LGPL-2.1 / Apache-2.0 | Espressif Systems |
+| ESP32 Arduino core | 3.3.12 | LGPL-2.1 / Apache-2.0 | Espressif Systems |
 | LVGL | 8.3.11 | MIT | 2021 LVGL Kft |
-| LovyanGFX | 1.1.16 | FreeBSD (BSD-2-Clause) | lovyan03 (Bonsai-Bonsai) |
-| NimBLE-Arduino | 1.4.2 | Apache-2.0 | h2zero & contributors |
+| LovyanGFX | 1.2.32 | FreeBSD (BSD-2-Clause) | lovyan03 (Bonsai-Bonsai) |
+| NimBLE-Arduino | 2.5.1 | Apache-2.0 | h2zero & contributors |
 | ArduinoJson | 7.0.4 | MIT | Benoit Blanchon |
 | ESP Async WebServer | 3.6.0 | **LGPL-3.0** | Hristo Gochkov / ESP32Async |
 | AsyncTCP | 3.3.2 | **LGPL-3.0** | Hristo Gochkov / ESP32Async |
-| WebSockets (arduinoWebSockets) | 2.4.1 | **LGPL-2.1** | 2015 Markus Sattler |
+| WebSockets (arduinoWebSockets) | 2.6.1 | **LGPL-2.1** | 2015 Markus Sattler |
 | Adafruit LC709203F | 1.3.4 | BSD-3-Clause | 2019 Adafruit Industries |
 | Adafruit MAX1704X | 1.0.3 | BSD-3-Clause | 2022 Adafruit Industries |
 | Adafruit BusIO | 1.17.4 | MIT | 2017 Adafruit Industries |

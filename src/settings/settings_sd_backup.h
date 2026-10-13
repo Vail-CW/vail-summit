@@ -163,6 +163,12 @@ bool dumpAllNvsToSD(const char* path) {
   nvs_release_iterator(it);
   f.close();
 
+  if (res != ESP_ERR_NVS_NOT_FOUND) {
+    // Iterator failed partway: keep the previous good backup
+    Serial.printf("[SDBackup] NVS walk failed (%d), keeping old backup\n", (int)res);
+    SD.remove(tmpPath);
+    return false;
+  }
   if (count == 0) {
     SD.remove(tmpPath);
     return false;

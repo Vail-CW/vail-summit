@@ -189,7 +189,9 @@ void startBLEAdvertising(const char* serviceName) {
   // Services go live when the GATT server starts. startAdvertising() does
   // this implicitly, but be explicit so a failure is logged here.
   if (!bleCore.pServer->start()) {
-    Serial.println("BLE: ERROR - server start failed");
+    Serial.println("BLE: ERROR - server start failed, not advertising");
+    bleCore.connectionState = BLE_STATE_OFF;
+    return;
   }
   NimBLEDevice::startAdvertising();
   bleCore.connectionState = BLE_STATE_ADVERTISING;
