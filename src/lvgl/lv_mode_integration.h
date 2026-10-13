@@ -710,11 +710,6 @@ void onLVGLMenuSelect(int target_mode) {
     }
     setMenuFocusRestoreIndex(-1);  // forward navigation starts at the first item
 
-    // Screens that show the web URL need the (on-demand) web server up
-    if (webServerWantedByMode(target_mode)) {
-        requestWebServer();
-    }
-
     // Clear navigation group before creating new screen's widgets
     clearNavigationGroup();
 

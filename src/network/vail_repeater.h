@@ -278,7 +278,7 @@ const int MAX_ROOM_NAME = 30;      // Max room name length
 
 struct ChatMessage {
   char callsign[VAIL_CALLSIGN_LEN];
-  char message[MAX_CHAT_INPUT + 1];
+  char message[128];  // received chat can be longer than our 40-char input
   unsigned long timestamp;
 };
 std::vector<ChatMessage> chatHistory;
@@ -346,8 +346,6 @@ int64_t getCurrentTimestamp() {
   return timestamp;
 }
 
-// Forward declaration of drawHeader (defined in main .ino file)
-void drawHeader();
 
 // Start Vail repeater mode
 void startVailRepeater() {

@@ -128,20 +128,39 @@ struct SatPassSearch {
 static SatPassSearch* satSearchPtr = nullptr;
 static vsgp4::Sgp4* satPredictorPtr = nullptr;
 
+// Search state. If the allocation fails (heap exhausted) callers get an
+// idle, empty search instead of a null dereference; satStartPassSearchAt()
+// refuses to start in that case.
 static SatPassSearch& satS() {
+    static SatPassSearch idleSearch;  // zero = not active, not done, no passes
     if (!satSearchPtr) {
         satSearchPtr = (SatPassSearch*)lazyAlloc(sizeof(SatPassSearch));
         if (satSearchPtr) satSearchPtr->catalogIdx = -1;
     }
+    if (!satSearchPtr) {
+        memset(&idleSearch, 0, sizeof(idleSearch));
+        idleSearch.catalogIdx = -1;
+        return idleSearch;
+    }
     return *satSearchPtr;
 }
 
-static vsgp4::Sgp4& satP() {
+// Propagator. Only dereferenced after satPredictorEnsure() succeeded.
+static bool satPredictorEnsure() {
     if (!satPredictorPtr) {
         void* mem = lazyAlloc(sizeof(vsgp4::Sgp4));
         if (mem) satPredictorPtr = new (mem) vsgp4::Sgp4();
     }
+    return satPredictorPtr != nullptr;
+}
+
+static vsgp4::Sgp4& satP() {
     return *satPredictorPtr;
+}
+
+// Clear the active flag without allocating the search block
+static inline void satStopSearch() {
+    if (satSearchPtr) satSearchPtr->active = false;
 }
 
 void freeSatPredictor() {
@@ -155,6 +174,10 @@ void freeSatPredictor() {
 // Initialize the predictor for a catalog entry + current site. Returns false
 // on bad grid or missing TLE.
 static bool satPredictorSetup(int catalogIdx) {
+    if (!satPredictorEnsure()) {
+        Serial.println("[Sat] predictor alloc failed");
+        return false;
+    }
     if (!satCatalog.valid || catalogIdx < 0 || catalogIdx >= satCatalog.count) return false;
 
     double lat, lon;
@@ -175,7 +198,9 @@ static bool satPredictorSetup(int catalogIdx) {
 
 // Begin a pass search for a catalog entry over an arbitrary window.
 bool satStartPassSearchAt(int catalogIdx, time_t startUnix, double windowHours) {
-    memset(&satS(), 0, sizeof(SatPassSearch));
+    satS();
+    if (!satSearchPtr) return false;  // no memory for a search
+    memset(satSearchPtr, 0, sizeof(SatPassSearch));
     satS().catalogIdx = catalogIdx;
 
     if (!ntpSynced) return false;

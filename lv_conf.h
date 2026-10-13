@@ -18,6 +18,7 @@
 #define LV_CONF_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 /*====================
    COLOR SETTINGS
@@ -62,9 +63,31 @@
 
 #else       /*LV_MEM_CUSTOM*/
     #define LV_MEM_CUSTOM_INCLUDE <stdlib.h>   /*Header for the dynamic memory function*/
-    #define LV_MEM_CUSTOM_ALLOC   malloc
-    #define LV_MEM_CUSTOM_FREE    free
-    #define LV_MEM_CUSTOM_REALLOC realloc
+    /* VAIL SUMMIT: LVGL object/style/label allocations go to PSRAM when a board
+     * has it (src/lvgl/lv_mem_psram.h), internal heap otherwise. The display
+     * draw buffer is NOT affected - it is allocated separately in lv_init.h.
+     * Set LVGL_MEM_IN_PSRAM to 0 to keep every LVGL allocation internal. */
+    #ifndef LVGL_MEM_IN_PSRAM
+        #define LVGL_MEM_IN_PSRAM 1
+    #endif
+    #if LVGL_MEM_IN_PSRAM
+        #ifdef __cplusplus
+        extern "C" {
+        #endif
+        void* lv_psram_malloc(size_t size);
+        void  lv_psram_free(void* p);
+        void* lv_psram_realloc(void* p, size_t size);
+        #ifdef __cplusplus
+        }
+        #endif
+        #define LV_MEM_CUSTOM_ALLOC   lv_psram_malloc
+        #define LV_MEM_CUSTOM_FREE    lv_psram_free
+        #define LV_MEM_CUSTOM_REALLOC lv_psram_realloc
+    #else
+        #define LV_MEM_CUSTOM_ALLOC   malloc
+        #define LV_MEM_CUSTOM_FREE    free
+        #define LV_MEM_CUSTOM_REALLOC realloc
+    #endif
 #endif     /*LV_MEM_CUSTOM*/
 
 /*Number of the intermediate memory buffer used during rendering and other internal processing mechanisms.

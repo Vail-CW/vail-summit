@@ -33,6 +33,7 @@
 #include "../modes/web_memory_chain_socket.h"
 #include "../modes/web_hear_it_socket.h"
 #include "../../storage/sd_card.h"
+#include "../../core/mode_registry.h"
 
 // Global web server instance
 AsyncWebServer webServer(80);
@@ -535,9 +536,17 @@ void updateWebServerLifecycle() {
     webLastActivity = now;
     return;
   }
-  if (now - webLastActivity >= WEB_SERVER_IDLE_TIMEOUT_MS) {
+  if (now - webLastActivity >= WEB_SERVER_IDLE_TIMEOUT_MS && !isModeAudioCritical((int)currentMode)) {
     Serial.println("[WebServer] Idle - stopping to free RAM");
     stopWebServer();
+    // CW memories / radio queue are kept while the server runs (its handlers
+    // use them); free them now unless their own screens are open
+    extern void freeCWMemories();
+    extern void freeRadioMessageQueue();
+    if (currentMode != MODE_CW_MEMORIES && currentMode != MODE_RADIO_OUTPUT) {
+      freeCWMemories();
+      freeRadioMessageQueue();
+    }
   }
 }
 

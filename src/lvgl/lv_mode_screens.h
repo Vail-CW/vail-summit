@@ -148,6 +148,7 @@ void updateRadioSettingsDisplay() {
 }
 
 void updateRadioMemoriesDisplay() {
+    if (!cwMemories) return;
     // Calculate scroll offset
     if (radio_memory_selection >= memory_scroll_offset + 5) {
         memory_scroll_offset = radio_memory_selection - 4;
@@ -489,7 +490,7 @@ static void radio_key_event_cb(lv_event_t* e) {
                 return;
             case LV_KEY_ENTER:
                 // Send selected memory
-                if (!cwMemories[radio_memory_selection].isEmpty) {
+                if (cwMemories && !cwMemories[radio_memory_selection].isEmpty) {
                     bool success = queueRadioMessage(cwMemories[radio_memory_selection].message);
                     closeRadioOverlay();
                     if (success) {
@@ -811,6 +812,7 @@ static void cwmem_key_event_cb(lv_event_t* e);
 
 // Update the visible memory slots display
 void updateCWMemoriesDisplay() {
+    if (!cwMemories) return;
     // Adjust scroll offset if selection moves outside visible range
     if (cwmem_selection >= cwmem_scroll_offset + 5) {
         cwmem_scroll_offset = cwmem_selection - 4;
@@ -1194,6 +1196,11 @@ void updateCWMemDeleteDisplay() {
 static void cwmem_key_event_cb(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code != LV_EVENT_KEY) return;
+    if (!cwMemories) {
+        // Table could not be allocated: only ESC (handled globally) works
+        if (lv_event_get_key(e) != LV_KEY_ESC) lv_event_stop_processing(e);
+        return;
+    }
 
     uint32_t key = lv_event_get_key(e);
     Serial.printf("[CWMem LVGL] Key event: %lu (0x%02lX)\n", key, key);
@@ -1410,7 +1417,7 @@ static void cwmem_key_event_cb(lv_event_t* e) {
 }
 
 lv_obj_t* createCWMemoriesScreen() {
-    ensureCWMemories();
+    if (!ensureCWMemories()) showToast("Low memory - memories unavailable");
     // Reset state
     cwmem_selection = 0;
     cwmem_scroll_offset = 0;

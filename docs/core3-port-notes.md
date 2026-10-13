@@ -169,15 +169,11 @@ Map, Report Reference, Protocol Mode), bond hygiene on forget/fresh-pair, the
 rotating-address reconnect matching and the connection-parameter acceptance
 are untouched.
 
-**Not in this branch:** the connect/pair worker task (`bleKBConnectTask`)
-and RTC boot-crash guard from the v0.91 pre-release branch
-`brett/bt-keyboard-pairing-hardening-87e4f2` are not on `main`, so they are
-not here either. That branch rewrites ~440 lines of `ble_keyboard_host.h`;
-merging it onto this one will conflict in the callback classes and the
-connect function, and its NimBLE calls need the same renames as the table
-above. Do that merge before any BLE field test: on this branch
-`connectToBLEKeyboardByAddress()` still blocks `loop()` for the connect plus
-pairing sequence exactly as 0.90 did.
+**Keyboard pairing worker:** the v0.91 connect/pair worker task
+(`bleKBConnectTask`) and RTC boot-crash guard are merged in, with the
+NimBLE 2.x renames above applied to them. Connecting no longer blocks
+`loop()`. Pairing now requires an encrypted link; an unencrypted link
+is dropped instead of accepted.
 
 ### 8. Pre-init heap check (`src/bluetooth/ble_heap_guard.h`, `ble_core.h`, `ble_keyboard_host.h`)
 
@@ -259,8 +255,6 @@ install. Flashing only `vail-summit.bin` over the old bootloader is untested.
 ## Deferred
 
 - `driver/i2s_std.h` migration (see change 2).
-- Merge of the v0.91 keyboard-pairing hardening branch onto this one (see
-  change 7).
 - `ESP_INTR_FLAG_IRAM` on the I2S interrupt: the `i2s_audio.h` comment says
   the IDF 4.4 driver was not IRAM-safe; core 3's sdkconfig has
   `CONFIG_I2S_ISR_IRAM_SAFE=y`. Might help sidetone during flash writes; not

@@ -169,7 +169,7 @@ The repository includes a GitHub Actions workflow that builds the firmware AND p
 5. Click the green **"Run workflow"** button
 
 The workflow:
-- Installs the pinned ESP32 core 3.3.12 and the pinned third-party libraries (LovyanGFX 1.2.32, lvgl 8.3.11, NimBLE-Arduino 2.5.1, WebSockets 2.6.1, ArduinoJson 7.0.4, ESP Async WebServer 3.6.0, etc. — versions live as `env:` vars at the top of the workflow file)
+- Installs the pinned ESP32 core 3.3.12 and the pinned third-party libraries (LovyanGFX 1.2.32, lvgl 8.3.11, NimBLE-Arduino 2.5.1, WebSockets 2.6.1, ArduinoJson 7.0.4, ESP Async WebServer 3.6.0, etc. Versions live as `env:` vars at the top of the workflow file)
 - Copies the in-repo `lv_conf.h` next to the lvgl library so LVGL finds its config
 - Compiles with `--clean` and `-mtext-section-literals` for a clean reproducible build
 - Captures `FIRMWARE_VERSION` from `src/core/config.h` and uses it to derive the tag (e.g. `v0.529`)
