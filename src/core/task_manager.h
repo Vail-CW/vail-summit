@@ -381,9 +381,12 @@ void resetMorsePlayback() {
 
 // Forward declarations for i2s_audio.h functions that will be called internally
 extern void playToneInternal(int frequency, int duration_ms);
-extern void IRAM_ATTR startToneInternal(int frequency);
-extern void IRAM_ATTR continueToneInternal(int frequency);
-extern void IRAM_ATTR stopToneInternal();
+// IRAM_ATTR is on the definitions in i2s_audio.h, not repeated here: on core
+// 3.x each IRAM_ATTR expands to a uniquely numbered .iram1.N section, so a
+// second copy on the declaration triggers a "conflicting section" warning.
+extern void startToneInternal(int frequency);
+extern void continueToneInternal(int frequency);
+extern void stopToneInternal();
 extern bool isTonePlayingInternal();
 
 /*

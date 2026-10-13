@@ -131,21 +131,19 @@ int getDitDuration() {
 
 // MIDI characteristic callback for receiving data
 class MIDICharacteristicCallbacks : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic* pCharacteristic) override {
-    std::string value = pCharacteristic->getValue();
+  void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
+    NimBLEAttValue value = pCharacteristic->getValue();
     Serial.print("MIDI onWrite: ");
-    Serial.print(value.length());
+    Serial.print(value.size());
     Serial.println(" bytes");
-    if (value.length() > 0) {
-      onMIDIReceived((uint8_t*)value.data(), value.length());
+    if (value.size() > 0) {
+      onMIDIReceived((uint8_t*)value.data(), value.size());
     }
   }
 
-  void onRead(NimBLECharacteristic* pCharacteristic) override {
+  void onRead(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
     Serial.println("MIDI onRead");
   }
-
-  // Note: onNotify() and onStatus() removed - not in NimBLECharacteristicCallbacks base class
 };
 
 // Process received MIDI data
@@ -323,6 +321,13 @@ void startBTMIDI() {
 
   // Initialize BLE core if not already done
   initBLECore();
+  if (!bleCore.initialized || bleCore.pServer == nullptr) {
+    // Heap check or controller init refused (message in bleLastErrorMsg)
+    updateBTMIDIDeviceName(getBLEDeviceName().c_str());
+    updateBTMIDIStatus(bleLastErrorMsg[0] ? bleLastErrorMsg : "BLE init failed", false);
+    lastBTMIDIState = BLE_STATE_ERROR;
+    return;
+  }
   bleCore.activeMode = BLE_MODE_MIDI;
 
   // Create MIDI service
@@ -347,9 +352,8 @@ void startBTMIDI() {
   // Set security for bonding (required for some BLE MIDI clients)
   NimBLEDevice::setSecurityAuth(true, false, true);  // bonding, MITM, SC
 
-  // Start service
-  btMIDI.midiService->start();
-  Serial.println("BLE MIDI: Service started");
+  // The service starts with the GATT server (see startBLEAdvertising)
+  Serial.println("BLE MIDI: Service created");
 
   // Set up advertising
   NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
@@ -520,7 +524,7 @@ void updateBTMIDI() {
     switch (lastBTMIDIState) {
       case BLE_STATE_CONNECTED:   updateBTMIDIStatus("Connected", true); break;
       case BLE_STATE_ADVERTISING: updateBTMIDIStatus("Advertising...", false); break;
-      case BLE_STATE_ERROR:       updateBTMIDIStatus("Error", false); break;
+      case BLE_STATE_ERROR:       updateBTMIDIStatus(bleLastErrorMsg[0] ? bleLastErrorMsg : "Error", false); break;
       default:                    updateBTMIDIStatus("Off", false); break;
     }
   }

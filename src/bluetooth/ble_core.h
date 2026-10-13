@@ -9,7 +9,9 @@
 #define BLE_CORE_H
 
 #include <NimBLEDevice.h>
+#include <esp_mac.h>   // esp_read_mac()
 #include "../core/config.h"
+#include "ble_heap_guard.h"
 
 // BLE connection state
 enum BLEConnectionState {
@@ -48,17 +50,17 @@ const char* getBLEStateString();
 
 // Server callbacks for connection state tracking
 class BLECoreServerCallbacks : public NimBLEServerCallbacks {
-  void onConnect(NimBLEServer* pServer) override {
+  void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
     bleCore.connectionState = BLE_STATE_CONNECTED;
     bleCore.lastActivityTime = millis();
     Serial.println("BLE: Client connected");
   }
 
-  void onDisconnect(NimBLEServer* pServer) override {
+  void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override {
     bleCore.connectionState = BLE_STATE_ADVERTISING;
     bleCore.connectedDeviceName = "";
     bleCore.lastActivityTime = millis();
-    Serial.println("BLE: Client disconnected");
+    Serial.printf("BLE: Client disconnected (reason %d)\n", reason);
 
     // Restart advertising after disconnect
     if (bleCore.activeMode != BLE_MODE_NONE) {
@@ -107,12 +109,22 @@ void initBLECore() {
   // Small delay before init to ensure clean state
   delay(100);
 
+  // Refuse to start the controller on a starved heap (sets bleLastErrorMsg,
+  // which the HID/MIDI screens display). Callers check bleCore.initialized.
+  if (!bleHeapOkForInit("BLE")) {
+    bleCore.connectionState = BLE_STATE_ERROR;
+    return;
+  }
+
   NimBLEDevice::init(deviceName.c_str());
 
   // Create server
   bleCore.pServer = NimBLEDevice::createServer();
   if (bleCore.pServer == nullptr) {
     Serial.println("BLE: ERROR - Failed to create server!");
+    snprintf(bleLastErrorMsg, sizeof(bleLastErrorMsg), "BLE server init failed");
+    bleCore.connectionState = BLE_STATE_ERROR;
+    NimBLEDevice::deinit(true);
     return;
   }
   bleCore.pServer->setCallbacks(new BLECoreServerCallbacks());
@@ -174,6 +186,11 @@ void startBLEAdvertising(const char* serviceName) {
   NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
   // Note: setScanResponse() and setMinPreferred() removed - deprecated in newer NimBLE API
 
+  // Services go live when the GATT server starts. startAdvertising() does
+  // this implicitly, but be explicit so a failure is logged here.
+  if (!bleCore.pServer->start()) {
+    Serial.println("BLE: ERROR - server start failed");
+  }
   NimBLEDevice::startAdvertising();
   bleCore.connectionState = BLE_STATE_ADVERTISING;
   bleCore.lastActivityTime = millis();
