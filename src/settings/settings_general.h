@@ -46,7 +46,7 @@ bool loadCallsign(char* callsign, size_t len) {
 void loadSavedCallsign() {
   char savedCallsign[CALLSIGN_MAX_LEN];
   if (loadCallsign(savedCallsign, sizeof(savedCallsign))) {
-    vailCallsign = savedCallsign;
+    strlcpy(vailCallsign, savedCallsign, VAIL_CALLSIGN_LEN);
     Serial.print("Loaded callsign: ");
     Serial.println(savedCallsign);
   } else {

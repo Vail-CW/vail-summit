@@ -244,7 +244,7 @@ void setupWebServer() {
   // Note: Download/upload removed - web files can only be downloaded via device WiFi Settings menu
   // ============================================
   webServer.on("/api/webfiles/status", HTTP_GET, [](AsyncWebServerRequest *request) {
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     doc["installed"] = webFilesOnSD;
     doc["version"] = getWebFilesVersion();
 
@@ -350,7 +350,7 @@ void setupWebServer() {
     initPracticeWebSocket();
     webPracticeStartPending = true;
 
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     doc["status"] = "active";
     doc["endpoint"] = "ws://vail-summit.local/ws/practice";
 
@@ -373,7 +373,7 @@ void setupWebServer() {
       initMemoryChainWebSocket();
       webMemoryChainStartPending = true;
 
-      JsonDocument response;
+      JsonDocument response(psramJsonAllocator());
       response["status"] = "active";
       response["endpoint"] = "ws://vail-summit.local/ws/memory-chain";
 
@@ -396,7 +396,7 @@ void setupWebServer() {
       initHearItWebSocket();
       webHearItStartPending = true;
 
-      JsonDocument response;
+      JsonDocument response(psramJsonAllocator());
       response["status"] = "active";
       response["endpoint"] = "ws://vail-summit.local/ws/hear-it";
 

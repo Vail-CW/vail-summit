@@ -45,7 +45,7 @@ void onPracticeWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *clie
         data[len] = 0;  // Null terminate
 
         // Parse JSON message
-        JsonDocument doc;
+        JsonDocument doc(psramJsonAllocator());
         DeserializationError error = deserializeJson(doc, (char*)data);
 
         if (!error) {

@@ -28,8 +28,10 @@
 #include "internet_check.h"
 #include <esp_timer.h>
 
-// Default channel - always defined
-String vailChannel = "General";
+// Current room (persisted). Protocol room names are short; 31 chars + NUL.
+#define VAIL_CHANNEL_LEN 32
+#define VAIL_CALLSIGN_LEN 16
+char vailChannel[VAIL_CHANNEL_LEN] = "General";
 
 // Settings persisted to NVS (declared before load/save functions that reference them)
 bool vailListenOnly = false;
@@ -40,10 +42,11 @@ Preferences vailPrefs;
 // Load Vail settings from flash
 void loadVailSettings() {
   vailPrefs.begin("vail", true);  // Read-only mode
-  vailChannel = vailPrefs.getString("room", "General");
+  vailPrefs.getString("room", vailChannel, sizeof(vailChannel));
+  if (vailChannel[0] == '\0') strlcpy(vailChannel, "General", sizeof(vailChannel));
   vailListenOnly = vailPrefs.getBool("listenOnly", false);
   vailPrefs.end();
-  Serial.printf("[Vail] Loaded room: %s\n", vailChannel.c_str());
+  Serial.printf("[Vail] Loaded room: %s\n", vailChannel);
 }
 
 // Save Vail settings to flash
@@ -52,11 +55,11 @@ void saveVailSettings() {
   vailPrefs.putString("room", vailChannel);
   vailPrefs.putBool("listenOnly", vailListenOnly);
   vailPrefs.end();
-  Serial.printf("[Vail] Saved room: %s\n", vailChannel.c_str());
+  Serial.printf("[Vail] Saved room: %s\n", vailChannel);
 }
 
 // User identification
-String vailCallsign = "GUEST";  // Default callsign (user can configure)
+char vailCallsign[VAIL_CALLSIGN_LEN] = "GUEST";  // Default callsign (user can configure)
 uint8_t vailTxTone = 72;        // MIDI note 72 = C5 (523 Hz) - default CW tone
 
 // Audio settings
@@ -76,10 +79,10 @@ enum VailState {
 // Vail globals
 WebSocketsClient webSocket;
 VailState vailState = VAIL_DISCONNECTED;
-String vailServer = "vailmorse.com";
+static const char vailServer[] = "vailmorse.com";
 int vailPort = 443;  // WSS (secure WebSocket)
 int connectedClients = 0;
-String statusText = "";
+char statusText[40] = "";
 // Note: needsUIRedraw removed - LVGL handles all UI updates via updateVailScreenLVGL()
 unsigned long lastKeepaliveTime = 0;  // Track last keepalive message
 
@@ -150,7 +153,7 @@ int clockSkewSamples = 0;  // Number of clock skew samples received
 // decoder must stay dormant — both decoded text and the dot/dash row.
 // TX-side decoding/visualization is unaffected (operator's own keying).
 static inline bool vailIsOnDecoderChannel() {
-    return vailChannel == "Decoder";
+    return strcmp(vailChannel, "Decoder") == 0;
 }
 
 volatile bool vailTxDecodedReady = false;  // set when TX decoder emits a char
@@ -269,29 +272,29 @@ static int playbackToneFrequency = 0;  // Current playback tone frequency
 
 // Chat mode state
 bool vailChatMode = false;  // false = vail info, true = chat view
+const int MAX_CHAT_MESSAGES = 20;  // Keep last 20 messages
+const int MAX_CHAT_INPUT = 40;     // Max 40 chars per message
+const int MAX_ROOM_NAME = 30;      // Max room name length
+
 struct ChatMessage {
-  String callsign;
-  String message;
+  char callsign[VAIL_CALLSIGN_LEN];
+  char message[MAX_CHAT_INPUT + 1];
   unsigned long timestamp;
 };
 std::vector<ChatMessage> chatHistory;
-String chatInput = "";
-const int MAX_CHAT_MESSAGES = 20;  // Keep last 20 messages
-const int MAX_CHAT_INPUT = 40;     // Max 40 chars per message
 
-// Room selection state
-String roomInput = "";
+// Room selection state (custom room being typed on the LVGL screen)
+char roomInput[MAX_ROOM_NAME + 1] = "";
 struct RoomInfo {
-  String name;
+  char name[VAIL_CHANNEL_LEN];
   int users;
   bool isPrivate;
 };
 std::vector<RoomInfo> activeRooms;
-const int MAX_ROOM_NAME = 30;  // Max room name length
 
 // User list state
 struct UserInfo {
-  String callsign;
+  char callsign[VAIL_CALLSIGN_LEN];
   uint8_t txTone;
 };
 std::vector<UserInfo> connectedUsers;
@@ -300,12 +303,12 @@ std::vector<UserInfo> connectedUsers;
 void startVailRepeater();
 void vailKeyerCallback(bool txOn, int element);
 void updateVailRepeater();
-void connectToVail(String channel);
+void connectToVail(const char* channel);
 void disconnectFromVail();
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length);
 void sendVailMessage(std::vector<uint16_t> durations, int64_t timestamp = 0);
-void sendChatMessage(String message);
-void addChatMessage(String callsign, String message);
+void sendChatMessage(const char* message);
+void addChatMessage(const char* callsign, const char* message);
 void sendInitialMessage();
 void sendKeepalive();
 void processReceivedMessage(String jsonPayload);
@@ -349,7 +352,7 @@ void drawHeader();
 // Start Vail repeater mode
 void startVailRepeater() {
   vailState = VAIL_DISCONNECTED;
-  statusText = "Enter channel name";
+  strlcpy(statusText, "Enter channel name", sizeof(statusText));
   vailIsTransmitting = false;
   rxQueue.clear();
   vailTxDurations.clear();
@@ -368,11 +371,10 @@ void startVailRepeater() {
 
   // Initialize chat mode
   vailChatMode = false;
-  chatInput = "";
   chatHistory.clear();
 
   // Initialize room selection
-  roomInput = "";
+  roomInput[0] = '\0';
   activeRooms.clear();
 
   // Initialize user list
@@ -382,21 +384,21 @@ void startVailRepeater() {
 }
 
 // Connect to Vail repeater
-void connectToVail(String channel) {
+void connectToVail(const char* channel) {
   // Check internet connectivity first
   InternetStatus inetStatus = getInternetStatus();
   if (inetStatus != INET_CONNECTED) {
     Serial.println("[Vail] Cannot connect - no internet connectivity");
     vailState = VAIL_ERROR;
     if (inetStatus == INET_WIFI_ONLY) {
-      statusText = "WiFi connected but no internet";
+      strlcpy(statusText, "WiFi connected but no internet", sizeof(statusText));
     } else {
-      statusText = "No WiFi connection";
+      strlcpy(statusText, "No WiFi connection", sizeof(statusText));
     }
     return;
   }
 
-  vailChannel = channel;
+  strlcpy(vailChannel, channel, sizeof(vailChannel));
   saveVailSettings();  // Persist room selection for next boot
 
   // Clear any stale decoded state from a previous room — decoded text only
@@ -405,13 +407,14 @@ void connectToVail(String channel) {
   vailDecodedNeedsUpdate = true;
 
   vailState = VAIL_CONNECTING;
-  statusText = "Connecting...";
+  strlcpy(statusText, "Connecting...", sizeof(statusText));
 
   Serial.print("Connecting to Vail repeater: ");
   Serial.println(channel);
 
   // WebSocket connection with subprotocol
-  String path = "/chat?repeater=" + channel;
+  char path[64];
+  snprintf(path, sizeof(path), "/chat?repeater=%s", channel);
 
   Serial.println("WebSocket connecting...");
   Serial.print("URL: wss://");
@@ -432,7 +435,7 @@ void connectToVail(String channel) {
   webSocket.setExtraHeaders("Sec-WebSocket-Protocol: json.vailmorse.com");
 
   // Simple beginSSL - library should handle SSL automatically
-  webSocket.beginSSL(vailServer.c_str(), vailPort, path.c_str());
+  webSocket.beginSSL(vailServer, vailPort, path);
 
   // Set reconnect interval
   webSocket.setReconnectInterval(5000);
@@ -466,7 +469,7 @@ void disconnectFromVail() {
 
   // Force state to disconnected if timeout occurred
   vailState = VAIL_DISCONNECTED;
-  statusText = "Disconnected";
+  strlcpy(statusText, "Disconnected", sizeof(statusText));
 
   // Stop any repeater playback
   isPlaying = false;
@@ -507,14 +510,14 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
     case WStype_DISCONNECTED:
       Serial.println("[WS] Disconnected");
       vailState = VAIL_DISCONNECTED;
-      statusText = "Disconnected";
+      strlcpy(statusText, "Disconnected", sizeof(statusText));
       break;
 
     case WStype_CONNECTED:
       {
         Serial.println("[WS] Connected");
         vailState = VAIL_CONNECTED;
-        statusText = "Connected";
+        strlcpy(statusText, "Connected", sizeof(statusText));
 
         // Get the URL we connected to
         String url = String((char*)payload);
@@ -538,7 +541,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
     case WStype_ERROR:
       Serial.println("[WS] Error");
       vailState = VAIL_ERROR;
-      statusText = "Connection error";
+      strlcpy(statusText, "Connection error", sizeof(statusText));
       break;
 
     case WStype_PING:
@@ -586,13 +589,9 @@ void processReceivedMessage(String jsonPayload) {
     connectedUsers.clear();
     JsonArray usersInfo = doc["UsersInfo"];
     for (JsonVariant userInfo : usersInfo) {
-      String callsign = userInfo["callsign"] | "Unknown";
-      uint8_t txTone = userInfo["txTone"] | 69;
-
-      // Store user info
       UserInfo user;
-      user.callsign = callsign;
-      user.txTone = txTone;
+      strlcpy(user.callsign, userInfo["callsign"] | "Unknown", sizeof(user.callsign));
+      user.txTone = userInfo["txTone"] | 69;
       connectedUsers.push_back(user);
 
     }
@@ -604,7 +603,7 @@ void processReceivedMessage(String jsonPayload) {
     JsonArray rooms = doc["Rooms"];
     for (JsonVariant roomVar : rooms) {
       RoomInfo room;
-      room.name = roomVar["name"] | "Unknown";
+      strlcpy(room.name, roomVar["name"] | "Unknown", sizeof(room.name));
       room.users = roomVar["users"] | 0;
       room.isPrivate = roomVar["private"] | false;
       activeRooms.push_back(room);
@@ -615,10 +614,10 @@ void processReceivedMessage(String jsonPayload) {
   // Check for text chat message
   bool isChatMessage = false;
   if (doc.containsKey("Text") && !doc["Text"].isNull()) {
-    String text = doc["Text"].as<String>();
-    if (text.length() > 0) {
+    const char* text = doc["Text"] | "";
+    if (text[0] != '\0') {
       isChatMessage = true;
-      String callsign = doc["Callsign"] | "Unknown";
+      const char* callsign = doc["Callsign"] | "Unknown";
 
       // Don't add our own echo again (we already added when sending). Match
       // by exact timestamp, NOT callsign - a callsign comparison silently
@@ -998,10 +997,11 @@ void playbackMessages() {
 }
 
 // Add message to chat history
-void addChatMessage(String callsign, String message) {
+void addChatMessage(const char* callsign, const char* message) {
   ChatMessage msg;
-  msg.callsign = callsign;
-  msg.message = message;
+  memset(&msg, 0, sizeof(msg));
+  strlcpy(msg.callsign, callsign, sizeof(msg.callsign));
+  strlcpy(msg.message, message, sizeof(msg.message));
   msg.timestamp = millis();
 
   chatHistory.push_back(msg);
@@ -1016,15 +1016,12 @@ void addChatMessage(String callsign, String message) {
   Serial.print(": ");
   Serial.println(message);
 
-  // Set notification if not in chat mode (LVGL will update on next frame)
-  if (!vailChatMode) {
-  }
 }
 
 // Send text chat message over WebSocket. Text-only — no synthesized morse on
 // the air. Per project policy, all over-the-air CW must be hand-keyed by the
 // operator; chat is delivered as a Text payload with an empty Duration array.
-void sendChatMessage(String message) {
+void sendChatMessage(const char* message) {
   if (vailState != VAIL_CONNECTED) {
     Serial.println("Not connected - cannot send chat message");
     return;

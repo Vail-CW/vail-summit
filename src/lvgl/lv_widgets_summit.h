@@ -64,6 +64,41 @@ lv_obj_t* createCompactStatusBar(lv_obj_t* parent);
 lv_obj_t* createScrollableList(lv_obj_t* parent, int height);
 lv_obj_t* createConfirmDialog(const char* title, const char* message, lv_event_cb_t confirm_cb, lv_event_cb_t cancel_cb);
 
+/*
+ * Invisible 1x1 focus holder that routes CardKB keys to key_cb. Replaces the
+ * hand-rolled "focus container" blocks: one shared style, parked off-screen,
+ * clickable so LVGL will focus it, and registered with addNavigableWidget()
+ * (ESC handler + input group). With editing=true the group is put in edit
+ * mode so UP/DOWN reach key_cb instead of moving focus.
+ */
+lv_obj_t* createKeyCatcher(lv_obj_t* parent, lv_event_cb_t key_cb, bool editing = false) {
+    lv_obj_t* obj = lv_obj_create(parent);
+    lv_obj_set_size(obj, 1, 1);
+    lv_obj_set_pos(obj, -10, -10);
+    lv_obj_add_style(obj, getStyleKeyCatcher(), 0);
+    lv_obj_add_style(obj, getStyleKeyCatcher(), LV_STATE_FOCUSED);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    if (key_cb) lv_obj_add_event_cb(obj, key_cb, LV_EVENT_KEY, NULL);
+    addNavigableWidget(obj);
+    if (editing) {
+        lv_group_t* group = getLVGLInputGroup();
+        if (group) lv_group_set_editing(group, true);
+    }
+    return obj;
+}
+
+/*
+ * Set a label's text only when it actually changed. Polled screens call
+ * lv_label_set_text() every tick; each call frees and reallocates the label
+ * buffer and invalidates the area even when the text is identical.
+ */
+static inline void lvLabelSetIfChanged(lv_obj_t* label, const char* text) {
+    if (label == NULL || text == NULL) return;
+    const char* cur = lv_label_get_text(label);
+    if (cur == NULL || strcmp(cur, text) != 0) lv_label_set_text(label, text);
+}
+
 // ============================================
 // Menu Card Widget
 // ============================================

@@ -419,7 +419,7 @@ void initializeModeInt(int mode) {
             startVailRepeater();
             // Auto-connect to General room only if callsign is set
             // (checkVailCallsignRequired is checked in createVailRepeaterScreen)
-            if (vailCallsign.length() > 0 && vailCallsign != "GUEST") {
+            if (vailCallsign[0] != '\0' && strcmp(vailCallsign, "GUEST") != 0) {
                 connectToVail("General");
             }
             break;

@@ -26,7 +26,7 @@ extern int cwTone;
 extern String decodedText;
 
 // User callsign (from network/vail_repeater.h)
-extern String vailCallsign;
+extern char vailCallsign[];
 
 // cwKeyType access function (defined in main sketch)
 int getCwKeyTypeAsInt();

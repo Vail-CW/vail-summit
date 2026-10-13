@@ -51,7 +51,7 @@ void setCwKeyTypeFromInt(int keyType);
 #include "../bluetooth/ble_keyboard_host.h"
 
 // Callsign (from vail_repeater.h)
-extern String vailCallsign;
+extern char vailCallsign[];
 extern void saveCallsign(const char* callsign);
 
 // Web password settings (from settings_web_password.h)
@@ -324,21 +324,18 @@ lv_obj_t* createVolumeSettingsScreen() {
     lv_obj_set_layout(presets_row, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(presets_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(presets_row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(presets_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(presets_row, 0, 0);
+    lv_obj_add_style(presets_row, getStyleTransparent(), 0);
     lv_obj_set_style_pad_all(presets_row, 4, 0);
 
     // Headphones preset display
     headphones_value_label = lv_label_create(presets_row);
     lv_label_set_text_fmt(headphones_value_label, "h: Headphones %d%%", getHeadphonesPreset());
-    lv_obj_set_style_text_font(headphones_value_label, getThemeFonts()->font_small, 0);
-    lv_obj_set_style_text_color(headphones_value_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_add_style(headphones_value_label, getStyleLabelSecondarySmall(), 0);
 
     // Speaker preset display
     speaker_value_label = lv_label_create(presets_row);
     lv_label_set_text_fmt(speaker_value_label, "s: Speaker %d%%", getSpeakerPreset());
-    lv_obj_set_style_text_font(speaker_value_label, getThemeFonts()->font_small, 0);
-    lv_obj_set_style_text_color(speaker_value_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_add_style(speaker_value_label, getStyleLabelSecondarySmall(), 0);
 
     // Boot Volume selector row
     lv_obj_t* boot_row = lv_obj_create(content);
@@ -346,9 +343,7 @@ lv_obj_t* createVolumeSettingsScreen() {
     lv_obj_set_layout(boot_row, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(boot_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(boot_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(boot_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(boot_row, 0, 0);
-    lv_obj_set_style_pad_all(boot_row, 0, 0);
+    lv_obj_add_style(boot_row, getStyleTransparentContainer(), 0);
     lv_obj_set_style_pad_top(boot_row, 4, 0);
 
     lv_obj_t* boot_text = lv_label_create(boot_row);
@@ -382,8 +377,7 @@ lv_obj_t* createVolumeSettingsScreen() {
     lv_obj_t* footer = lv_obj_create(screen);
     lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
     lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_add_style(footer, getStyleTransparent(), 0);
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
@@ -518,8 +512,7 @@ lv_obj_t* createBrightnessSettingsScreen() {
     lv_obj_t* footer = lv_obj_create(screen);
     lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
     lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_add_style(footer, getStyleTransparent(), 0);
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
@@ -611,8 +604,7 @@ static void cw_update_focus() {
             lv_obj_set_style_border_color(cw_speed_row, LV_COLOR_ACCENT_PRIMARY, 0);
             lv_obj_set_style_border_width(cw_speed_row, 2, 0);
         } else {
-            lv_obj_set_style_bg_opa(cw_speed_row, LV_OPA_TRANSP, 0);
-            lv_obj_set_style_border_width(cw_speed_row, 0, 0);
+            lv_obj_add_style(cw_speed_row, getStyleTransparent(), 0);
         }
     }
     if (cw_speed_slider) {
@@ -631,8 +623,7 @@ static void cw_update_focus() {
             lv_obj_set_style_border_color(cw_tone_row, LV_COLOR_ACCENT_PRIMARY, 0);
             lv_obj_set_style_border_width(cw_tone_row, 2, 0);
         } else {
-            lv_obj_set_style_bg_opa(cw_tone_row, LV_OPA_TRANSP, 0);
-            lv_obj_set_style_border_width(cw_tone_row, 0, 0);
+            lv_obj_add_style(cw_tone_row, getStyleTransparent(), 0);
         }
     }
     if (cw_tone_slider) {
@@ -651,8 +642,7 @@ static void cw_update_focus() {
             lv_obj_set_style_border_color(cw_keytype_row, LV_COLOR_ACCENT_PRIMARY, 0);
             lv_obj_set_style_border_width(cw_keytype_row, 2, 0);
         } else {
-            lv_obj_set_style_bg_opa(cw_keytype_row, LV_OPA_TRANSP, 0);
-            lv_obj_set_style_border_width(cw_keytype_row, 0, 0);
+            lv_obj_add_style(cw_keytype_row, getStyleTransparent(), 0);
         }
     }
     if (cw_keytype_value) {
@@ -668,8 +658,7 @@ static void cw_update_focus() {
             lv_obj_set_style_border_color(cw_decoder_row, LV_COLOR_ACCENT_PRIMARY, 0);
             lv_obj_set_style_border_width(cw_decoder_row, 2, 0);
         } else {
-            lv_obj_set_style_bg_opa(cw_decoder_row, LV_OPA_TRANSP, 0);
-            lv_obj_set_style_border_width(cw_decoder_row, 0, 0);
+            lv_obj_add_style(cw_decoder_row, getStyleTransparent(), 0);
         }
     }
     if (cw_decoder_value) {
@@ -860,14 +849,7 @@ lv_obj_t* createCWSettingsScreen() {
 
     // Create an invisible focus container to receive all key events
     // This bypasses LVGL's widget-level key handling
-    cw_focus_container = lv_obj_create(content);
-    lv_obj_set_size(cw_focus_container, 0, 0);
-    lv_obj_set_style_bg_opa(cw_focus_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(cw_focus_container, 0, 0);
-    lv_obj_clear_flag(cw_focus_container, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(cw_focus_container, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(cw_focus_container, cw_settings_key_handler, LV_EVENT_KEY, NULL);
-    addNavigableWidget(cw_focus_container);
+    cw_focus_container = createKeyCatcher(content, cw_settings_key_handler);
 
     // Put group in edit mode - this makes UP/DOWN keys go to the widget instead of being consumed by LVGL
     lv_group_t* group = getLVGLInputGroup();
@@ -887,8 +869,7 @@ lv_obj_t* createCWSettingsScreen() {
     lv_obj_set_layout(cw_speed_row, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(cw_speed_row, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(cw_speed_row, 5, 0);
-    lv_obj_set_style_bg_opa(cw_speed_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(cw_speed_row, 0, 0);
+    lv_obj_add_style(cw_speed_row, getStyleTransparent(), 0);
     lv_obj_set_style_pad_all(cw_speed_row, 8, 0);
     lv_obj_set_style_radius(cw_speed_row, 6, 0);
     lv_obj_clear_flag(cw_speed_row, LV_OBJ_FLAG_SCROLLABLE);
@@ -899,9 +880,7 @@ lv_obj_t* createCWSettingsScreen() {
     lv_obj_set_layout(speed_header, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(speed_header, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(speed_header, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(speed_header, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(speed_header, 0, 0);
-    lv_obj_set_style_pad_all(speed_header, 0, 0);
+    lv_obj_add_style(speed_header, getStyleTransparentContainer(), 0);
 
     lv_obj_t* speed_label = lv_label_create(speed_header);
     lv_label_set_text(speed_label, "Speed");
@@ -925,8 +904,7 @@ lv_obj_t* createCWSettingsScreen() {
     lv_obj_set_layout(cw_tone_row, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(cw_tone_row, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(cw_tone_row, 5, 0);
-    lv_obj_set_style_bg_opa(cw_tone_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(cw_tone_row, 0, 0);
+    lv_obj_add_style(cw_tone_row, getStyleTransparent(), 0);
     lv_obj_set_style_pad_all(cw_tone_row, 8, 0);
     lv_obj_set_style_radius(cw_tone_row, 6, 0);
     lv_obj_clear_flag(cw_tone_row, LV_OBJ_FLAG_SCROLLABLE);
@@ -937,9 +915,7 @@ lv_obj_t* createCWSettingsScreen() {
     lv_obj_set_layout(tone_header, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(tone_header, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(tone_header, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(tone_header, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(tone_header, 0, 0);
-    lv_obj_set_style_pad_all(tone_header, 0, 0);
+    lv_obj_add_style(tone_header, getStyleTransparentContainer(), 0);
 
     lv_obj_t* tone_label = lv_label_create(tone_header);
     lv_label_set_text(tone_label, "Tone");
@@ -963,8 +939,7 @@ lv_obj_t* createCWSettingsScreen() {
     lv_obj_set_layout(cw_keytype_row, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(cw_keytype_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(cw_keytype_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(cw_keytype_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(cw_keytype_row, 0, 0);
+    lv_obj_add_style(cw_keytype_row, getStyleTransparent(), 0);
     lv_obj_set_style_pad_all(cw_keytype_row, 8, 0);
     lv_obj_set_style_radius(cw_keytype_row, 6, 0);
     lv_obj_clear_flag(cw_keytype_row, LV_OBJ_FLAG_SCROLLABLE);
@@ -985,8 +960,7 @@ lv_obj_t* createCWSettingsScreen() {
     lv_obj_set_layout(cw_decoder_row, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(cw_decoder_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(cw_decoder_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(cw_decoder_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(cw_decoder_row, 0, 0);
+    lv_obj_add_style(cw_decoder_row, getStyleTransparent(), 0);
     lv_obj_set_style_pad_all(cw_decoder_row, 8, 0);
     lv_obj_set_style_radius(cw_decoder_row, 6, 0);
     lv_obj_clear_flag(cw_decoder_row, LV_OBJ_FLAG_SCROLLABLE);
@@ -1007,8 +981,7 @@ lv_obj_t* createCWSettingsScreen() {
     lv_obj_t* footer = lv_obj_create(screen);
     lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
     lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_add_style(footer, getStyleTransparent(), 0);
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
@@ -1064,7 +1037,7 @@ static void callsign_textarea_key_handler(lv_event_t* e) {
 
                 // Save using existing function
                 saveCallsign(callsign.c_str());
-                vailCallsign = callsign;  // Update global
+                strlcpy(vailCallsign, callsign.c_str(), VAIL_CALLSIGN_LEN);  // Update global
                 showToast("Saved");
 
                 // Note: onLVGLBackNavigation() already plays a nav beep
@@ -1132,8 +1105,8 @@ lv_obj_t* createCallsignSettingsScreen() {
     // Only pre-fill if the user has actually saved a callsign before. Loading
     // "GUEST" into the input box made users type behind it (producing strings
     // like "GUESTW1ABC") instead of replacing it.
-    if (vailCallsign.length() > 0 && vailCallsign != "GUEST") {
-        lv_textarea_set_text(callsign_textarea, vailCallsign.c_str());
+    if (vailCallsign[0] != '\0' && strcmp(vailCallsign, "GUEST") != 0) {
+        lv_textarea_set_text(callsign_textarea, vailCallsign);
     }
     applyTextareaStyle(callsign_textarea);
     lv_obj_set_style_text_font(callsign_textarea, getThemeFonts()->font_subtitle, 0);
@@ -1145,8 +1118,7 @@ lv_obj_t* createCallsignSettingsScreen() {
     lv_obj_t* footer = lv_obj_create(screen);
     lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
     lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_add_style(footer, getStyleTransparent(), 0);
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
@@ -1473,9 +1445,7 @@ lv_obj_t* createWebPasswordSettingsScreen() {
     lv_obj_set_layout(toggle_row, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(toggle_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(toggle_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(toggle_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(toggle_row, 0, 0);
-    lv_obj_set_style_pad_all(toggle_row, 0, 0);
+    lv_obj_add_style(toggle_row, getStyleTransparentContainer(), 0);
 
     lv_obj_t* toggle_text = lv_label_create(toggle_row);
     lv_label_set_text(toggle_text, "Password Protection");
@@ -1514,9 +1484,7 @@ lv_obj_t* createWebPasswordSettingsScreen() {
     lv_obj_set_layout(web_password_field_container, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(web_password_field_container, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(web_password_field_container, 8, 0);
-    lv_obj_set_style_bg_opa(web_password_field_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(web_password_field_container, 0, 0);
-    lv_obj_set_style_pad_all(web_password_field_container, 0, 0);
+    lv_obj_add_style(web_password_field_container, getStyleTransparentContainer(), 0);
 
     // Password label
     lv_obj_t* pw_label = lv_label_create(web_password_field_container);
@@ -1526,8 +1494,7 @@ lv_obj_t* createWebPasswordSettingsScreen() {
     // Requirements guide - tells the user up front what is allowed
     lv_obj_t* pw_hint = lv_label_create(web_password_field_container);
     lv_label_set_text(pw_hint, "8-16 chars. Letters, numbers & symbols OK.");
-    lv_obj_set_style_text_color(pw_hint, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(pw_hint, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(pw_hint, getStyleLabelSecondarySmall(), 0);
 
     // Password text area
     web_password_textarea = lv_textarea_create(web_password_field_container);
@@ -1559,9 +1526,7 @@ lv_obj_t* createWebPasswordSettingsScreen() {
     lv_obj_set_layout(srv_row, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(srv_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(srv_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(srv_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(srv_row, 0, 0);
-    lv_obj_set_style_pad_all(srv_row, 0, 0);
+    lv_obj_add_style(srv_row, getStyleTransparentContainer(), 0);
 
     lv_obj_t* srv_text = lv_label_create(srv_row);
     lv_label_set_text(srv_text, "Web Server");
@@ -1587,8 +1552,7 @@ lv_obj_t* createWebPasswordSettingsScreen() {
 
     lv_obj_t* srv_hint = lv_label_create(content);
     lv_label_set_text(srv_hint, "On demand: runs while System Info or WiFi\nscreens are open, stops after 10 min idle.");
-    lv_obj_set_style_text_color(srv_hint, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(srv_hint, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(srv_hint, getStyleLabelSecondarySmall(), 0);
 
     // Update display (shows/hides password field based on state)
     update_web_password_display();
@@ -1598,8 +1562,7 @@ lv_obj_t* createWebPasswordSettingsScreen() {
     lv_obj_t* footer = lv_obj_create(screen);
     lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
     lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_add_style(footer, getStyleTransparent(), 0);
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
@@ -1715,8 +1678,7 @@ lv_obj_t* createThemeSettingsScreen() {
     lv_obj_t* footer = lv_obj_create(screen);
     lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
     lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_add_style(footer, getStyleTransparent(), 0);
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
@@ -1753,9 +1715,7 @@ static void createInfoRow(lv_obj_t* parent, const char* label, const char* value
     lv_obj_set_layout(row, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(row, 0, 0);
-    lv_obj_set_style_pad_all(row, 0, 0);
+    lv_obj_add_style(row, getStyleTransparentContainer(), 0);
     lv_obj_set_style_pad_ver(row, 4, 0);
 
     lv_obj_t* lbl = lv_label_create(row);
@@ -1842,8 +1802,7 @@ lv_obj_t* createSystemInfoScreen() {
     // Build date
     lv_obj_t* date_label = lv_label_create(content);
     lv_label_set_text_fmt(date_label, "Built: %s", FIRMWARE_DATE);
-    lv_obj_set_style_text_color(date_label, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(date_label, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(date_label, getStyleLabelSecondarySmall(), 0);
     lv_obj_set_width(date_label, lv_pct(100));
     lv_obj_set_style_text_align(date_label, LV_TEXT_ALIGN_CENTER, 0);
 
@@ -1868,8 +1827,7 @@ lv_obj_t* createSystemInfoScreen() {
     // Spacer
     lv_obj_t* spacer = lv_obj_create(content);
     lv_obj_set_size(spacer, lv_pct(100), 10);
-    lv_obj_set_style_bg_opa(spacer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(spacer, 0, 0);
+    lv_obj_add_style(spacer, getStyleTransparent(), 0);
 
     // System info rows
     createInfoRow(content, "Device:", FIRMWARE_NAME);
@@ -1899,8 +1857,7 @@ lv_obj_t* createSystemInfoScreen() {
     if (WiFi.isConnected()) {
         lv_obj_t* web_spacer = lv_obj_create(content);
         lv_obj_set_size(web_spacer, lv_pct(100), 6);
-        lv_obj_set_style_bg_opa(web_spacer, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(web_spacer, 0, 0);
+        lv_obj_add_style(web_spacer, getStyleTransparent(), 0);
 
         char urlBuf[40];
         snprintf(urlBuf, sizeof(urlBuf), "http://%s", WiFi.localIP().toString().c_str());
@@ -1914,13 +1871,7 @@ lv_obj_t* createSystemInfoScreen() {
     }
 
     // Invisible focus container for key handling
-    system_info_focus_container = lv_obj_create(screen);
-    lv_obj_set_size(system_info_focus_container, 0, 0);
-    lv_obj_set_style_bg_opa(system_info_focus_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(system_info_focus_container, 0, 0);
-    lv_obj_add_flag(system_info_focus_container, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(system_info_focus_container, system_info_key_cb, LV_EVENT_KEY, NULL);
-    addNavigableWidget(system_info_focus_container);
+    system_info_focus_container = createKeyCatcher(screen, system_info_key_cb);
 
     // Enable edit mode to receive key events
     lv_group_t* group = getLVGLInputGroup();
@@ -1932,8 +1883,7 @@ lv_obj_t* createSystemInfoScreen() {
     lv_obj_t* footer = lv_obj_create(screen);
     lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
     lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_add_style(footer, getStyleTransparent(), 0);
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
@@ -2019,8 +1969,7 @@ static void btkb_show_list_message(const char* msg) {
     btkb_device_count = 0;  // buttons were just deleted
     lv_obj_t* lbl = lv_label_create(btkb_device_list);
     lv_label_set_text(lbl, msg);
-    lv_obj_set_style_text_color(lbl, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(lbl, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(lbl, getStyleLabelSecondarySmall(), 0);
 }
 
 static void btkb_device_btn_event_cb(lv_event_t* e) {
@@ -2200,8 +2149,7 @@ lv_obj_t* createBTKeyboardSettingsScreen() {
     lv_obj_align(btkb_status_label, LV_ALIGN_TOP_LEFT, 5, 0);
 
     btkb_paired_label = lv_label_create(status_card);
-    lv_obj_set_style_text_font(btkb_paired_label, getThemeFonts()->font_small, 0);
-    lv_obj_set_style_text_color(btkb_paired_label, LV_COLOR_TEXT_SECONDARY, 0);
+    lv_obj_add_style(btkb_paired_label, getStyleLabelSecondarySmall(), 0);
     lv_obj_align(btkb_paired_label, LV_ALIGN_BOTTOM_LEFT, 5, 0);
 
     // Action buttons (left column)
@@ -2228,14 +2176,12 @@ lv_obj_t* createBTKeyboardSettingsScreen() {
     lv_obj_t* footer = lv_obj_create(screen);
     lv_obj_set_size(footer, SCREEN_WIDTH, FOOTER_HEIGHT);
     lv_obj_set_pos(footer, 0, SCREEN_HEIGHT - FOOTER_HEIGHT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_add_style(footer, getStyleTransparent(), 0);
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* help = lv_label_create(footer);
     lv_label_set_text(help, FOOTER_NAV_ENTER_ESC);  // Use standardized footer
-    lv_obj_set_style_text_color(help, LV_COLOR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
+    lv_obj_add_style(help, getStyleLabelSecondarySmall(), 0);
     lv_obj_center(help);
 
     // Initialize from current backend state

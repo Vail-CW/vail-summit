@@ -123,7 +123,7 @@ static void onboarding_save_callsign_if_entered() {
         buf[i] = (char)toupper((unsigned char)buf[i]);
     }
     saveCallsign(buf);
-    vailCallsign = buf;
+    strlcpy(vailCallsign, buf, VAIL_CALLSIGN_LEN);
 }
 
 static void onboarding_finish_to_home(lv_event_t* e) {
@@ -470,8 +470,8 @@ lv_obj_t* createOnboardingScreen() {
             lv_textarea_set_one_line(onboard_callsign_ta, true);
             lv_textarea_set_max_length(onboard_callsign_ta, 12);
             lv_textarea_set_placeholder_text(onboard_callsign_ta, "e.g. W1ABC");
-            if (vailCallsign.length() > 0 && vailCallsign != "GUEST") {
-                lv_textarea_set_text(onboard_callsign_ta, vailCallsign.c_str());
+            if (vailCallsign[0] != '\0' && strcmp(vailCallsign, "GUEST") != 0) {
+                lv_textarea_set_text(onboard_callsign_ta, vailCallsign);
             }
             applyTextareaStyle(onboard_callsign_ta);
             lv_obj_add_event_cb(onboard_callsign_ta, onboarding_callsign_key_handler, LV_EVENT_KEY, NULL);

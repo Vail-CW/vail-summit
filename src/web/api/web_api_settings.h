@@ -18,7 +18,7 @@ extern LGFX tft;
 extern int cwSpeed;
 extern int cwTone;
 extern KeyType cwKeyType;
-extern String vailCallsign;
+extern char vailCallsign[];
 extern StorageStats storageStats;
 extern bool hasMAX17048;
 extern bool hasLC709203;
@@ -49,7 +49,7 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
   webServer.on("/api/radio/status", HTTP_GET, [](AsyncWebServerRequest *request) {
     if (!checkWebAuth(request)) return;
 
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     doc["active"] = (currentMode == MODE_RADIO_OUTPUT && radioOutputActive);
     doc["mode"] = (currentMode == MODE_RADIO_OUTPUT) ? "radio_output" : "other";
 
@@ -83,7 +83,7 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
       if (!checkWebAuth(request)) return;
 
       // Parse JSON body
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, data, len);
 
       if (error) {
@@ -111,7 +111,7 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
   webServer.on("/api/radio/wpm", HTTP_GET, [](AsyncWebServerRequest *request) {
     if (!checkWebAuth(request)) return;
 
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     doc["wpm"] = cwSpeed;
 
     String output;
@@ -131,7 +131,7 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
       if (!checkWebAuth(request)) return;
 
       // Parse JSON body
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, data, len);
 
       if (error) {
@@ -166,7 +166,7 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
   webServer.on("/api/settings/cw", HTTP_GET, [](AsyncWebServerRequest *request) {
     if (!checkWebAuth(request)) return;
 
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     doc["wpm"] = cwSpeed;
     doc["tone"] = cwTone;
     doc["keyType"] = (int)cwKeyType;
@@ -187,7 +187,7 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
     [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
       if (!checkWebAuth(request)) return;
 
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, data, len);
 
       if (error) {
@@ -235,7 +235,7 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
   webServer.on("/api/settings/volume", HTTP_GET, [](AsyncWebServerRequest *request) {
     if (!checkWebAuth(request)) return;
 
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     doc["volume"] = getVolume();
 
     String output;
@@ -254,7 +254,7 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
     [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
       if (!checkWebAuth(request)) return;
 
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, data, len);
 
       if (error) {
@@ -282,7 +282,7 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
   webServer.on("/api/settings/callsign", HTTP_GET, [](AsyncWebServerRequest *request) {
     if (!checkWebAuth(request)) return;
 
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
     doc["callsign"] = vailCallsign;
 
     String output;
@@ -301,7 +301,7 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
     [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
       if (!checkWebAuth(request)) return;
 
-      JsonDocument doc;
+      JsonDocument doc(psramJsonAllocator());
       DeserializationError error = deserializeJson(doc, data, len);
 
       if (error) {
@@ -324,7 +324,7 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
       }
 
       // Update callsign
-      vailCallsign = callsign;
+      strlcpy(vailCallsign, callsign.c_str(), VAIL_CALLSIGN_LEN);
       saveCallsign(callsign.c_str());
 
       Serial.print("Callsign updated to ");
@@ -342,7 +342,7 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
   webServer.on("/api/system/info", HTTP_GET, [](AsyncWebServerRequest *request) {
     if (!checkWebAuth(request)) return;
 
-    JsonDocument doc;
+    JsonDocument doc(psramJsonAllocator());
 
     // Firmware
     doc["firmware"] = FIRMWARE_VERSION;
