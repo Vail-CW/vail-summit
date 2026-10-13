@@ -105,23 +105,35 @@ void loadCWMemoriesInto(CWMemoryPreset* tbl) {
 }
 
 // Make sure the table exists and holds the saved presets.
-static portMUX_TYPE cwMemAllocMux = portMUX_INITIALIZER_UNLOCKED;
+// Main loop and the async web task can both get here first. The mutex makes
+// allocate + Preferences load a single step, so only one caller ever touches
+// cwMemoryPrefs during load and the other just sees the published table.
+static SemaphoreHandle_t cwMemInitMutex = nullptr;
+static portMUX_TYPE cwMemMutexCreateMux = portMUX_INITIALIZER_UNLOCKED;
+
 bool ensureCWMemories() {
   if (cwMemories) return true;
-  // Main loop and the async web task can both get here: allocate and load
-  // outside the lock, publish under it, drop the loser's copy.
-  CWMemoryPreset* t = (CWMemoryPreset*)lazyAlloc(sizeof(CWMemoryPreset) * CW_MEMORY_MAX_SLOTS);
-  if (!t) {
-    Serial.println("[CWMem] alloc failed");
-    return false;
+  if (!cwMemInitMutex) {
+    SemaphoreHandle_t m = xSemaphoreCreateMutex();
+    portENTER_CRITICAL(&cwMemMutexCreateMux);
+    if (!cwMemInitMutex) { cwMemInitMutex = m; m = nullptr; }
+    portEXIT_CRITICAL(&cwMemMutexCreateMux);
+    if (m) vSemaphoreDelete(m);
+    if (!cwMemInitMutex) return false;
   }
-  loadCWMemoriesInto(t);
-  bool used = false;
-  portENTER_CRITICAL(&cwMemAllocMux);
-  if (cwMemories == nullptr) { cwMemories = t; used = true; }
-  portEXIT_CRITICAL(&cwMemAllocMux);
-  if (!used) free(t);
-  return true;
+  xSemaphoreTake(cwMemInitMutex, portMAX_DELAY);
+  if (!cwMemories) {
+    CWMemoryPreset* t = (CWMemoryPreset*)lazyAlloc(sizeof(CWMemoryPreset) * CW_MEMORY_MAX_SLOTS);
+    if (t) {
+      loadCWMemoriesInto(t);
+      cwMemories = t;
+    } else {
+      Serial.println("[CWMem] alloc failed");
+    }
+  }
+  bool ok = cwMemories != nullptr;
+  xSemaphoreGive(cwMemInitMutex);
+  return ok;
 }
 
 // Release the table. Skipped while the web server runs because its API

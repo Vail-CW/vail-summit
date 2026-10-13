@@ -39,15 +39,19 @@ struct RadioMessageQueue {
 // screen is left with nothing pending (freeRadioMessageQueue)
 RadioMessageQueue* radioMessageQueue = nullptr;
 
-static portMUX_TYPE radioQueueAllocMux = portMUX_INITIALIZER_UNLOCKED;
+// The web API enqueues from the async TCP task while the main loop dequeues,
+// so every touch of the queue (pointer and contents) happens under this lock.
+// Critical sections only copy at most RADIO_MESSAGE_MAX_LENGTH bytes.
+static portMUX_TYPE radioQueueMux = portMUX_INITIALIZER_UNLOCKED;
+
 static bool ensureRadioMessageQueue() {
   if (radioMessageQueue) return true;
   RadioMessageQueue* q = (RadioMessageQueue*)lazyAlloc(sizeof(RadioMessageQueue));
   if (!q) return false;
   bool used = false;
-  portENTER_CRITICAL(&radioQueueAllocMux);
+  portENTER_CRITICAL(&radioQueueMux);
   if (!radioMessageQueue) { radioMessageQueue = q; used = true; }
-  portEXIT_CRITICAL(&radioQueueAllocMux);
+  portEXIT_CRITICAL(&radioQueueMux);
   if (!used) free(q);  // another task won the race
   return true;
 }
@@ -55,9 +59,14 @@ static bool ensureRadioMessageQueue() {
 void freeRadioMessageQueue() {
   extern bool webServerRunning;
   if (webServerRunning) return;  // web API may queue from the async task
+  RadioMessageQueue* q = nullptr;
+  portENTER_CRITICAL(&radioQueueMux);
   if (radioMessageQueue && radioMessageQueue->count == 0) {
-    lazyFree(radioMessageQueue);
+    q = radioMessageQueue;
+    radioMessageQueue = nullptr;
   }
+  portEXIT_CRITICAL(&radioQueueMux);
+  if (q) free(q);
 }
 
 // Current message transmission state
@@ -209,19 +218,19 @@ void updateRadioOutput() {
 // Queue a message for radio transmission
 bool queueRadioMessage(const char* message) {
   if (!ensureRadioMessageQueue()) return false;
-  if (radioMessageQueue->count >= RADIO_MESSAGE_QUEUE_SIZE) {
-    return false; // Queue is full
+  int queued = -1;
+  portENTER_CRITICAL(&radioQueueMux);
+  if (radioMessageQueue && radioMessageQueue->count < RADIO_MESSAGE_QUEUE_SIZE) {
+    strlcpy(radioMessageQueue->messages[radioMessageQueue->writeIndex], message, RADIO_MESSAGE_MAX_LENGTH);
+    radioMessageQueue->writeIndex = (radioMessageQueue->writeIndex + 1) % RADIO_MESSAGE_QUEUE_SIZE;
+    radioMessageQueue->count++;
+    queued = radioMessageQueue->count;
   }
-
-  // Copy message to queue
-  strlcpy(radioMessageQueue->messages[radioMessageQueue->writeIndex], message, RADIO_MESSAGE_MAX_LENGTH);
-
-  // Advance write index (circular buffer)
-  radioMessageQueue->writeIndex = (radioMessageQueue->writeIndex + 1) % RADIO_MESSAGE_QUEUE_SIZE;
-  radioMessageQueue->count++;
+  portEXIT_CRITICAL(&radioQueueMux);
+  if (queued < 0) return false;  // Queue is full
 
   Serial.print("Message queued (");
-  Serial.print(radioMessageQueue->count);
+  Serial.print(queued);
   Serial.print(" in queue): '");
   Serial.print(message);
   Serial.print("' Length=");
@@ -289,11 +298,16 @@ void processRadioMessageQueue() {
 
   // If not currently transmitting, check if there's a message in the queue
   if (!isTransmittingMessage) {
+    bool dequeued = false;
+    portENTER_CRITICAL(&radioQueueMux);
     if (radioMessageQueue && radioMessageQueue->count > 0) {
-      // Dequeue message
       strlcpy(currentTransmittingMessage, radioMessageQueue->messages[radioMessageQueue->readIndex], RADIO_MESSAGE_MAX_LENGTH);
       radioMessageQueue->readIndex = (radioMessageQueue->readIndex + 1) % RADIO_MESSAGE_QUEUE_SIZE;
       radioMessageQueue->count--;
+      dequeued = true;
+    }
+    portEXIT_CRITICAL(&radioQueueMux);
+    if (dequeued) {
 
       // Start transmission
       isTransmittingMessage = true;

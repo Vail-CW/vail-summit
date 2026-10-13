@@ -539,6 +539,14 @@ void updateWebServerLifecycle() {
   if (now - webLastActivity >= WEB_SERVER_IDLE_TIMEOUT_MS && !isModeAudioCritical((int)currentMode)) {
     Serial.println("[WebServer] Idle - stopping to free RAM");
     stopWebServer();
+    // CW memories / radio queue are kept while the server runs (its handlers
+    // use them); free them now unless their own screens are open
+    extern void freeCWMemories();
+    extern void freeRadioMessageQueue();
+    if (currentMode != MODE_CW_MEMORIES && currentMode != MODE_RADIO_OUTPUT) {
+      freeCWMemories();
+      freeRadioMessageQueue();
+    }
   }
 }
 
