@@ -681,7 +681,7 @@ static void band_cond_autoload_cb(lv_timer_t* timer) {
     }
 }
 
-void startBandConditions(LGFX& display) {
+void startBandConditions() {
     Serial.println("[BandConditions] Starting Band Conditions mode");
 
     // Start timer to update "X min ago" label every minute

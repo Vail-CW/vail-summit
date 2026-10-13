@@ -64,7 +64,7 @@ unsigned long lastElementTime = 0;  // Track last element for timeout flush
 static EffectiveWpm practiceEffWpm;
 
 // Forward declarations
-void startPracticeMode(LGFX &display);
+void startPracticeMode();
 void updatePracticeOscillator();
 void practiceKeyerCallback(bool txOn, int element);
 float practiceGetActualWPM();
@@ -78,7 +78,7 @@ void practiceToggleDecoding();
 void practiceCheckDeferredSave();
 
 // Start practice mode
-void startPracticeMode(LGFX &display) {
+void startPracticeMode() {
   practiceActive = true;
   ditPressed = false;
   dahPressed = false;

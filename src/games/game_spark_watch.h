@@ -216,7 +216,6 @@ static SparkWatchSession sparkSession;
 static Preferences sparkPrefs;
 
 // LVGL mode flag
-static bool sparkUseLVGL = true;
 
 // ============================================
 // Preferences Functions

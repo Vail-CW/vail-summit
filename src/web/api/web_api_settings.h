@@ -26,7 +26,7 @@ extern Adafruit_LC709203F lc;
 extern Adafruit_MAX17048 maxlipo;
 
 // External function declarations
-extern void startRadioOutput(LGFX &tft);
+extern void startRadioOutput();
 extern bool queueRadioMessage(const char* message);
 extern void saveCWSettings();
 extern void setVolume(int volume);
@@ -64,7 +64,7 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
 
     // Switch to radio output mode
     currentMode = MODE_RADIO_OUTPUT;
-    startRadioOutput(tft);
+    startRadioOutput();
 
     Serial.println("Switched to Radio Output mode via web interface");
 

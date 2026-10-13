@@ -10,7 +10,6 @@
 #include "../audio/i2s_audio.h"
 #include "training_license_core.h"
 #include "training_license_data.h"
-#include "training_license_ui.h"
 #include "training_license_stats.h"
 #include "training_license_downloader.h"
 
@@ -18,84 +17,16 @@
 extern MenuMode currentMode;
 extern int currentSelection;
 
-void startLicenseQuiz(LGFX& tft, int licenseType);
-void startLicenseStats(LGFX& tft);
+void startLicenseQuiz(int licenseType);
+void startLicenseStats();
 
 // ============================================
 // License Quiz Input Handler
 // ============================================
 
-/**
- * Handle input for quiz mode
- * Returns: -1 to exit, 0 for no action, 2 for redraw
- */
-int handleLicenseQuizInput(char key, LGFX& tft) {
-  // ESC - exit quiz
-  if (key == KEY_ESC) {
-    return -1;
-  }
-
-  // If showing feedback, any key advances to next question
-  if (licenseSession.showingFeedback) {
-    advanceToNextQuestion();
-    return 2;  // Redraw
-  }
-
-  // Direct answer selection (A/B/C/D keys)
-  if (key >= 'A' && key <= 'D') {
-    int answerIdx = key - 'A';
-    licenseSession.selectedAnswerIndex = answerIdx;
-    submitAnswer(answerIdx);
-    return 2;  // Redraw with feedback
-  }
-
-  if (key >= 'a' && key <= 'd') {
-    int answerIdx = key - 'a';
-    licenseSession.selectedAnswerIndex = answerIdx;
-    submitAnswer(answerIdx);
-    return 2;  // Redraw with feedback
-  }
-
-  // Arrow navigation (up/down/left/right all cycle answers)
-  if (key == KEY_UP || key == KEY_LEFT) {
-    if (licenseSession.selectedAnswerIndex > 0) {
-      licenseSession.selectedAnswerIndex--;
-      beep(TONE_MENU_NAV, BEEP_SHORT);
-      return 2;  // Redraw
-    }
-  } else if (key == KEY_DOWN || key == KEY_RIGHT) {
-    if (licenseSession.selectedAnswerIndex < 3) {
-      licenseSession.selectedAnswerIndex++;
-      beep(TONE_MENU_NAV, BEEP_SHORT);
-      return 2;  // Redraw
-    }
-  } else if (key == KEY_ENTER || key == KEY_ENTER_ALT) {
-    // Submit selected answer
-    if (licenseSession.selectedAnswerIndex >= 0 && licenseSession.selectedAnswerIndex <= 3) {
-      submitAnswer(licenseSession.selectedAnswerIndex);
-      return 2;  // Redraw with feedback
-    }
-  }
-
-  return 0;  // No action
-}
-
 // ============================================
 // Statistics Screen Input Handler
 // ============================================
-
-/**
- * Handle input for statistics screen
- * Returns: -1 to exit, 0 for no action
- */
-int handleLicenseStatsInput(char key, LGFX& tft) {
-  // ESC - return to license select
-  if (key == KEY_ESC) {
-    return -1;
-  }
-
-  return 0;  // No action
-}
 
 // ============================================
 // Mode Start Functions
@@ -106,7 +37,7 @@ int handleLicenseStatsInput(char key, LGFX& tft) {
  * NOTE: LVGL version is now used - this legacy function is kept for compatibility
  * but no longer draws UI (LVGL handles all rendering)
  */
-void startLicenseQuiz(LGFX& tft, int licenseType) {
+void startLicenseQuiz(int licenseType) {
   Serial.println("[LicenseQuiz] Legacy startLicenseQuiz called - UI handled by LVGL");
 
   // Unload previous pool if different
@@ -161,7 +92,7 @@ void startLicenseQuiz(LGFX& tft, int licenseType) {
  * NOTE: LVGL version is now used - this legacy function is kept for compatibility
  * but no longer draws UI (LVGL handles all rendering)
  */
-void startLicenseStats(LGFX& tft) {
+void startLicenseStats() {
   Serial.println("[LicenseStats] Legacy startLicenseStats called - UI handled by LVGL");
 
   // Make sure we have an active pool

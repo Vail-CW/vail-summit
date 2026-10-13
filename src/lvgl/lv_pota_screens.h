@@ -1754,7 +1754,7 @@ static void pota_autoload_cb(lv_timer_t* timer) {
     }
 }
 
-void startPOTAActiveSpots(LGFX& display) {
+void startPOTAActiveSpots() {
     Serial.println("[POTA] startPOTAActiveSpots called");
 
     // Start refresh/timestamp timers
