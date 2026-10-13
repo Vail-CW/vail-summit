@@ -3,7 +3,7 @@
  *
  * Large tables that only one mode uses are allocated when that mode is
  * entered and freed in its cleanupTable entry, instead of living in .bss
- * for the whole session. PSRAM is used when fitted; otherwise the internal
+ * for the whole run. PSRAM is used when fitted; otherwise the internal
  * heap, which still beats a permanent .bss reservation on non-PSRAM boards
  * because the memory is returned when the mode exits.
  */

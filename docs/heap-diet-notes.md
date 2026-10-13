@@ -1,6 +1,6 @@
 # Heap diet notes (October 2026)
 
-Branch: `brett/elegant-leavitt-e8a73f`. Built with the core 3.3.12 toolchain
+Built with the core 3.3.12 toolchain
 (`C:\acli3`). All numbers below are compiler "Global variables use" (static
 .data + .bss); heap effects are described per change and need the on-device
 `[HEAP ...]` log lines to be confirmed.
@@ -8,8 +8,8 @@ Branch: `brett/elegant-leavitt-e8a73f`. Built with the core 3.3.12 toolchain
 | Build | Static RAM | Notes |
 |-------|-----------:|-------|
 | main (0d3c5c1), core 2.0.14 | 81,428 B | baseline |
-| core 3 port alone (gracious-liskov) | 85,452 B | from core3-port-notes.md |
-| this branch, core 3, after all changes | 80,180 B | includes the core 3 port, the BT pairing branch, and the review fixes (an 848 B idle satellite-search fallback so a failed allocation never dereferences null) |
+| core 3 port alone | 85,452 B | from core3-port-notes.md |
+| v0.92, core 3, after all changes | 80,180 B | includes the core 3 port, the BT pairing fix, and an 848 B idle satellite-search fallback so a failed allocation never dereferences null |
 
 Flash is at 93% of the huge_app partition on core 3 (about 200 KB headroom).
 
@@ -122,8 +122,9 @@ PSRAM board.
 
 ## Hardware test list
 
-Nothing in this branch has been flashed. Test on a PSRAM unit and a
-non-PSRAM unit:
+First bench flash on a PSRAM unit (WiFi connected, 30 s after boot):
+internal free 143 KB, largest block 98 KB (was 90 KB / 47 KB on the bare
+core 3 port). Still to test, on a PSRAM unit and a non-PSRAM unit:
 
 1. Boot heap lines: note `[HEAP boot]` internal free / largest on both boards,
    then the `[HEAP 30s]` line after WiFi connects. Compare with the 90 KB /
@@ -141,7 +142,7 @@ non-PSRAM unit:
    API; Radio Output memory selector; web `send` while on another screen.
 8. Satellite tracker: pass list, pass detail, live view, leave hub, re-enter.
 9. WiFi settings: scan list, connect, failed-password retry, AP mode.
-10. Bluetooth keyboard pairing (the merged pairing-hardening branch plus the
-    NimBLE 2.x callback port): scan, pair with passkey, reconnect after
+10. Bluetooth keyboard pairing (v0.91 pairing fix plus the NimBLE 2.x
+    callback port): scan, pair with passkey, reconnect after
     power cycle, forget.
 11. Morse Shooter laser/explosion fades (8 KB layer buffer).
