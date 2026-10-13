@@ -8,6 +8,7 @@
 #define RADIO_OUTPUT_H
 
 #include "../core/config.h"
+#include "../core/lazy_alloc.h"
 #include "../settings/settings_cw.h"
 #include "../keyer/keyer.h"
 #include <Preferences.h>
@@ -36,11 +37,23 @@ struct RadioMessageQueue {
   int readIndex;
   int writeIndex;
   int count;
-} radioMessageQueue = {
-  .readIndex = 0,
-  .writeIndex = 0,
-  .count = 0
 };
+// Allocated on first queueRadioMessage(); freed when the Radio Output
+// screen is left with nothing pending (freeRadioMessageQueue)
+RadioMessageQueue* radioMessageQueue = nullptr;
+
+static bool ensureRadioMessageQueue() {
+  if (!radioMessageQueue) {
+    radioMessageQueue = (RadioMessageQueue*)lazyAlloc(sizeof(RadioMessageQueue));
+  }
+  return radioMessageQueue != nullptr;
+}
+
+void freeRadioMessageQueue() {
+  if (radioMessageQueue && radioMessageQueue->count == 0) {
+    lazyFree(radioMessageQueue);
+  }
+}
 
 // Current message transmission state
 bool isTransmittingMessage = false;
@@ -493,19 +506,20 @@ void updateRadioOutput() {
 
 // Queue a message for radio transmission
 bool queueRadioMessage(const char* message) {
-  if (radioMessageQueue.count >= RADIO_MESSAGE_QUEUE_SIZE) {
+  if (!ensureRadioMessageQueue()) return false;
+  if (radioMessageQueue->count >= RADIO_MESSAGE_QUEUE_SIZE) {
     return false; // Queue is full
   }
 
   // Copy message to queue
-  strlcpy(radioMessageQueue.messages[radioMessageQueue.writeIndex], message, RADIO_MESSAGE_MAX_LENGTH);
+  strlcpy(radioMessageQueue->messages[radioMessageQueue->writeIndex], message, RADIO_MESSAGE_MAX_LENGTH);
 
   // Advance write index (circular buffer)
-  radioMessageQueue.writeIndex = (radioMessageQueue.writeIndex + 1) % RADIO_MESSAGE_QUEUE_SIZE;
-  radioMessageQueue.count++;
+  radioMessageQueue->writeIndex = (radioMessageQueue->writeIndex + 1) % RADIO_MESSAGE_QUEUE_SIZE;
+  radioMessageQueue->count++;
 
   Serial.print("Message queued (");
-  Serial.print(radioMessageQueue.count);
+  Serial.print(radioMessageQueue->count);
   Serial.print(" in queue): '");
   Serial.print(message);
   Serial.print("' Length=");
@@ -573,11 +587,11 @@ void processRadioMessageQueue() {
 
   // If not currently transmitting, check if there's a message in the queue
   if (!isTransmittingMessage) {
-    if (radioMessageQueue.count > 0) {
+    if (radioMessageQueue && radioMessageQueue->count > 0) {
       // Dequeue message
-      strlcpy(currentTransmittingMessage, radioMessageQueue.messages[radioMessageQueue.readIndex], RADIO_MESSAGE_MAX_LENGTH);
-      radioMessageQueue.readIndex = (radioMessageQueue.readIndex + 1) % RADIO_MESSAGE_QUEUE_SIZE;
-      radioMessageQueue.count--;
+      strlcpy(currentTransmittingMessage, radioMessageQueue->messages[radioMessageQueue->readIndex], RADIO_MESSAGE_MAX_LENGTH);
+      radioMessageQueue->readIndex = (radioMessageQueue->readIndex + 1) % RADIO_MESSAGE_QUEUE_SIZE;
+      radioMessageQueue->count--;
 
       // Start transmission
       isTransmittingMessage = true;

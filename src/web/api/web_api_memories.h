@@ -9,7 +9,8 @@
 #include <ArduinoJson.h>
 
 // External declarations
-extern CWMemoryPreset cwMemories[CW_MEMORY_MAX_SLOTS];
+extern CWMemoryPreset* cwMemories;
+extern bool ensureCWMemories();
 extern void saveCWMemory(int slot);
 extern void deleteCWMemory(int slot);
 extern void previewCWMemory(int slot);
@@ -29,6 +30,7 @@ void setupMemoriesAPI(AsyncWebServer &webServer) {
   // ============================================
   webServer.on("/api/memories/list", HTTP_GET, [](AsyncWebServerRequest *request) {
     if (!checkWebAuth(request)) return;
+    if (!ensureCWMemories()) { request->send(500, "application/json", "{\"error\":\"out of memory\"}"); return; }
 
     JsonDocument doc;
     JsonArray presets = doc["presets"].to<JsonArray>();
@@ -60,6 +62,7 @@ void setupMemoriesAPI(AsyncWebServer &webServer) {
     NULL,
     [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
       if (!checkWebAuth(request)) return;
+    if (!ensureCWMemories()) { request->send(500, "application/json", "{\"error\":\"out of memory\"}"); return; }
 
       JsonDocument doc;
       DeserializationError error = deserializeJson(doc, data, len);
@@ -133,6 +136,7 @@ void setupMemoriesAPI(AsyncWebServer &webServer) {
     NULL,
     [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
       if (!checkWebAuth(request)) return;
+    if (!ensureCWMemories()) { request->send(500, "application/json", "{\"error\":\"out of memory\"}"); return; }
 
       JsonDocument doc;
       DeserializationError error = deserializeJson(doc, data, len);
@@ -206,6 +210,7 @@ void setupMemoriesAPI(AsyncWebServer &webServer) {
     NULL,
     [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
       if (!checkWebAuth(request)) return;
+    if (!ensureCWMemories()) { request->send(500, "application/json", "{\"error\":\"out of memory\"}"); return; }
 
       JsonDocument doc;
       DeserializationError error = deserializeJson(doc, data, len);
@@ -247,6 +252,7 @@ void setupMemoriesAPI(AsyncWebServer &webServer) {
     NULL,
     [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
       if (!checkWebAuth(request)) return;
+    if (!ensureCWMemories()) { request->send(500, "application/json", "{\"error\":\"out of memory\"}"); return; }
 
       JsonDocument doc;
       DeserializationError error = deserializeJson(doc, data, len);
@@ -298,6 +304,7 @@ void setupMemoriesAPI(AsyncWebServer &webServer) {
     NULL,
     [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
       if (!checkWebAuth(request)) return;
+    if (!ensureCWMemories()) { request->send(500, "application/json", "{\"error\":\"out of memory\"}"); return; }
 
       JsonDocument doc;
       DeserializationError error = deserializeJson(doc, data, len);

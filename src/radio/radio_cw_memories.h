@@ -10,6 +10,7 @@
 #include "../core/config.h"
 #include "../core/morse_code.h"
 #include <Preferences.h>
+#include "../core/lazy_alloc.h"
 
 // External declarations
 extern int cwSpeed;
@@ -33,7 +34,10 @@ struct CWMemoryPreset {
 // Global State
 // ============================================
 
-CWMemoryPreset cwMemories[CW_MEMORY_MAX_SLOTS] = {};  // Initialize all to zero
+// Allocated (PSRAM first) and loaded from Preferences on first use by the
+// CW Memories / Radio Output screens or the web API; freed when those
+// screens are left and the web server is not running. See ensureCWMemories().
+CWMemoryPreset* cwMemories = nullptr;
 Preferences cwMemoryPrefs;
 
 // UI State
@@ -78,6 +82,7 @@ bool cwMemoriesUseLVGL = true;  // Default to LVGL mode
 
 // Load all CW memories from Preferences
 void loadCWMemories() {
+  if (!cwMemories) return;
   cwMemoryPrefs.begin("cw_memories", true);  // Read-only
 
   for (int i = 0; i < CW_MEMORY_MAX_SLOTS; i++) {
@@ -112,8 +117,29 @@ void loadCWMemories() {
   Serial.println("CW Memories loaded from Preferences");
 }
 
+// Make sure the table exists and holds the saved presets.
+bool ensureCWMemories() {
+  if (cwMemories) return true;
+  cwMemories = (CWMemoryPreset*)lazyAlloc(sizeof(CWMemoryPreset) * CW_MEMORY_MAX_SLOTS);
+  if (!cwMemories) {
+    Serial.println("[CWMem] alloc failed");
+    return false;
+  }
+  loadCWMemories();
+  return true;
+}
+
+// Release the table. Skipped while the web server runs because its API
+// handlers (async task) read the table; it is freed on the next screen exit.
+void freeCWMemories() {
+  extern bool webServerRunning;
+  if (webServerRunning) return;
+  lazyFree(cwMemories);
+}
+
 // Save a single CW memory to Preferences
 void saveCWMemory(int slot) {
+  if (!ensureCWMemories()) return;
   if (slot < 0 || slot >= CW_MEMORY_MAX_SLOTS) {
     Serial.println("Error: Invalid slot number");
     return;
@@ -148,6 +174,7 @@ void saveCWMemory(int slot) {
 
 // Delete a CW memory (clear the slot)
 void deleteCWMemory(int slot) {
+  if (!ensureCWMemories()) return;
   if (slot < 0 || slot >= CW_MEMORY_MAX_SLOTS) {
     Serial.println("Error: Invalid slot number");
     return;

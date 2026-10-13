@@ -151,7 +151,7 @@ static void network_item_click_handler(lv_event_t* e) {
     bool isSaved = false;
     String savedPassword = "";
     for (int j = 0; j < savedCount; j++) {
-        if (networks[index].ssid == savedSSIDs[j]) {
+        if (savedSSIDs[j] == networks[index].ssid) {
             isSaved = true;
             savedPassword = savedPasswords[j];
             break;
@@ -450,7 +450,7 @@ static void wifi_global_key_handler(lv_event_t* e) {
                 // Retry password if this was a password error
                 if (wifi_failed_ssid.length() > 0) {
                     for (int i = 0; i < networkCount; i++) {
-                        if (networks[i].ssid == wifi_failed_ssid) {
+                        if (wifi_failed_ssid == networks[i].ssid) {
                             wifi_selected_network = i;
                             wifi_lvgl_state = LVGL_WIFI_PASSWORD_INPUT;
                             wifi_password_visible = false;
@@ -581,7 +581,7 @@ static void wifi_view_key_handler(lv_event_t* e) {
             if (key == 'p' || key == 'P') {
                 if (wifi_failed_ssid.length() > 0) {
                     for (int i = 0; i < networkCount; i++) {
-                        if (networks[i].ssid == wifi_failed_ssid) {
+                        if (wifi_failed_ssid == networks[i].ssid) {
                             wifi_selected_network = i;
                             wifi_lvgl_state = LVGL_WIFI_PASSWORD_INPUT;
                             wifi_password_visible = false;
@@ -792,7 +792,7 @@ void createNetworkListView(lv_obj_t* parent) {
         // Check if saved
         bool isSaved = false;
         for (int j = 0; j < savedCount; j++) {
-            if (networks[i].ssid == savedSSIDs[j]) {
+            if (savedSSIDs[j] == networks[i].ssid) {
                 isSaved = true;
                 break;
             }
@@ -1441,6 +1441,7 @@ void startWiFiSetupLVGL() {
  */
 void cleanupWiFiScreen() {
     Serial.println("[WiFi LVGL] Cleaning up WiFi screen");
+    freeWiFiNetworkList();
     wifi_setup_screen = NULL;
     wifi_content = NULL;
     wifi_footer_label = NULL;

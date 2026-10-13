@@ -14,6 +14,7 @@
 #include <SD.h>
 #include <Preferences.h>
 #include "../../core/config.h"
+#include "../../core/psram_json.h"
 #include "../../storage/sd_card.h"
 
 // ============================================
@@ -303,8 +304,9 @@ bool performEarlyBootWebDownload(EarlyBootProgressCallback progressCb = nullptr)
 
   Serial.printf("Received %d bytes\n", manifestJson.length());
 
-  // Parse manifest
-  StaticJsonDocument<4096> doc;
+  // Parse manifest (heap/PSRAM document - the old 4 KB StaticJsonDocument
+  // lived on the calling task's stack)
+  JsonDocument doc(psramJsonAllocator());
   DeserializationError error = deserializeJson(doc, manifestJson);
   if (error) {
     Serial.printf("JSON parse error: %s\n", error.c_str());
@@ -613,8 +615,8 @@ bool downloadWebFilesFromGitHub() {
   String manifestJson = http.getString();
   http.end();
 
-  // Parse manifest
-  StaticJsonDocument<4096> doc;
+  // Parse manifest (heap/PSRAM document, not a 4 KB stack buffer)
+  JsonDocument doc(psramJsonAllocator());
   DeserializationError error = deserializeJson(doc, manifestJson);
 
   if (error) {
@@ -760,11 +762,17 @@ String fetchRemoteWebFilesVersion(bool forceRefresh = false) {
   Serial.printf("[WebDownload] Free heap: %d bytes, max block: %d bytes\n",
     ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
-  // Stop web server to free up RAM for SSL
-  extern AsyncWebServer webServer;
-  Serial.println("[WebDownload] Stopping web server to free RAM...");
-  webServer.end();
-  delay(100);  // Let memory consolidate
+  // Stop web server to free up RAM for SSL. With the on-demand lifecycle the
+  // server is usually not running at all here; only restart what we stopped.
+  extern bool webServerRunning;
+  extern void stopWebServer();
+  extern void setupWebServer();
+  bool webWasRunning = webServerRunning;
+  if (webWasRunning) {
+    Serial.println("[WebDownload] Stopping web server to free RAM...");
+    stopWebServer();
+    delay(100);  // Let memory consolidate
+  }
 
   // Log memory after stopping web server
   Serial.printf("[WebDownload] After stopping server - heap: %d, max block: %d\n",
@@ -774,8 +782,7 @@ String fetchRemoteWebFilesVersion(bool forceRefresh = false) {
   WiFiClientSecure* secureClient = new WiFiClientSecure();
   if (!secureClient) {
     Serial.println("[WebDownload] Failed to allocate WiFiClientSecure!");
-    Serial.println("[WebDownload] Restarting web server...");
-    webServer.begin();
+    if (webWasRunning) setupWebServer();
     remoteVersionFetched = true;
     cachedRemoteVersion = "";
     return "";
@@ -791,9 +798,7 @@ String fetchRemoteWebFilesVersion(bool forceRefresh = false) {
     Serial.printf("[WebDownload] SSL FAILED! Error %d: %s\n", err, errBuf);
     Serial.printf("[WebDownload] Free heap after fail: %d\n", ESP.getFreeHeap());
     delete secureClient;
-    // Restart web server
-    Serial.println("[WebDownload] Restarting web server...");
-    webServer.begin();
+    if (webWasRunning) setupWebServer();
     remoteVersionFetched = true;
     cachedRemoteVersion = "";
     return "";
@@ -834,9 +839,8 @@ String fetchRemoteWebFilesVersion(bool forceRefresh = false) {
   secureClient->stop();
   delete secureClient;
 
-  // Restart web server now that SSL is done
-  Serial.println("[WebDownload] Restarting web server...");
-  webServer.begin();
+  // Restart web server now that SSL is done (only if we stopped it)
+  if (webWasRunning) setupWebServer();
 
   Serial.printf("[WebDownload] Got %d bytes, HTTP %d\n", manifestJson.length(), httpCode);
 

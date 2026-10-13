@@ -13,6 +13,8 @@
 #include "../thirdparty/sgp4/sgp4.h"
 #include "../settings/settings_satellites.h"
 #include "sat_data.h"
+#include "../core/lazy_alloc.h"
+#include <new>
 
 // ============================================
 // Maidenhead Grid -> Lat/Lon
@@ -120,11 +122,35 @@ struct SatPassSearch {
     uint16_t calls;      // nextpass() invocations - hard runaway backstop
 };
 
-static SatPassSearch satSearch = { false, false, 0, {}, 0.0, 0.0, -1 };
+// Search state and the propagator (elsetrec is large) are allocated on
+// first use while a satellite screen is open and released by
+// freeSatPredictor() from freeSatelliteData() when the hub is left.
+static SatPassSearch* satSearchPtr = nullptr;
+static vsgp4::Sgp4* satPredictorPtr = nullptr;
 
-// One propagator instance shared by search + live view (elsetrec is large;
-// keep it out of stack frames).
-static vsgp4::Sgp4 satPredictor;
+static SatPassSearch& satS() {
+    if (!satSearchPtr) {
+        satSearchPtr = (SatPassSearch*)lazyAlloc(sizeof(SatPassSearch));
+        if (satSearchPtr) satSearchPtr->catalogIdx = -1;
+    }
+    return *satSearchPtr;
+}
+
+static vsgp4::Sgp4& satP() {
+    if (!satPredictorPtr) {
+        void* mem = lazyAlloc(sizeof(vsgp4::Sgp4));
+        if (mem) satPredictorPtr = new (mem) vsgp4::Sgp4();
+    }
+    return *satPredictorPtr;
+}
+
+void freeSatPredictor() {
+    if (satPredictorPtr) {
+        satPredictorPtr->~Sgp4();
+        lazyFree(satPredictorPtr);
+    }
+    lazyFree(satSearchPtr);
+}
 
 // Initialize the predictor for a catalog entry + current site. Returns false
 // on bad grid or missing TLE.
@@ -142,27 +168,27 @@ static bool satPredictorSetup(int catalogIdx) {
     strlcpy(l1, e.line1, sizeof(l1));
     strlcpy(l2, e.line2, sizeof(l2));
     // init() no-ops when the same TLE is already loaded - that's fine
-    satPredictor.init(e.name, l1, l2);
-    satPredictor.site(lat, lon, 100.0);  // altitude barely matters for pass times
+    satP().init(e.name, l1, l2);
+    satP().site(lat, lon, 100.0);  // altitude barely matters for pass times
     return true;
 }
 
 // Begin a pass search for a catalog entry over an arbitrary window.
 bool satStartPassSearchAt(int catalogIdx, time_t startUnix, double windowHours) {
-    memset(&satSearch, 0, sizeof(satSearch));
-    satSearch.catalogIdx = catalogIdx;
+    memset(&satS(), 0, sizeof(SatPassSearch));
+    satS().catalogIdx = catalogIdx;
 
     if (!ntpSynced) return false;
     if (!satPredictorSetup(catalogIdx)) return false;
 
-    satSearch.startJd = vsgp4::getJulianFromUnix((double)startUnix);
-    satSearch.endJd = satSearch.startJd + windowHours / 24.0;
+    satS().startJd = vsgp4::getJulianFromUnix((double)startUnix);
+    satS().endJd = satS().startJd + windowHours / 24.0;
 
-    if (!satPredictor.initpredpoint((unsigned long)startUnix, 0.0)) {
+    if (!satP().initpredpoint((unsigned long)startUnix, 0.0)) {
         Serial.println("[SAT] initpredpoint failed");
         return false;
     }
-    satSearch.active = true;
+    satS().active = true;
     return true;
 }
 
@@ -174,7 +200,7 @@ bool satStartPassSearch(int catalogIdx) {
 // Run search iterations for up to budgetMs. Each nextpass(1 iteration) call
 // advances the predictor by roughly one orbit. Returns true when finished.
 bool satPassSearchStep(uint32_t budgetMs) {
-    if (!satSearch.active) return true;
+    if (!satS().active) return true;
 
     uint32_t t0 = millis();
     vsgp4::passinfo p;
@@ -182,11 +208,11 @@ bool satPassSearchStep(uint32_t budgetMs) {
     while ((millis() - t0) < budgetMs) {
         // 600 calls is ~10x a worst-case 72h LEO window - anything past that
         // is a runaway, not a search
-        if (satSearch.count >= SAT_MAX_PASSES ||
-            satSearch.calls++ > 600 ||
-            satPredictor.getpredpoint() > satSearch.endJd) {
-            satSearch.active = false;
-            satSearch.done = true;
+        if (satS().count >= SAT_MAX_PASSES ||
+            satS().calls++ > 600 ||
+            satP().getpredpoint() > satS().endJd) {
+            satS().active = false;
+            satS().done = true;
             return true;
         }
 
@@ -204,23 +230,23 @@ bool satPassSearchStep(uint32_t budgetMs) {
         // can fail), and blindly rewinding one orbit after a one-orbit
         // advance nets zero progress - the search then spins on the same
         // satellite forever (NaN also disables the endJd termination).
-        double before = satPredictor.getpredpoint();
-        bool found = satPredictor.nextpass(&p, 2, false, (double)satSettings.minElevation);
-        double after = satPredictor.getpredpoint();
-        double jump = (satPredictor.revpday > 0.1) ? (1.0 / satPredictor.revpday) : 0.0;
+        double before = satP().getpredpoint();
+        bool found = satP().nextpass(&p, 2, false, (double)satSettings.minElevation);
+        double after = satP().getpredpoint();
+        double jump = (satP().revpday > 0.1) ? (1.0 / satP().revpday) : 0.0;
 
         if (isnan(after) || after <= before || jump <= 0.0) {
             // Propagation or bracket search went sideways - this bird is
             // unusable with the current TLE. Report "no passes" and move on.
-            satSearch.active = false;
-            satSearch.done = true;
+            satS().active = false;
+            satS().done = true;
             return true;
         }
 
         if (!found) {
             // Only un-hop the final orbit when both hops actually happened
             if (after - before >= 1.5 * jump) {
-                satPredictor.setpredpoint(after - jump);
+                satP().setpredpoint(after - jump);
             }
             continue;
         }
@@ -231,14 +257,14 @@ bool satPassSearchStep(uint32_t budgetMs) {
             continue;
         }
 
-        if (p.jdstop < satSearch.startJd) continue;      // pass already over
-        if (p.jdstart > satSearch.endJd) {               // beyond the window
-            satSearch.active = false;
-            satSearch.done = true;
+        if (p.jdstop < satS().startJd) continue;      // pass already over
+        if (p.jdstart > satS().endJd) {               // beyond the window
+            satS().active = false;
+            satS().done = true;
             return true;
         }
 
-        SatPass& sp = satSearch.passes[satSearch.count++];
+        SatPass& sp = satS().passes[satS().count++];
         sp.aos = (time_t)vsgp4::getUnixFromJulian(p.jdstart);
         sp.los = (time_t)vsgp4::getUnixFromJulian(p.jdstop);
         sp.tmax = (time_t)vsgp4::getUnixFromJulian(p.jdmax);
@@ -252,11 +278,11 @@ bool satPassSearchStep(uint32_t budgetMs) {
 
 // Search progress 0-100 for the progress label
 int satPassSearchProgress() {
-    if (satSearch.done) return 100;
-    if (!satSearch.active) return 0;
-    double span = satSearch.endJd - satSearch.startJd;
+    if (satS().done) return 100;
+    if (!satS().active) return 0;
+    double span = satS().endJd - satS().startJd;
     if (span <= 0.0) return 100;
-    double frac = (satPredictor.getpredpoint() - satSearch.startJd) / span;
+    double frac = (satP().getpredpoint() - satS().startJd) / span;
     if (frac < 0.0) frac = 0.0;
     if (frac > 1.0) frac = 1.0;
     return (int)(frac * 100.0);
@@ -280,10 +306,10 @@ bool satLiveUpdate(int catalogIdx, SatLiveState* out) {
     if (!ntpSynced) return false;
     if (!satPredictorSetup(catalogIdx)) return false;
 
-    satPredictor.findsat((unsigned long)time(nullptr));
-    out->az = (float)satPredictor.satAz;
-    out->el = (float)satPredictor.satEl;
-    out->distKm = (float)satPredictor.satDist;
+    satP().findsat((unsigned long)time(nullptr));
+    out->az = (float)satP().satAz;
+    out->el = (float)satP().satEl;
+    out->distKm = (float)satP().satDist;
     out->valid = true;
     return true;
 }

@@ -61,7 +61,7 @@ static void loadMailboxPlaybackSpeed() {
     if (sp > 200) sp = 200;
     mailbox_playback_speed = sp / 100.0f;
 }
-static String currentPlaybackMessageId = "";
+static char currentPlaybackMessageId[MAILBOX_MSG_ID_LEN] = "";
 static String mailbox_reply_recipient = "";  // For pre-filling compose screen when replying
 
 // Playback timing state
@@ -78,7 +78,6 @@ static lv_obj_t* mailbox_inbox_header_btns[2] = {NULL};  // Compose, Account
 static int mailbox_inbox_header_btn_count = 0;
 static lv_obj_t* mailbox_inbox_message_items[MAILBOX_INBOX_CACHE_SIZE] = {NULL};
 static int mailbox_inbox_message_count = 0;
-static String mailbox_inbox_msgIds[MAILBOX_INBOX_CACHE_SIZE];  // Message IDs for click handler user_data
 
 // Playback screen button tracking
 static lv_obj_t* mailbox_playback_btns[3] = {NULL};  // play_btn, speed_btn, reply_btn
@@ -673,16 +672,13 @@ lv_obj_t* createMailboxLinkScreen() {
 static void mailbox_inbox_item_click(lv_event_t* e) {
     Serial.println("[Mailbox] Item click handler called!");
     lv_obj_t* btn = lv_event_get_target(e);
-    String* msgId = (String*)lv_obj_get_user_data(btn);
-    Serial.printf("[Mailbox] msgId ptr: %p\n", (void*)msgId);
-    if (msgId) {
-        Serial.printf("[Mailbox] msgId value: '%s', length: %d\n",
-                      msgId->c_str(), msgId->length());
-    }
-    if (msgId && msgId->length() > 0) {
-        currentPlaybackMessageId = *msgId;
+    // user_data points at the id inside the inbox cache, which outlives
+    // this screen (freed only when the mailbox hub is left)
+    const char* msgId = (const char*)lv_obj_get_user_data(btn);
+    if (msgId && msgId[0] != '\0') {
+        strlcpy(currentPlaybackMessageId, msgId, sizeof(currentPlaybackMessageId));
         Serial.printf("[Mailbox] Switching to playback for message: %s\n",
-                      currentPlaybackMessageId.c_str());
+                      currentPlaybackMessageId);
         onLVGLMenuSelect(MODE_MORSE_MAILBOX_PLAYBACK);
     } else {
         Serial.println("[Mailbox] ERROR: msgId is null or empty!");
@@ -788,7 +784,7 @@ lv_obj_t* createMailboxInboxScreen() {
         msgCount = MAILBOX_INBOX_CACHE_SIZE;
     }
 
-    if (msgCount == 0) {
+    if (msgCount == 0 || msgs == nullptr) {
         lv_obj_t* empty = lv_label_create(list_container);
         lv_label_set_text(empty, "No messages");
         lv_obj_set_style_text_font(empty, getThemeFonts()->font_body, 0);
@@ -815,9 +811,8 @@ lv_obj_t* createMailboxInboxScreen() {
             lv_obj_set_style_border_color(item, LV_COLOR_BORDER_SUBTLE, 0);
             lv_obj_set_style_border_color(item, LV_COLOR_ACCENT_PRIMARY, LV_STATE_FOCUSED);
 
-            // Store message ID for click handler (use file-scope array)
-            mailbox_inbox_msgIds[i] = msg.id;
-            lv_obj_set_user_data(item, &mailbox_inbox_msgIds[i]);
+            // Click handler reads the id straight from the cache entry
+            lv_obj_set_user_data(item, (void*)msg.id);
 
             // Row layout
             lv_obj_set_flex_flow(item, LV_FLEX_FLOW_ROW);
@@ -828,7 +823,7 @@ lv_obj_t* createMailboxInboxScreen() {
             lv_obj_t* dot = lv_obj_create(item);
             lv_obj_set_size(dot, 10, 10);
             lv_obj_set_style_radius(dot, 5, 0);
-            lv_obj_set_style_bg_color(dot, msg.status == "unread" ? LV_COLOR_SUCCESS : LV_COLOR_TEXT_DISABLED, 0);
+            lv_obj_set_style_bg_color(dot, strcmp(msg.status, "unread") == 0 ? LV_COLOR_SUCCESS : LV_COLOR_TEXT_DISABLED, 0);
             lv_obj_set_style_border_width(dot, 0, 0);
             lv_obj_clear_flag(dot, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
 
@@ -844,14 +839,15 @@ lv_obj_t* createMailboxInboxScreen() {
             lv_obj_set_flex_align(info_col, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
 
             lv_obj_t* sender = lv_label_create(info_col);
-            lv_label_set_text(sender, msg.senderCallsign.c_str());
+            lv_label_set_text(sender, msg.senderCallsign);
             lv_obj_set_style_text_font(sender, getThemeFonts()->font_input, 0);
             lv_obj_set_style_text_color(sender, LV_COLOR_TEXT_PRIMARY, 0);
 
             // Parse and format date (simplified - just show date portion)
-            String dateStr = msg.sentAt.substring(0, 10);  // "2026-01-29"
+            char dateStr[11];  // "2026-01-29"
+            strlcpy(dateStr, msg.sentAt, sizeof(dateStr));
             lv_obj_t* date = lv_label_create(info_col);
-            lv_label_set_text(date, dateStr.c_str());
+            lv_label_set_text(date, dateStr);
             lv_obj_set_style_text_font(date, getThemeFonts()->font_body, 0);
             lv_obj_set_style_text_color(date, LV_COLOR_TEXT_TERTIARY, 0);
 
@@ -1827,6 +1823,8 @@ void cleanupMailboxCompose() {
 
 void cleanupMailboxLinkScreen() {
     Serial.println("[Mailbox] cleanupMailboxLinkScreen called");
+    // Leaving the mailbox hub: drop the inbox list (re-fetched on next visit)
+    freeMailboxInboxCache();
     if (mailbox_link_timer) {
         Serial.println("[Mailbox] Deleting link timer (cleanup)");
         lv_timer_del(mailbox_link_timer);

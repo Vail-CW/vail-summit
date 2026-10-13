@@ -8,6 +8,11 @@
 
 #include <Arduino.h>
 #include <esp_heap_caps.h>
+#include "modes.h"
+
+// Defined in vail-summit.ino; declared here so the periodic heap line can
+// name the mode that was active when the numbers were taken.
+extern MenuMode currentMode;
 
 // Lowest largest-internal-block seen since boot - the number that predicts
 // WiFi/TLS trouble better than total free heap
@@ -55,6 +60,27 @@ void logMemoryStatus(const char* tag = nullptr) {
     Serial.println();
 }
 
+// One-line heap-caps report: internal free / largest block, PSRAM free /
+// largest block (when fitted), and the current mode. Printed at boot and
+// every 30 s so before/after comparisons of RAM changes can be read straight
+// off the serial log on either board type.
+void logHeapCaps(const char* tag) {
+    uint32_t intFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    uint32_t intMax  = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (intMax < lowestMaxInternalBlock) lowestMaxInternalBlock = intMax;
+    Serial.printf("[HEAP %s] mode=%d internal: free=%u largest=%u lowest-largest=%u",
+        tag ? tag : "", (int)currentMode, (unsigned)intFree, (unsigned)intMax,
+        (unsigned)lowestMaxInternalBlock);
+    if (psramFound()) {
+        uint32_t psFree = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+        uint32_t psMax  = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+        Serial.printf(" | psram: free=%u largest=%u", (unsigned)psFree, (unsigned)psMax);
+    } else {
+        Serial.print(" | psram: none");
+    }
+    Serial.println();
+}
+
 // Check if heap is critically low
 bool isHeapLow(uint32_t threshold = 20000) {
     return ESP.getFreeHeap() < threshold;
@@ -89,7 +115,7 @@ void checkMemoryHealth() {
 
     uint32_t freeHeap = ESP.getFreeHeap();
     uint32_t maxInternal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (maxInternal < lowestMaxInternalBlock) lowestMaxInternalBlock = maxInternal;
+    logHeapCaps("30s");  // also folds maxInternal into lowestMaxInternalBlock
 
     // TLS can't fit - worth knowing when WiFi features start failing
     if (maxInternal < TLS_INTERNAL_BLOCK_NEEDED && now - lastWarning > 300000) {

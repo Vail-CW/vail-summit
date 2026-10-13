@@ -43,13 +43,24 @@ AsyncWebSocket* practiceWebSocket = nullptr;
 AsyncWebSocket* hearItWebSocket = nullptr;
 
 // mDNS hostname
-String mdnsHostname = "vail-summit";
+static const char mdnsHostname[] = "vail-summit";
 
 // Server state
 bool webServerRunning = false;
 bool webPracticeModeActive = false;
 bool webFilesOnSD = false;  // True if web files exist on SD card
 bool webServerRestartPending = false;  // Flag to restart server (checked in main loop)
+
+// On-demand lifecycle. The server is started when a screen that shows the
+// web URL is open or a MODE_WEB_* mode is running (or always, when
+// webServerAlwaysOn is set) and stopped after WEB_SERVER_IDLE_TIMEOUT_MS
+// with no HTTP request, no WebSocket client and no such screen open. The
+// AsyncTCP service task (CONFIG_ASYNC_TCP_STACK_SIZE, 16 KB) is created on
+// the first begin() and is never deleted by the library, so the win of
+// on-demand mode is largest when the server has never been started at all.
+#define WEB_SERVER_IDLE_TIMEOUT_MS (10UL * 60UL * 1000UL)
+unsigned long webLastActivity = 0;
+static bool webActivityMiddlewareAdded = false;
 
 // Deferred web mode start flags (set from API handlers, consumed in main loop)
 volatile bool webPracticeStartPending = false;
@@ -197,9 +208,20 @@ void setupWebServer() {
   // Check if we're in AP mode (from settings_wifi.h)
   extern bool isAPMode;
 
+  // Every request (pages, API, WebSocket handshakes) refreshes the idle
+  // timer. reset() does not clear middlewares, so add it exactly once.
+  webLastActivity = millis();
+  if (!webActivityMiddlewareAdded) {
+    webActivityMiddlewareAdded = true;
+    webServer.addMiddleware([](AsyncWebServerRequest* request, ArMiddlewareNext next) {
+      webLastActivity = millis();
+      next();
+    });
+  }
+
   // Set up mDNS responder (only works in Station mode, not AP mode)
   if (!isAPMode) {
-    if (MDNS.begin(mdnsHostname.c_str())) {
+    if (MDNS.begin(mdnsHostname)) {
       Serial.print("mDNS responder started: http://");
       Serial.print(mdnsHostname);
       Serial.println(".local");
@@ -330,7 +352,7 @@ void setupWebServer() {
 
     JsonDocument doc;
     doc["status"] = "active";
-    doc["endpoint"] = "ws://" + mdnsHostname + ".local/ws/practice";
+    doc["endpoint"] = "ws://vail-summit.local/ws/practice";
 
     String output;
     serializeJson(doc, output);
@@ -353,7 +375,7 @@ void setupWebServer() {
 
       JsonDocument response;
       response["status"] = "active";
-      response["endpoint"] = "ws://" + mdnsHostname + ".local/ws/memory-chain";
+      response["endpoint"] = "ws://vail-summit.local/ws/memory-chain";
 
       String output;
       serializeJson(response, output);
@@ -376,7 +398,7 @@ void setupWebServer() {
 
       JsonDocument response;
       response["status"] = "active";
-      response["endpoint"] = "ws://" + mdnsHostname + ".local/ws/hear-it";
+      response["endpoint"] = "ws://vail-summit.local/ws/hear-it";
 
       String output;
       serializeJson(response, output);
@@ -438,6 +460,85 @@ void stopWebServer() {
   MDNS.end();
   webServerRunning = false;
   Serial.println("Web server stopped");
+}
+
+/*
+ * True for modes whose screen shows the web URL or that are driven from
+ * the browser: the server must be up while one of them is current.
+ */
+bool webServerWantedByMode(int mode) {
+  switch (mode) {
+    case MODE_WEB_PRACTICE:
+    case MODE_WEB_HEAR_IT:
+    case MODE_WEB_MEMORY_CHAIN:
+    case MODE_SYSTEM_INFO:
+    case MODE_WIFI_SETTINGS:
+    case MODE_WEB_PASSWORD_SETTINGS:
+    case MODE_WEB_FILES_UPDATE:
+      return true;
+    default:
+      return false;
+  }
+}
+
+/*
+ * Start the server now if the network is up and it is not already running.
+ * Called from the main loop / LVGL handlers.
+ */
+void requestWebServer() {
+  extern bool isAPMode;
+  if (webServerRunning) {
+    webLastActivity = millis();
+    return;
+  }
+  if (!WiFi.isConnected() && !isAPMode) return;
+  setupWebServer();
+}
+
+/*
+ * WebSocket client count across the on-demand sockets (0 when none exist)
+ */
+static uint32_t webSocketClientCount() {
+  uint32_t n = 0;
+  if (practiceWebSocket) n += practiceWebSocket->count();
+  if (hearItWebSocket) n += hearItWebSocket->count();
+  return n;
+}
+
+/*
+ * Main-loop lifecycle: start on demand for URL screens / web modes / the
+ * always-on setting, stop after idle. AP mode (captive portal / SETUP MODE)
+ * keeps the server up for as long as the AP exists.
+ */
+void updateWebServerLifecycle() {
+  static unsigned long lastCheck = 0;
+  unsigned long now = millis();
+  if (now - lastCheck < 1000) return;
+  lastCheck = now;
+
+  extern bool isAPMode;
+  bool wanted = isAPMode || webServerAlwaysOn || webServerWantedByMode((int)currentMode);
+
+  if (!webServerRunning) {
+    if (wanted && (WiFi.isConnected() || isAPMode)) {
+      Serial.println("[WebServer] Starting on demand");
+      setupWebServer();
+    }
+    return;
+  }
+
+  if (wanted) {
+    webLastActivity = now;  // a wanted server never goes idle
+    return;
+  }
+  if (webSocketClientCount() > 0) {
+    webLastActivity = now;
+    return;
+  }
+  if (now - webLastActivity >= WEB_SERVER_IDLE_TIMEOUT_MS) {
+    Serial.println("[WebServer] Idle - stopping to free RAM");
+    stopWebServer();
+  }
 }
 
 /*

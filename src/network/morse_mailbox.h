@@ -9,6 +9,7 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include "../core/psram_json.h"
+#include "../core/lazy_alloc.h"
 #include <WiFi.h>
 #include "../settings/settings_mailbox.h"
 #include "../core/secrets.h"
@@ -66,13 +67,15 @@ enum MailboxRecordState {
     MB_RECORD_ERROR
 };
 
-// Inbox message (lightweight, no timing data)
+// Inbox message (lightweight, no timing data). Plain char[] so the cache
+// can be a single lazily allocated block (see ensureMailboxInboxCache).
+#define MAILBOX_MSG_ID_LEN 40
 struct MailboxMessage {
-    String id;
-    String senderCallsign;
-    String senderMmid;
-    String status;  // "unread", "read", "archived"
-    String sentAt;
+    char id[MAILBOX_MSG_ID_LEN];   // "msg_xyz789" / Firestore doc id
+    char senderCallsign[16];
+    char senderMmid[16];           // "MM-00042"
+    char status[12];               // "unread", "read", "archived"
+    char sentAt[32];               // ISO 8601
     int durationMs;
     int eventCount;
 };
@@ -96,11 +99,26 @@ static unsigned long lastPollTime = 0;
 static int mailboxUnreadCount = 0;
 static bool mailboxPollEnabled = true;
 
-// Inbox cache
+// Inbox cache - allocated on first fetch (PSRAM when fitted), freed when
+// the Morse Mailbox hub is left (cleanupMailboxLinkScreen -> freeMailboxInboxCache)
 #define MAILBOX_INBOX_CACHE_SIZE 20
-static MailboxMessage inboxCache[MAILBOX_INBOX_CACHE_SIZE];
+static MailboxMessage* inboxCache = nullptr;
 static int inboxCacheCount = 0;
 static bool inboxCacheValid = false;
+
+static bool ensureMailboxInboxCache() {
+    if (!inboxCache) {
+        inboxCache = (MailboxMessage*)lazyAlloc(sizeof(MailboxMessage) * MAILBOX_INBOX_CACHE_SIZE);
+        if (!inboxCache) Serial.println("[Mailbox] inbox cache alloc failed");
+    }
+    return inboxCache != nullptr;
+}
+
+void freeMailboxInboxCache() {
+    lazyFree(inboxCache);
+    inboxCacheCount = 0;
+    inboxCacheValid = false;
+}
 
 // Current message for playback
 static JsonDocument currentMessageDoc(psramJsonAllocator());
@@ -556,6 +574,7 @@ bool fetchMailboxInbox(int limit = 20, const String& status = "all") {
     int httpCode = mailboxCallableRequest("api_messages_inbox", requestData, result);
 
     if (httpCode == 200) {
+        if (!ensureMailboxInboxCache()) return false;
         JsonArray messages = result["messages"].as<JsonArray>();
 
         inboxCacheCount = 0;
@@ -565,15 +584,16 @@ bool fetchMailboxInbox(int limit = 20, const String& status = "all") {
             if (inboxCacheCount >= MAILBOX_INBOX_CACHE_SIZE) break;
 
             MailboxMessage& m = inboxCache[inboxCacheCount];
-            m.id = msg["id"].as<String>();
-            m.senderCallsign = msg["sender"]["callsign"].as<String>();
-            m.senderMmid = msg["sender"]["morse_mailbox_id"].as<String>();
-            m.status = msg["status"].as<String>();
-            m.sentAt = msg["sent_at"].as<String>();
+            memset(&m, 0, sizeof(m));
+            strlcpy(m.id, msg["id"] | "", sizeof(m.id));
+            strlcpy(m.senderCallsign, msg["sender"]["callsign"] | "", sizeof(m.senderCallsign));
+            strlcpy(m.senderMmid, msg["sender"]["morse_mailbox_id"] | "", sizeof(m.senderMmid));
+            strlcpy(m.status, msg["status"] | "", sizeof(m.status));
+            strlcpy(m.sentAt, msg["sent_at"] | "", sizeof(m.sentAt));
             m.durationMs = msg["duration_ms"].as<int>();
             m.eventCount = msg["event_count"].as<int>();
 
-            if (m.status == "unread") unreadCount++;
+            if (strcmp(m.status, "unread") == 0) unreadCount++;
 
             inboxCacheCount++;
         }
@@ -663,9 +683,9 @@ bool markMailboxMessageRead(const String& messageId) {
 
     if (httpCode == 200) {
         // Update cache
-        for (int i = 0; i < inboxCacheCount; i++) {
-            if (inboxCache[i].id == messageId && inboxCache[i].status == "unread") {
-                inboxCache[i].status = "read";
+        for (int i = 0; inboxCache && i < inboxCacheCount; i++) {
+            if (strcmp(inboxCache[i].id, messageId.c_str()) == 0 && strcmp(inboxCache[i].status, "unread") == 0) {
+                strlcpy(inboxCache[i].status, "read", sizeof(inboxCache[i].status));
                 if (mailboxUnreadCount > 0) mailboxUnreadCount--;
                 break;
             }

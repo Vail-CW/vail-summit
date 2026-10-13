@@ -8,6 +8,7 @@
 
 #include <WiFi.h>
 #include <Preferences.h>
+#include "../core/lazy_alloc.h"
 #include "../core/config.h"
 
 // Buffer sizes
@@ -31,15 +32,28 @@ enum WiFiSettingsState {
 
 // WiFi network info
 struct WiFiNetwork {
-  String ssid;  // Kept as String for LVGL compatibility (lv_wifi_screen.h)
+  char ssid[33];  // 802.11 SSID max 32 bytes + NUL
   int rssi;
   bool encrypted;
 };
 
 // WiFi settings globals
 WiFiSettingsState wifiState = WIFI_STATE_SCANNING;
-WiFiNetwork networks[20];  // Store up to 20 networks
+#define WIFI_SCAN_MAX_NETWORKS 20
+// Scan results live only while the WiFi settings screen is open: allocated
+// by scanNetworks(), released by freeWiFiNetworkList() from cleanupWiFiScreen()
+WiFiNetwork* networks = nullptr;
 int networkCount = 0;
+
+static bool ensureWiFiNetworkList() {
+  if (!networks) networks = (WiFiNetwork*)lazyAlloc(sizeof(WiFiNetwork) * WIFI_SCAN_MAX_NETWORKS);
+  return networks != nullptr;
+}
+
+void freeWiFiNetworkList() {
+  lazyFree(networks);
+  networkCount = 0;
+}
 int selectedNetwork = 0;
 char passwordInput[WIFI_PASSWORD_MAX_LEN] = "";
 bool passwordVisible = false;
@@ -158,14 +172,19 @@ void scanNetworks() {
     return;
   }
 
-  networkCount = min(n, 20);
+  if (!ensureWiFiNetworkList()) {
+    networkCount = 0;
+    WiFi.scanDelete();
+    return;
+  }
+  networkCount = min(n, WIFI_SCAN_MAX_NETWORKS);
 
   Serial.print("Found ");
   Serial.print(n);
   Serial.println(" networks");
 
   for (int i = 0; i < networkCount; i++) {
-    networks[i].ssid = WiFi.SSID(i);
+    strlcpy(networks[i].ssid, WiFi.SSID(i).c_str(), sizeof(networks[i].ssid));
     networks[i].rssi = WiFi.RSSI(i);
     networks[i].encrypted = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
 
@@ -359,7 +378,7 @@ void drawNetworkList(LGFX &display) {
 
   // Calculate visible range (show 5 networks at a time)
   int startIdx = max(0, selectedNetwork - 2);
-  int endIdx = min(networkCount, startIdx + 5);
+  int endIdx = networks ? min(networkCount, startIdx + 5) : 0;
 
   // Adjust if at end of list
   if (endIdx - startIdx < 5 && networkCount >= 5) {
@@ -373,7 +392,7 @@ void drawNetworkList(LGFX &display) {
     // Check if this network is saved
     bool isSaved = false;
     for (int j = 0; j < savedCount; j++) {
-      if (networks[i].ssid == savedSSIDs[j]) {
+      if (savedSSIDs[j] == networks[i].ssid) {
         isSaved = true;
         break;
       }
@@ -425,8 +444,8 @@ void drawNetworkList(LGFX &display) {
 
     // Truncate long SSIDs (adjust for star icon)
     // Use c_str() to get the SSID as char* for display
-    const char* ssidStr = networks[i].ssid.c_str();
-    size_t ssidLen = networks[i].ssid.length();
+    const char* ssidStr = networks[i].ssid;
+    size_t ssidLen = strlen(networks[i].ssid);
     int maxLen = isSaved ? 28 : 30;
     if ((int)ssidLen > maxLen) {
       // Print truncated with ellipsis
@@ -536,8 +555,8 @@ void drawPasswordInput(LGFX &display) {
   display.setTextSize(2);
   display.setTextColor(ST77XX_WHITE);
   display.setCursor(10, 75);
-  const char* ssidStr = networks[selectedNetwork].ssid.c_str();
-  size_t ssidLen = networks[selectedNetwork].ssid.length();
+  const char* ssidStr = networks[selectedNetwork].ssid;
+  size_t ssidLen = strlen(networks[selectedNetwork].ssid);
   if (ssidLen > 20) {
     char truncBuf[24];
     strncpy(truncBuf, ssidStr, 17);
@@ -650,7 +669,7 @@ int handleWiFiInput(char key, LGFX &display) {
       bool isSaved = false;
       String savedPassword = "";
       for (int j = 0; j < savedCount; j++) {
-        if (networks[selectedNetwork].ssid == savedSSIDs[j]) {
+        if (savedSSIDs[j] == networks[selectedNetwork].ssid) {
           isSaved = true;
           savedPassword = savedPasswords[j];
           break;
@@ -663,7 +682,7 @@ int handleWiFiInput(char key, LGFX &display) {
         wifiState = WIFI_STATE_CONNECTING;
         beep(TONE_SELECT, BEEP_MEDIUM);
         drawWiFiUI(display);
-        connectToWiFi(networks[selectedNetwork].ssid.c_str(), savedPassword.c_str());
+        connectToWiFi(networks[selectedNetwork].ssid, savedPassword.c_str());
         return 2;
       } else if (networks[selectedNetwork].encrypted) {
         // Not saved and encrypted - prompt for password
@@ -677,7 +696,7 @@ int handleWiFiInput(char key, LGFX &display) {
         // Open network, connect immediately
         wifiState = WIFI_STATE_CONNECTING;
         drawWiFiUI(display);
-        connectToWiFi(networks[selectedNetwork].ssid.c_str(), "");
+        connectToWiFi(networks[selectedNetwork].ssid, "");
         return 2;
       }
       return 1;
@@ -717,7 +736,7 @@ int handleWiFiInput(char key, LGFX &display) {
       wifiState = WIFI_STATE_CONNECTING;
       beep(TONE_SELECT, BEEP_MEDIUM);
       drawWiFiUI(display);
-      connectToWiFi(networks[selectedNetwork].ssid.c_str(), passwordInput);
+      connectToWiFi(networks[selectedNetwork].ssid, passwordInput);
       return 2;
     }
     else if (key == KEY_ESC) {
@@ -765,7 +784,7 @@ int handleWiFiInput(char key, LGFX &display) {
         // Find the failed network in the network list
         int failedNetworkIndex = -1;
         for (int i = 0; i < networkCount; i++) {
-          if (strcmp(networks[i].ssid.c_str(), failedSSID) == 0) {
+          if (strcmp(networks[i].ssid, failedSSID) == 0) {
             failedNetworkIndex = i;
             break;
           }
