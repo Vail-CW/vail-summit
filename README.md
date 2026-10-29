@@ -112,7 +112,7 @@ No software to install:
 A small, battery-powered computer set up for CW:
 
 - **4-inch color LCD** with a card-style menu
-- **Built-in speaker**, plus a real **iambic paddle and capacitive touch pads** (straight key works too)
+- **Built-in speaker**, plus a real **iambic paddle** (straight key works too). The board also has capacitive touch pads, and the firmware supports them, but the current beta case does not expose them yet.
 - **Rechargeable battery** with a charge readout on screen
 - **WiFi and Bluetooth** built in
 - **microSD card** slot for logs and files
