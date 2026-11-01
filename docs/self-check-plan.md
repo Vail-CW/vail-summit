@@ -96,10 +96,14 @@ New `src/core/serial_console.h`, polled from `loop()`:
 
 ### SD wiring test
 
-The SD slot is on the back of the display board, and its 4 pins (CS 38,
-MOSI 35, SCK 36, MISO 37) reach the Feather through their own header joints. A
-working screen proves the display header, not the SD header. There is no
+The SD slot is on the back of the display board. MOSI 35, SCK 36 and MISO 37
+are shared with the display; only CS 38 is the slot's own. There is no
 card-detect pin.
+
+**Found on hardware:** with no card, the display holds MISO low. A known-good
+board read "MISO shorted to ground" and CMD0 = 0x00. So the GPIO test skips
+MISO, 0x00 counts as "no card" like 0xFF, and the pull-up based open-joint
+guess is dropped. Open joints are left to the card check.
 
 **Empty slot (limited):**
 

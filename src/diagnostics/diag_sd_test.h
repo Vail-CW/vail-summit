@@ -1,14 +1,14 @@
 /*
  * SD Card Wiring and Card Tests (self check)
  *
- * The SD slot sits on the back of the display board and reaches the Feather
- * through its own 4 header joints (CS 38, MOSI 35, SCK 36, MISO 37). A working
- * screen proves the display header, not these. Two tests:
+ * The SD slot sits on the back of the display board. MOSI 35, SCK 36 and
+ * MISO 37 are shared with the display; only CS 38 is the SD slot's own. Two
+ * tests:
  *
- *  diagSDWiringTest() - works with an EMPTY slot. Briefly takes the 4 pins off
- *    the SPI bus and checks for solder bridges between them, shorts to GND,
- *    and which pins see a pull-up on the display board (a pin that should see
- *    one and doesn't points at an open joint).
+ *  diagSDWiringTest() - works with an EMPTY slot. Briefly takes the pins off
+ *    the SPI bus and checks CS, MOSI and SCK for solder bridges and shorts to
+ *    GND. MISO is skipped: with no card the display holds it low, which would
+ *    look like a short.
  *
  *  diagSDCardProbe() - needs a card. Talks the SD protocol directly so the
  *    result says WHERE it failed: no response at all (wiring / no card), a
@@ -33,6 +33,8 @@ extern LGFX tft;
 #define DIAG_SD_PIN_COUNT 4
 static const uint8_t diagSdPins[DIAG_SD_PIN_COUNT] = { SD_CS, SD_MOSI, SD_SCK, SD_MISO };
 static const char* const diagSdPinNames[DIAG_SD_PIN_COUNT] = { "CS", "MOSI", "SCK", "MISO" };
+// Pins the GPIO test checks: MISO (last) is driven by the display, so it's left out
+#define DIAG_SD_GPIO_TESTED 3
 
 struct DiagSDWiring {
   uint8_t pullupMask;     // bit i: pin i read HIGH against the internal pull-down
@@ -42,7 +44,7 @@ struct DiagSDWiring {
 };
 
 struct DiagSDProbe {
-  bool responded;         // CMD0 got anything but 0xFF
+  bool responded;         // CMD0 got anything but a stuck line (0xFF / 0x00)
   bool garbled;           // CMD0 response was not a valid idle reply
   uint8_t cmd0;
   bool v2;                // answered CMD8 (SD v2 / SDHC capable)
@@ -82,7 +84,7 @@ void diagSDWiringTest(DiagSDWiring* out) {
   memset(out, 0, sizeof(*out));
   diagSDReleaseBus();
 
-  for (int i = 0; i < DIAG_SD_PIN_COUNT; i++) {
+  for (int i = 0; i < DIAG_SD_GPIO_TESTED; i++) {
     uint8_t p = diagSdPins[i];
     pinMode(p, INPUT_PULLUP);
     if (!diagReadPin(p)) out->shortGndMask |= (1 << i);
@@ -93,16 +95,16 @@ void diagSDWiringTest(DiagSDWiring* out) {
 
   // Bridge test: drive one pin low then high; a neighbor that follows it is
   // connected to it. Works whether or not the neighbor has a board pull-up.
-  for (int i = 0; i < DIAG_SD_PIN_COUNT; i++) {
-    for (int j = 0; j < DIAG_SD_PIN_COUNT; j++) {
+  for (int i = 0; i < DIAG_SD_GPIO_TESTED; i++) {
+    for (int j = 0; j < DIAG_SD_GPIO_TESTED; j++) {
       if (j != i) pinMode(diagSdPins[j], INPUT_PULLDOWN);
     }
     pinMode(diagSdPins[i], OUTPUT);
     digitalWrite(diagSdPins[i], LOW);
     bool low[DIAG_SD_PIN_COUNT];
-    for (int j = 0; j < DIAG_SD_PIN_COUNT; j++) low[j] = (j != i) && diagReadPin(diagSdPins[j]);
+    for (int j = 0; j < DIAG_SD_GPIO_TESTED; j++) low[j] = (j != i) && diagReadPin(diagSdPins[j]);
     digitalWrite(diagSdPins[i], HIGH);
-    for (int j = i + 1; j < DIAG_SD_PIN_COUNT; j++) {
+    for (int j = i + 1; j < DIAG_SD_GPIO_TESTED; j++) {
       bool high = diagReadPin(diagSdPins[j]);
       if (!low[j] && high) {
         out->bridgeMask |= (1 << i) | (1 << j);
@@ -188,7 +190,9 @@ void diagSDCardProbe(DiagSDProbe* out) {
     diagSdSelect(false);
   }
   out->cmd0 = r;
-  out->responded = (r != 0xFF);
+  // With no card nothing drives MISO, and the display holds it low, so a
+  // stuck line reads 0x00 rather than 0xFF. Neither is a card's answer.
+  out->responded = (r != 0xFF && r != 0x00);
   out->garbled = out->responded && r != 0x01;
 
   if (r == 0x01) {

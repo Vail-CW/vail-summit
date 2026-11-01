@@ -251,21 +251,9 @@ static void diagCheckSDWiring() {
     return;
   }
 
-  // Open joints can only be inferred when the display board pulls the SD
-  // lines up: CS and MISO normally get the same treatment, so one without
-  // the other points at that joint.
-  bool cs = w.pullupMask & 0x01;
-  bool miso = w.pullupMask & 0x08;
-  if (cs != miso) {
-    diagAdd("sd_wiring", "SD wiring", DIAG_WARN,
-            "The SD pin named here may not be soldered properly. Reflow that joint on the SD header.",
-            "no pull-up seen on %s (pull-ups: %s)", cs ? "MISO" : "CS", pulled);
-  } else if (!cs) {
-    diagAdd("sd_wiring", "SD wiring", DIAG_INFO, nullptr,
-            "no shorts or bridges; open joints need a card to check (pull-ups: %s)", pulled);
-  } else {
-    diagAdd("sd_wiring", "SD wiring", DIAG_PASS, nullptr, "no shorts or bridges (pull-ups: %s)", pulled);
-  }
+  // Only CS is the SD slot's own pin; an open joint on any of them shows up
+  // in the card check instead
+  diagAdd("sd_wiring", "SD wiring", DIAG_PASS, nullptr, "no shorts or bridges on CS, MOSI, SCK (pull-ups: %s)", pulled);
 }
 
 static bool diagSdMountedOk = false;
