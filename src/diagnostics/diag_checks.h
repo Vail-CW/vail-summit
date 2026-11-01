@@ -280,8 +280,7 @@ static void diagCheckSDCard() {
   if (!diagSdMountedOk) {
     if (!p.responded) {
       diagAdd("sd_card", "SD card", DIAG_WARN,
-              "No SD card found. If a card is in the slot, push it in until it clicks, or try another card. "
-              "If no card is ever found, the SD header solder joints (CS, SCK, MOSI, MISO) may need reflowing.",
+              "No SD card found. If a card is in the slot, push it in until it clicks, or try another card.",
               "no response from card");
     } else if (p.garbled) {
       diagAdd("sd_card", "SD card", DIAG_FAIL,
