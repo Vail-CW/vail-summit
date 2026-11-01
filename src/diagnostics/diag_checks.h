@@ -293,7 +293,8 @@ static void diagCheckSDCard() {
     } else if (best < 0) {
       diagAdd("sd_card", "SD card", DIAG_FAIL,
               "The card starts but every read comes back corrupted. Reflow the SD header solder joints, or try another card.",
-              "reads fail at every speed");
+              "reads fail at every speed (R1 0x%02X, token 0x%02X%s)", p.readR1, p.readToken,
+              p.readCrcBad ? ", CRC mismatch" : "");
     } else {
       diagAdd("sd_card", "SD card", DIAG_FAIL,
               "The card works but isn't formatted the way the Summit needs. Format it as FAT32 on a computer "

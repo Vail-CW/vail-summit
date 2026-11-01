@@ -52,6 +52,10 @@ struct DiagSDProbe {
   bool sdhc;
   uint8_t speedOkMask;    // bit per diagSdSpeeds[] entry: block 0 read with good CRC
   uint8_t speedTriedMask;
+  // How the last failed block read went, for the report
+  uint8_t readR1;         // reply to CMD17 (0x00 = accepted)
+  uint8_t readToken;      // 0xFE = data start; 0xFF = nothing came
+  bool readCrcBad;        // data arrived but its CRC didn't match
 };
 
 static const uint32_t diagSdSpeeds[] = { 400000, 1000000, 4000000, 10000000 };
@@ -153,17 +157,22 @@ static uint16_t diagCrc16(const uint8_t* data, size_t len) {
 }
 
 // Read block 0 and verify the card's data CRC
-static bool diagSdReadBlock0(uint8_t* buf) {
+static bool diagSdReadBlock0(uint8_t* buf, DiagSDProbe* out) {
   diagSdSelect(true);
   bool ok = false;
-  if (diagSdCmd(17, 0, 0xFF) == 0x00) {
+  out->readToken = 0xFF;
+  out->readCrcBad = false;
+  out->readR1 = diagSdCmd(17, 0, 0xFF);
+  if (out->readR1 == 0x00) {
     unsigned long start = millis();
     uint8_t token = 0xFF;
     while (millis() - start < 150 && (token = SPI.transfer(0xFF)) == 0xFF) {}
+    out->readToken = token;
     if (token == 0xFE) {
       for (int i = 0; i < 512; i++) buf[i] = SPI.transfer(0xFF);
       uint16_t crc = ((uint16_t)SPI.transfer(0xFF) << 8) | SPI.transfer(0xFF);
       ok = (crc == diagCrc16(buf, 512));
+      out->readCrcBad = !ok;
     }
   }
   diagSdSelect(false);
@@ -232,7 +241,7 @@ void diagSDCardProbe(DiagSDProbe* out) {
       for (size_t s = 0; s < DIAG_SD_SPEED_COUNT; s++) {
         SPI.beginTransaction(SPISettings(diagSdSpeeds[s], MSBFIRST, SPI_MODE0));
         out->speedTriedMask |= (1 << s);
-        if (diagSdReadBlock0(buf)) out->speedOkMask |= (1 << s);
+        if (diagSdReadBlock0(buf, out)) out->speedOkMask |= (1 << s);
         SPI.endTransaction();
       }
       free(buf);
