@@ -67,10 +67,13 @@ New `src/core/serial_console.h`, polled from `loop()`:
   `@vail {"type":"check","id":"sd","status":"fail","detail":"CMD0 no response"}`.
   The normal log keeps flowing around them; the page parses the `@vail` lines
   and keeps everything for the copied report.
-- **TX buffer gotcha:** with `setTxTimeoutMs(0)`, a 3 KB burst overflows the
-  CDC buffer and lines vanish. Emit one line per loop tick from the state
-  machine, or raise the TX timeout while a diag session is active
-  (`Serial.isConnected()`), then restore it.
+- **TX buffer gotcha:** with `setTxTimeoutMs(0)`, a burst overflows the CDC
+  buffer and lines vanish. Only the `@vail` lines raise the timeout (50 ms),
+  and only while a computer has sent a command in the last 5 minutes and is
+  still attached. Ordinary logging stays at 0 ms, so a computer that's plugged
+  in but not reading can never stall the keyer. A log line cut short can leave
+  a fragment in front of an `@vail` line, so the page looks for `@vail {`
+  anywhere in a line.
 - While a diag session runs, the Summit shows "Self check running from
   computer". During `tone`, no display updates (audio rule).
 
@@ -151,6 +154,21 @@ boot loop or panic backtrace lands in the log too.
   don't try to put the whole report in it).
 - Privacy note on the page: callsign is included; no passwords, no WiFi names.
 
+## Status
+
+All four phases below are implemented (firmware in `src/diagnostics/` and
+`src/lvgl/lv_self_check_screen.h`; site on the `summit-self-check` branch of
+vail-adapter). Compiled, and the site flow was exercised against a simulated
+Summit. **Not yet tested on hardware**, in particular:
+
+- The SD wiring test releases and re-inits the display's SPI bus
+  (`tft.releaseBus()` / `tft.initBus()`). Watch for a blank or garbled screen
+  right after the "SD wiring" step.
+- The raw SD card probe (CMD0/8/41/58/17) against a few real cards, with and
+  without a card inserted. If it misreads a working card, the check still
+  mounts the card normally and notes "raw probe inconclusive".
+- Paddle reversed detection, and the keyboard test on CardKB.
+
 ## Phases
 
 1. **Firmware:** serial console + `hello` + `diag` (automatic checks, including
@@ -161,8 +179,8 @@ boot loop or panic backtrace lands in the log too.
    buttons).
 3. SD empty-slot wiring test, after the bench check of the pull-ups.
 4. Optional on-device Self Check screen in Settings (mode registration,
-   cleanup table, `linear_nav_handler` results list). Also fill the missing SD
-   and battery rows on System Info (`lv_settings_screens.h:1767`).
+   cleanup table, results list). Also fill the missing SD and battery rows on
+   System Info.
 
 ## Open questions
 

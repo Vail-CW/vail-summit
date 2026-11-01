@@ -367,12 +367,14 @@ void initI2SAudio() {
   esp_err_t err = i2s_driver_install(I2S_NUM, &i2s_config, 0, NULL);
   if (err != ESP_OK) {
     Serial.printf("Failed to install I2S driver: %d\n", err);
+    diagEvent("AUDIO", "I2S driver install failed: %d", err);
     return;
   }
 
   err = i2s_set_pin(I2S_NUM, &pin_config);
   if (err != ESP_OK) {
     Serial.printf("Failed to set I2S pins: %d\n", err);
+    diagEvent("AUDIO", "I2S pin setup failed: %d", err);
     i2s_driver_uninstall(I2S_NUM);
     return;
   }
@@ -690,6 +692,11 @@ void deinitI2SAudio() {
  */
 bool isTonePlaying() {
   return tone_playing;
+}
+
+// True once the I2S driver installed and its pins were set (for the self check)
+bool isI2SInitialized() {
+  return i2s_initialized;
 }
 
 /*

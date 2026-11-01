@@ -32,6 +32,7 @@ using namespace lgfx::v1::fonts;
 
 // Configuration and battery monitoring
 #include "src/core/config.h"
+#include "src/diagnostics/diag_events.h"
 #include "src/core/settings_migration.h"
 #include "src/core/memory_monitor.h"
 #include "src/core/psram_json.h"
@@ -160,7 +161,9 @@ using namespace lgfx::v1::fonts;
 #include "src/lvgl/lv_home_screen.h"
 #include "src/lvgl/lv_school_screens.h"
 #include "src/lvgl/lv_quick_settings.h"
+#include "src/lvgl/lv_self_check_screen.h"
 #include "src/lvgl/lv_mode_integration.h"
+#include "src/diagnostics/serial_console.h"
 
 // ============================================
 // cwKeyType accessor functions for LVGL (needed because cwKeyType is KeyType enum)
@@ -320,6 +323,7 @@ void setup() {
   // to a 100ms TX timeout, so with nothing reading it every print into a full
   // buffer stalls the loop (and the keyer) for up to 100ms. Drop logs instead.
   Serial.setTxTimeoutMs(0);
+  diagEventsInit();  // crash-surviving event history for the self check
   delay(500); // Brief wait for serial monitor
   Serial.println("\n\n=== VAIL SUMMIT STARTING ===");
   Serial.printf("Firmware: %s (Build: %s)\n", FIRMWARE_VERSION, FIRMWARE_DATE);
@@ -839,6 +843,10 @@ void loop() {
   // Process LVGL timer tasks (handles ALL UI, input, animations, redraws)
   // LVGL reads CardKB directly via its input driver
   lv_timer_handler();
+
+  // Self check: "@vail" commands from the Get Help page, and event history
+  serialConsolePoll();
+  diagMonitorPoll();
 
   // Display workload profiling (compiled out when DISPLAY_PERF_INSTRUMENT is 0)
   reportDisplayPerf((int)currentMode);

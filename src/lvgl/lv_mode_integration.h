@@ -214,6 +214,10 @@ lv_obj_t* createScreenForModeInt(int mode) {
         }
     }
 
+    if (mode == MODE_SELF_CHECK) {
+        return createSelfCheckScreen();
+    }
+
     // Settings screens
     if (isSettingsModeInt(mode)) {
         return createSettingsScreenForMode(mode);
@@ -852,6 +856,7 @@ static const ModeCallbackEntry cleanupTable[] = {
     { MODE_WEB_MEMORY_CHAIN,             cleanupWebMemoryChainMode },
     { MODE_WEB_FILES_UPDATE,             cleanupWebDownloadScreen },
     { MODE_ONBOARDING,                   cleanupOnboardingScreen },
+    { MODE_SELF_CHECK,                   cleanupSelfCheckScreen },
 };
 static const int cleanupTableSize = sizeof(cleanupTable) / sizeof(cleanupTable[0]);
 
