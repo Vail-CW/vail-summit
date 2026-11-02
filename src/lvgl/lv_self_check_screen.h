@@ -357,7 +357,7 @@ static void sc_finish_tone() {
 
 // ---- state machine --------------------------------------------------------------
 
-static const char* sc_remote_footer = "Follow the steps on the computer   ESC Exit";
+static const char* sc_remote_footer = "Follow the steps on the computer   UP/DN Scroll   ESC Exit";
 
 static void sc_show_results_summary() {
   int counts[4] = { 0, 0, 0, 0 };
@@ -378,7 +378,8 @@ static void sc_set_state(SCState s) {
   switch (s) {
     case SC_INTRO:
       sc_set_prompt("Checks the SD card, keyboard, sound, screen and paddle. Takes about a minute.");
-      sc_set_footer("ENTER Start   ESC Back");
+      // Rows from an earlier run show under the intro and can be scrolled
+      sc_set_footer(diagResultCount() > 0 ? "UP/DN Scroll   ENTER Start   ESC Back" : "ENTER Start   ESC Back");
       break;
     case SC_AUTO:
       sc_set_prompt("Running checks...");
@@ -592,14 +593,18 @@ static void self_check_key_cb(lv_event_t* e) {
     return;
   }
 
+  // Between tests the results list is on screen: the arrows scroll it
+  bool idle = sc_state == SC_INTRO || sc_state == SC_RESULTS || sc_state == SC_REMOTE;
+  if (idle && sc_list && (key == LV_KEY_UP || key == LV_KEY_DOWN)) {
+    lv_obj_scroll_by(sc_list, 0, key == LV_KEY_UP ? 40 : -40, LV_ANIM_ON);
+    lv_event_stop_processing(e);
+    return;
+  }
+
   switch (sc_state) {
     case SC_INTRO:
-      if (key == LV_KEY_ENTER) { sc_start_auto(); lv_event_stop_processing(e); return; }
-      break;
     case SC_RESULTS:
       if (key == LV_KEY_ENTER) { sc_start_auto(); lv_event_stop_processing(e); return; }
-      if (key == LV_KEY_UP && sc_list) { lv_obj_scroll_by(sc_list, 0, 40, LV_ANIM_ON); lv_event_stop_processing(e); return; }
-      if (key == LV_KEY_DOWN && sc_list) { lv_obj_scroll_by(sc_list, 0, -40, LV_ANIM_ON); lv_event_stop_processing(e); return; }
       break;
     case SC_SCREEN_TEST:
       if (!sc_remote && (yes || no)) { sc_end_screen_test(yes ? "y" : "n"); lv_event_stop_processing(e); return; }
