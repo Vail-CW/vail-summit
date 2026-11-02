@@ -55,7 +55,7 @@ New `src/core/serial_console.h`, polled from `loop()`:
 
 | Command | Does |
 |---|---|
-| `@vail hello` | replies `@vail {"type":"hello","fw":"0.93","proto":1}`. The page uses this to detect support and shows "update your firmware" if there's no reply in 3 s. |
+| `@vail hello` | replies `@vail {"t":"hello","proto":1,"fw":"0.93",...}`. The page uses this to detect support and shows "update your firmware" if there's no reply in 3 s. |
 | `@vail diag` | runs the automatic checks as a state machine and emits one result line per check |
 | `@vail events` | dumps the crash-surviving event history |
 | `@vail tone` | plays the test tone (600 Hz, 1 s, current volume) |
@@ -64,7 +64,7 @@ New `src/core/serial_console.h`, polled from `loop()`:
 | `@vail keys` / `@vail paddle` | for 20 s, reports each key / paddle press as an event line |
 
 - Machine-readable lines are JSON with an `@vail ` prefix, for example
-  `@vail {"type":"check","id":"sd","status":"fail","detail":"CMD0 no response"}`.
+  `@vail {"t":"check","id":"sd_card","name":"SD card","st":"fail","detail":"...","advice":"..."}`.
   The normal log keeps flowing around them; the page parses the `@vail` lines
   and keeps everything for the copied report.
 - **TX buffer gotcha:** with `setTxTimeoutMs(0)`, a burst overflows the CDC

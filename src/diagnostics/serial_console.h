@@ -96,7 +96,9 @@ static void consoleHandle(char* line) {
     bool yes = arg2 && strcasecmp(arg2, "yes") == 0;
     bool no = arg2 && strcasecmp(arg2, "no") == 0;
     if (!arg || !(yes || no)) { consoleError("usage: answer <test> yes|no"); return; }
-    if (!selfCheckRemoteAnswer(arg, yes)) { consoleError("unknown test"); return; }
+    int r = selfCheckRemoteAnswer(arg, yes);
+    if (r < 0) { consoleError("unknown test"); return; }
+    if (r == 0) { consoleError("not waiting for that answer"); return; }
     consoleAck(cmd);
     return;
   }

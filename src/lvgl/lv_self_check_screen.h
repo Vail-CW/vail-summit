@@ -63,6 +63,9 @@ static uint16_t sc_rows_replaced = 0;     // diagResultsReplaced when rows were 
 // Tone in progress
 static SCState sc_tone_next = SC_SOUND_ASK;
 static bool sc_tone_loud = false;
+// Guided tests waiting for a yes/no, so a late or repeated answer from the
+// computer can't overwrite a result: screen, sound, sound_loud
+static bool sc_answer_pending[3] = { false, false, false };
 static int sc_tone_saved_volume = -1;     // >= 0 while the loud tone has volume raised
 
 // Keyboard test
@@ -308,7 +311,16 @@ static void sc_finish_paddle(bool skipped) {
   }
 }
 
+static int sc_answer_index(const char* test) {
+  if (strcmp(test, "screen") == 0) return 0;
+  if (strcmp(test, "sound") == 0) return 1;
+  if (strcmp(test, "sound_loud") == 0) return 2;
+  return -1;
+}
+
 static bool sc_record_answer(const char* test, bool yes) {
+  int idx = sc_answer_index(test);
+  if (idx >= 0) sc_answer_pending[idx] = false;
   if (strcmp(test, "screen") == 0) {
     diagAdd("screen_test", "Screen test", yes ? DIAG_PASS : DIAG_FAIL,
             yes ? nullptr : "Colors looked wrong. Note which bars were off; a missing color often means a loose display connection.",
@@ -336,6 +348,7 @@ static void sc_after_guided(SCState nextLocal);
 static void sc_start_tone(bool loud, SCState next) {
   sc_tone_loud = loud;
   sc_tone_next = next;
+  sc_answer_pending[loud ? 2 : 1] = true;
   if (loud && audio_volume < SC_LOUD_VOLUME) {
     sc_tone_saved_volume = audio_volume;
     audio_volume = SC_LOUD_VOLUME;   // temporary, never saved
@@ -386,6 +399,7 @@ static void sc_set_state(SCState s) {
       sc_set_footer(sc_remote ? sc_remote_footer : "Please wait");
       break;
     case SC_SCREEN_TEST:
+      sc_answer_pending[0] = true;
       sc_show_bars(true);
       diagEmit("{\"t\":\"screen\",\"on\":true}");
       break;
@@ -759,12 +773,20 @@ void selfCheckRemoteTone(bool loud) {
 void selfCheckRemoteKeys() { sc_set_state(SC_KEYS); }
 void selfCheckRemotePaddle() { sc_set_state(SC_PADDLE_DIT); }
 
-bool selfCheckRemoteAnswer(const char* test, bool yes) { return sc_record_answer(test, yes); }
+// 1 recorded, 0 that test isn't waiting for an answer, -1 unknown test
+int selfCheckRemoteAnswer(const char* test, bool yes) {
+  int idx = sc_answer_index(test);
+  if (idx < 0) return -1;
+  if (!sc_answer_pending[idx]) return 0;
+  sc_record_answer(test, yes);
+  return 1;
+}
 
 // Abort whatever test is running and go back to waiting. The automatic
-// checks can't be interrupted (the SD steps own the bus): returns false then.
+// checks can't be interrupted (the SD steps own the bus), and a tone already
+// playing runs out its ~1 s: returns false for both.
 bool selfCheckRemoteStop() {
-  if (sc_state == SC_AUTO) return false;
+  if (sc_state == SC_AUTO || sc_state == SC_SOUND_WAIT) return false;
   switch (sc_state) {
     case SC_SCREEN_TEST: sc_end_screen_test(nullptr); break;
     case SC_KEYS: sc_finish_keys(true); diagEmit("{\"t\":\"keys_end\"}"); break;
@@ -772,7 +794,7 @@ bool selfCheckRemoteStop() {
     case SC_PADDLE_DAH: sc_finish_paddle(true); diagEmit("{\"t\":\"paddle_end\"}"); break;
     default: break;
   }
-  if (sc_state != SC_SOUND_WAIT) sc_set_state(SC_REMOTE);
+  sc_set_state(SC_REMOTE);
   return true;
 }
 

@@ -5,8 +5,9 @@
  * MISO 37 are shared with the display; only CS 38 is the SD slot's own. Two
  * tests:
  *
- *  diagSDWiringTest() - works with an EMPTY slot. Briefly takes the pins off
- *    the SPI bus and checks CS, MOSI and SCK for solder bridges and shorts to
+ *  diagSDWiringTest() - works with an EMPTY slot, and only runs when the card
+ *    won't mount: taking the pins off the SPI bus leaves later SD reads failing
+ *    until a restart. Checks CS, MOSI and SCK for solder bridges and shorts to
  *    GND. MISO gets its own check: with the SD card deselected nothing should
  *    drive it, but some display boards hold it low whenever the display is
  *    running, which breaks every SD read (the fix is to disconnect the
@@ -67,27 +68,43 @@ struct DiagSDProbe {
 static const uint32_t diagSdSpeeds[] = { 400000, 1000000, 4000000, 10000000 };
 #define DIAG_SD_SPEED_COUNT (sizeof(diagSdSpeeds) / sizeof(diagSdSpeeds[0]))
 
-// Release the shared bus: unmount SD, drop the Arduino SPI pins and the
-// display's bus so the pins can be driven as plain GPIO.
+// Free the shared pins: unmount SD and end the Arduino SPI bus, which
+// detaches the pins so they can be driven as plain GPIO. The display's bus is
+// left alone: releasing it and running tft.initBus() mid-session made every
+// later SD read fail.
 static void diagSDReleaseBus() {
   if (sdCardAvailable) SD.end();
   sdCardAvailable = false;
   SPI.end();
-  tft.releaseBus();
   pinMode(TFT_CS, OUTPUT);
   digitalWrite(TFT_CS, HIGH);   // keep the display deselected throughout
 }
 
 static void diagSDRestoreBus() {
   for (int i = 0; i < DIAG_SD_PIN_COUNT; i++) pinMode(diagSdPins[i], INPUT);
-  tft.initBus();
   pinMode(SD_CS, OUTPUT);
   digitalWrite(SD_CS, HIGH);
+  SPI.begin(SD_SCK, SD_MISO, SD_MOSI, -1);   // reattach the pins for SD and the display
 }
 
 static inline bool diagReadPin(uint8_t pin) {
   delayMicroseconds(50);
   return digitalRead(pin) == HIGH;
+}
+
+// A card left selected (CS low or floating) takes any SCK edge as part of a
+// command, and garbage commands left cards half started, so later reads and
+// writes failed. While pin `testing` is exercised, hold CS high unless CS is
+// the pin under test, and hold SCK still unless SCK is.
+static void diagSdQuietCard(int testing) {
+  if (diagSdPins[testing] != SD_CS) {
+    pinMode(SD_CS, OUTPUT);
+    digitalWrite(SD_CS, HIGH);
+  }
+  if (diagSdPins[testing] != SD_SCK) {
+    pinMode(SD_SCK, OUTPUT);
+    digitalWrite(SD_SCK, LOW);
+  }
 }
 
 void diagSDWiringTest(DiagSDWiring* out) {
@@ -96,6 +113,7 @@ void diagSDWiringTest(DiagSDWiring* out) {
 
   for (int i = 0; i < DIAG_SD_GPIO_TESTED; i++) {
     uint8_t p = diagSdPins[i];
+    diagSdQuietCard(i);
     pinMode(p, INPUT_PULLUP);
     if (!diagReadPin(p)) out->shortGndMask |= (1 << i);
     pinMode(p, INPUT_PULLDOWN);
@@ -105,9 +123,16 @@ void diagSDWiringTest(DiagSDWiring* out) {
 
   // Bridge test: drive one pin low then high; a neighbor that follows it is
   // connected to it. Works whether or not the neighbor has a board pull-up.
+  // Only neighbors after pin i are checked (j > i), so once CS has had its
+  // turn it stays driven high and the card is never selected while MOSI or
+  // SCK move. CS goes first, with SCK sitting still on its pull-down.
   for (int i = 0; i < DIAG_SD_GPIO_TESTED; i++) {
     for (int j = 0; j < DIAG_SD_GPIO_TESTED; j++) {
       if (j != i) pinMode(diagSdPins[j], INPUT_PULLDOWN);
+    }
+    if (diagSdPins[i] != SD_CS) {
+      pinMode(SD_CS, OUTPUT);
+      digitalWrite(SD_CS, HIGH);
     }
     pinMode(diagSdPins[i], OUTPUT);
     digitalWrite(diagSdPins[i], LOW);

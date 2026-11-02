@@ -100,19 +100,22 @@ void diagEventsInit() {
 
 void diagEvent(const char* tag, const char* fmt, ...) {
   if (!diagEventsReady) return;
+  // Build the record first, then publish it whole so a reader on another
+  // task never sees a half-written slot
+  DiagEventRec rec;
+  rec.ms = millis();
+  rec.boot = diagStore.bootCount;
+  strlcpy(rec.tag, tag, sizeof(rec.tag));
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(rec.msg, sizeof(rec.msg), fmt, args);
+  va_end(args);
   portENTER_CRITICAL(&diagEventMux);
-  DiagEventRec* e = &diagStore.events[diagStore.head];
+  diagStore.events[diagStore.head] = rec;
   diagStore.head = (diagStore.head + 1) % DIAG_EVENT_CAPACITY;
   if (diagStore.count < DIAG_EVENT_CAPACITY) diagStore.count++;
   portEXIT_CRITICAL(&diagEventMux);
-  e->ms = millis();
-  e->boot = diagStore.bootCount;
-  strlcpy(e->tag, tag, sizeof(e->tag));
-  va_list args;
-  va_start(args, fmt);
-  vsnprintf(e->msg, sizeof(e->msg), fmt, args);
-  va_end(args);
-  Serial.printf("[Diag] %s: %s\n", e->tag, e->msg);
+  Serial.printf("[Diag] %s: %s\n", rec.tag, rec.msg);
 }
 
 // Screens are tracked separately so frequent navigation can't push the
@@ -126,11 +129,18 @@ void diagRecordMode(int mode) {
 int diagEventCount() { return diagEventsReady ? diagStore.count : 0; }
 uint16_t diagBootCount() { return diagEventsReady ? diagStore.bootCount : 0; }
 
-// idx 0 = oldest
-const DiagEventRec* diagEventAt(int idx) {
-  if (idx < 0 || idx >= diagEventCount()) return nullptr;
-  int start = (diagStore.head + DIAG_EVENT_CAPACITY - diagStore.count) % DIAG_EVENT_CAPACITY;
-  return &diagStore.events[(start + idx) % DIAG_EVENT_CAPACITY];
+// Copies event idx (0 = oldest) under the lock; false past the end
+bool diagEventCopy(int idx, DiagEventRec* out) {
+  if (!diagEventsReady || idx < 0) return false;
+  bool ok = false;
+  portENTER_CRITICAL(&diagEventMux);
+  if (idx < diagStore.count) {
+    int start = (diagStore.head + DIAG_EVENT_CAPACITY - diagStore.count) % DIAG_EVENT_CAPACITY;
+    *out = diagStore.events[(start + idx) % DIAG_EVENT_CAPACITY];
+    ok = true;
+  }
+  portEXIT_CRITICAL(&diagEventMux);
+  return ok;
 }
 
 // Writes recent screens oldest first as "61,22,3"; empty if none

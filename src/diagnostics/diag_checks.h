@@ -271,8 +271,12 @@ static void diagCheckSDWiring() {
 static bool diagSdMountedOk = false;
 
 static void diagCheckSDCard() {
+  // A card that's already mounted is left alone: unmounting it for the raw
+  // probe and mounting it again left later reads failing now and then
   DiagSDProbe p;
-  diagSDCardProbe(&p);
+  memset(&p, 0, sizeof(p));
+  bool probed = !(sdCardAvailable && SD.cardType() != CARD_NONE);
+  if (probed) diagSDCardProbe(&p);
 
   // Highest clock that read block 0 with a good CRC
   int best = -1;
@@ -284,10 +288,23 @@ static void diagCheckSDCard() {
   bool marginal = best >= 0 && (p.speedOkMask & 0x07) != (p.speedTriedMask & 0x07);
   bool fastFail = best >= 0 && !marginal && p.speedOkMask != p.speedTriedMask;
 
-  // Always try a real mount (skipping the 30 s "no card" back-off), so a
+  // After a probe, always try a real mount (skipping the 30 s "no card" back-off), so a
   // working card is never left unmounted by the probe
-  sdInitLastFailMs = 0;
-  diagSdMountedOk = initSDCard();
+  if (probed) {
+    sdInitLastFailMs = 0;
+    diagSdMountedOk = initSDCard();
+  } else {
+    diagSdMountedOk = true;
+  }
+
+  if (diagSdMountedOk) {
+    // A card that mounts proves the pins work, and the pin test has to take
+    // them off the SPI bus, which left later SD reads failing until a restart
+    diagAdd("sd_wiring", "SD wiring", DIAG_PASS, nullptr, "card works, pin test not needed");
+  } else {
+    // Card isn't usable anyway, so it's safe to test the pins now
+    diagCheckSDWiring();
+  }
 
   if (!diagSdMountedOk) {
     if (diagSdMisoHeld) {
@@ -295,7 +312,7 @@ static void diagCheckSDCard() {
               "can't read the card while MISO is held low (reset reply 0x%02X)", p.cmd0);
     } else if (!p.responded) {
       diagAdd("sd_card", "SD card", DIAG_WARN,
-              "No SD card found. If a card is in the slot, push it in until it clicks, or try another card.",
+              "No SD card found. If a card is in the slot, push it in until it clicks, or try another card, then restart the Summit.",
               "no response from card");
     } else if (p.garbled) {
       diagAdd("sd_card", "SD card", DIAG_FAIL,
@@ -334,22 +351,58 @@ static void diagCheckSDCard() {
             "%s %s, %s free", type, size, freeBuf);
   } else {
     diagAdd("sd_card", "SD card", DIAG_PASS, nullptr, "%s %s, %s free%s", type, size, freeBuf,
-            !p.initOk || best < 0 ? " (raw probe inconclusive)" : (fastFail ? " (10 MHz reads fail)" : ""));
+            !probed ? "" : (!p.initOk || best < 0 ? " (raw probe inconclusive)" : (fastFail ? " (10 MHz reads fail)" : "")));
   }
 }
 
 #define DIAG_SD_TEST_FILE "/.vail_selftest.bin"
 #define DIAG_SD_TEST_BYTES 4096
 
+static inline uint8_t diagSdTestByte(int off) { return (uint8_t)(off * 31 + 7); }
+
+// Reads the test file back and checks every byte. got = bytes read; badAt and
+// badVal = the first wrong byte, if any. lost = the file just written is gone
+// or empty, which points at a damaged file table on the card (a write landing
+// on the directory that holds the file's own entry looks exactly like this).
+static bool diagSdVerifyFile(uint8_t* chunk, size_t chunkLen, int* got, int* badAt, uint8_t* badVal, bool* lost) {
+  *got = 0;
+  *badAt = -1;
+  File f = SD.open(DIAG_SD_TEST_FILE, FILE_READ);
+  *lost = !f || f.isDirectory() || f.size() == 0;
+  if (*lost) {
+    if (f) f.close();
+    return false;
+  }
+  bool match = true;
+  while (match && *got < DIAG_SD_TEST_BYTES) {
+    int n = f.read(chunk, chunkLen);
+    if (n <= 0) { match = false; break; }
+    for (int i = 0; i < n; i++) {
+      if (chunk[i] != diagSdTestByte(*got + i)) {
+        *badAt = *got + i;
+        *badVal = chunk[i];
+        match = false;
+        break;
+      }
+    }
+    *got += n;
+  }
+  f.close();
+  return match && *got == DIAG_SD_TEST_BYTES;
+}
+
 static void diagCheckSDReadWrite() {
   if (!diagSdMountedOk) return;
   uint8_t chunk[256];
   unsigned long t0 = millis();
   bool ok = true;
+  // A run cut short (reset, card pulled) can leave a broken copy behind that
+  // opening for write doesn't fix, so every later run read back nothing
+  if (SD.exists(DIAG_SD_TEST_FILE)) SD.remove(DIAG_SD_TEST_FILE);
   File f = SD.open(DIAG_SD_TEST_FILE, FILE_WRITE);
   if (!f) ok = false;
   for (int off = 0; ok && off < DIAG_SD_TEST_BYTES; off += sizeof(chunk)) {
-    for (size_t i = 0; i < sizeof(chunk); i++) chunk[i] = (uint8_t)((off + i) * 31 + 7);
+    for (size_t i = 0; i < sizeof(chunk); i++) chunk[i] = diagSdTestByte(off + i);
     if (f.write(chunk, sizeof(chunk)) != sizeof(chunk)) ok = false;
   }
   if (f) f.close();
@@ -363,23 +416,38 @@ static void diagCheckSDReadWrite() {
     return;
   }
 
-  bool match = true;
-  f = SD.open(DIAG_SD_TEST_FILE, FILE_READ);
-  if (!f) match = false;
-  for (int off = 0; match && off < DIAG_SD_TEST_BYTES; off += sizeof(chunk)) {
-    if (f.read(chunk, sizeof(chunk)) != (int)sizeof(chunk)) { match = false; break; }
-    for (size_t i = 0; i < sizeof(chunk); i++) {
-      if (chunk[i] != (uint8_t)((off + i) * 31 + 7)) { match = false; break; }
-    }
+  // First pass, then on a mismatch a second read of the same file: if that one
+  // is right, the data on the card is fine and the reads are what's failing
+  int got = 0, badAt = -1;
+  uint8_t badVal = 0;
+  bool lost = false;
+  bool match = diagSdVerifyFile(chunk, sizeof(chunk), &got, &badAt, &badVal, &lost);
+  bool rereadOk = false;
+  if (!match) {
+    int got2, badAt2;
+    uint8_t badVal2;
+    bool lost2;
+    rereadOk = diagSdVerifyFile(chunk, sizeof(chunk), &got2, &badAt2, &badVal2, &lost2);
   }
-  if (f) f.close();
   SD.remove(DIAG_SD_TEST_FILE);
   unsigned long tTotal = millis() - t0;
 
   if (!match) {
-    diagAdd("sd_rw", "SD read/write", DIAG_FAIL,
-            "Data read back from the card didn't match what was written. Try another card; if that also fails, reflow the SD header joints.",
-            "read-back mismatch");
+    if (lost && !rereadOk) {
+      diagAdd("sd_rw", "SD read/write", DIAG_FAIL,
+              "The card's file table looks damaged: a file saved a moment ago comes back missing or empty. Copy your files off, "
+              "then format the card as FAT32 on a computer.",
+              "test file missing or empty right after writing it");
+    } else if (badAt < 0) {
+      diagAdd("sd_rw", "SD read/write", DIAG_FAIL,
+              "Data read back from the card didn't match what was written. Try another card.",
+              "read back %d of %d bytes%s", got, DIAG_SD_TEST_BYTES, rereadOk ? " (re-read OK)" : "");
+    } else {
+      diagAdd("sd_rw", "SD read/write", DIAG_FAIL,
+              "Data read back from the card didn't match what was written. Try another card.",
+              "mismatch at byte %d (got 0x%02X, want 0x%02X)%s", badAt, badVal,
+              diagSdTestByte(badAt), rereadOk ? ", re-read OK" : ", re-read bad too");
+    }
   } else {
     diagAdd("sd_rw", "SD read/write", DIAG_PASS, nullptr, "4 KB written and verified (%lu ms write, %lu ms total)",
             tWrite, tTotal);
@@ -409,18 +477,17 @@ static void diagCheckWebFiles() {
   }
 }
 
-// All SD steps run back to back in one call: the wiring test takes the SPI
-// pins away from the SD library, so nothing else may touch the card until the
-// card is mounted again. The web server runs on its own task and can read the
-// SD card at any time, so it is stopped first; its lifecycle restarts it on a
-// later loop pass if it is still wanted.
+// All SD steps run back to back in one call: the card check remounts the card
+// and, if it won't mount, the wiring test takes the SPI pins away, so nothing
+// else may touch the card meanwhile. The web server runs on its own task and
+// can read the SD card at any time, so it is stopped first; its lifecycle
+// restarts it on a later loop pass if it is still wanted.
 static void diagCheckSDAll() {
   if (webServerRunning) {
     Serial.println("[Diag] Stopping web server for the SD tests");
     stopWebServer();
   }
-  diagCheckSDWiring();
-  diagCheckSDCard();
+  diagCheckSDCard();      // runs the wiring test itself when the card won't mount
   diagCheckSDReadWrite();
   diagCheckWebFiles();
 }
@@ -446,19 +513,24 @@ static void diagCheckKeyboard() {
   }
 }
 
+// A gauge that answers but reports nonsense (no cell, bad connector) shouldn't pass
+static void diagReportBattery(float v, float pct, const char* chip) {
+  if (!isfinite(v) || v < 0.5f || v > 4.6f) {
+    diagAdd("battery", "Battery", DIAG_WARN,
+            "The battery gauge is giving a reading that doesn't make sense. If a battery is plugged in, check its connector.",
+            "bad reading %.2f V (%s)", isfinite(v) ? v : 0.0f, chip);
+    return;
+  }
+  bool low = v < 3.5f;
+  diagAdd("battery", "Battery", low ? DIAG_WARN : DIAG_PASS, low ? "The battery is low. Charge it over USB." : nullptr,
+          "%.2f V, %.0f%% (%s)", v, isfinite(pct) ? pct : 0.0f, chip);
+}
+
 static void diagCheckBattery() {
   if (hasMAX17048) {
-    float v = maxlipo.cellVoltage();
-    float pct = maxlipo.cellPercent();
-    bool low = v > 0.5f && v < 3.5f;
-    diagAdd("battery", "Battery", low ? DIAG_WARN : DIAG_PASS, low ? "The battery is low. Charge it over USB." : nullptr,
-            "%.2f V, %.0f%% (MAX17048)", v, pct);
+    diagReportBattery(maxlipo.cellVoltage(), maxlipo.cellPercent(), "MAX17048");
   } else if (hasLC709203) {
-    float v = lc.cellVoltage();
-    float pct = lc.cellPercent();
-    bool low = v > 0.5f && v < 3.5f;
-    diagAdd("battery", "Battery", low ? DIAG_WARN : DIAG_PASS, low ? "The battery is low. Charge it over USB." : nullptr,
-            "%.2f V, %.0f%% (LC709203F)", v, pct);
+    diagReportBattery(lc.cellVoltage(), lc.cellPercent(), "LC709203F");
   } else {
     diagAdd("battery", "Battery", DIAG_WARN,
             "The battery gauge wasn't found, so battery level can't be shown. The Summit still runs on battery and USB.",
@@ -635,13 +707,13 @@ void diagEmitLastResults() {
 void diagEmitEvents() {
   int n = diagEventCount();
   for (int i = 0; i < n; i++) {
-    const DiagEventRec* e = diagEventAt(i);
-    if (!e) break;
+    DiagEventRec e;
+    if (!diagEventCopy(i, &e)) break;
     char msg[96], tag[16];
-    diagJsonEscape(msg, sizeof(msg), e->msg);
-    diagJsonEscape(tag, sizeof(tag), e->tag);
+    diagJsonEscape(msg, sizeof(msg), e.msg);
+    diagJsonEscape(tag, sizeof(tag), e.tag);
     diagEmit("{\"t\":\"event\",\"boot\":%u,\"ms\":%lu,\"tag\":\"%s\",\"msg\":\"%s\"}",
-             (unsigned)e->boot, (unsigned long)e->ms, tag, msg);
+             (unsigned)e.boot, (unsigned long)e.ms, tag, msg);
   }
   char modes[48];
   diagFormatModeHistory(modes, sizeof(modes));
