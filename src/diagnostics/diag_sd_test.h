@@ -7,8 +7,12 @@
  *
  *  diagSDWiringTest() - works with an EMPTY slot. Briefly takes the pins off
  *    the SPI bus and checks CS, MOSI and SCK for solder bridges and shorts to
- *    GND. MISO is skipped: with no card the display holds it low, which would
- *    look like a short.
+ *    GND. MISO gets its own check: with the SD card deselected nothing should
+ *    drive it, but some display boards hold it low whenever the display is
+ *    running, which breaks every SD read (the fix is to disconnect the
+ *    display's MISO pin). A short to GND looks the same. Telling them apart
+ *    would mean resetting the display, and re-initializing it mid-session
+ *    corrupts later SD reads, so the report names both.
  *
  *  diagSDCardProbe() - needs a card. Talks the SD protocol directly so the
  *    result says WHERE it failed: no response at all (wiring / no card), a
@@ -33,7 +37,8 @@ extern LGFX tft;
 #define DIAG_SD_PIN_COUNT 4
 static const uint8_t diagSdPins[DIAG_SD_PIN_COUNT] = { SD_CS, SD_MOSI, SD_SCK, SD_MISO };
 static const char* const diagSdPinNames[DIAG_SD_PIN_COUNT] = { "CS", "MOSI", "SCK", "MISO" };
-// Pins the GPIO test checks: MISO (last) is driven by the display, so it's left out
+// Pins the bridge/short test checks: MISO (last) has its own test, since the
+// display can legitimately drive it
 #define DIAG_SD_GPIO_TESTED 3
 
 struct DiagSDWiring {
@@ -41,6 +46,7 @@ struct DiagSDWiring {
   uint8_t shortGndMask;   // bit i: pin i read LOW against the internal pull-up
   uint8_t bridgeMask;     // bit i: pin i follows another SD pin
   char bridges[48];       // e.g. "CS-MOSI"
+  bool misoLow;           // MISO read low with the SD card deselected
 };
 
 struct DiagSDProbe {
@@ -119,6 +125,17 @@ void diagSDWiringTest(DiagSDWiring* out) {
     }
     pinMode(diagSdPins[i], INPUT);
   }
+
+  // MISO with the card deselected should float up to the pull-up
+  pinMode(SD_CS, OUTPUT);
+  digitalWrite(SD_CS, HIGH);
+  pinMode(SD_MISO, INPUT_PULLUP);
+  int lowReads = 0;
+  for (int i = 0; i < 8; i++) {
+    if (!diagReadPin(SD_MISO)) lowReads++;
+  }
+  out->misoLow = lowReads >= 4;
+  pinMode(SD_MISO, INPUT);
 
   diagSDRestoreBus();
 }
@@ -199,8 +216,8 @@ void diagSDCardProbe(DiagSDProbe* out) {
     diagSdSelect(false);
   }
   out->cmd0 = r;
-  // With no card nothing drives MISO, and the display holds it low, so a
-  // stuck line reads 0x00 rather than 0xFF. Neither is a card's answer.
+  // With no card nothing drives MISO, which can then read 0x00 as easily as
+  // 0xFF (it floats, or the display holds it low). Neither is a card's answer.
   out->responded = (r != 0xFF && r != 0x00);
   out->garbled = out->responded && r != 0x01;
 

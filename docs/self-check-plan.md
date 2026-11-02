@@ -100,10 +100,18 @@ The SD slot is on the back of the display board. MOSI 35, SCK 36 and MISO 37
 are shared with the display; only CS 38 is the slot's own. There is no
 card-detect pin.
 
-**Found on hardware:** with no card, the display holds MISO low. A known-good
-board read "MISO shorted to ground" and CMD0 = 0x00. So the GPIO test skips
-MISO, 0x00 counts as "no card" like 0xFF, and the pull-up based open-joint
-guess is dropped. Open joints are left to the card check.
+**Found on hardware:** some display boards hold MISO low whenever the
+display is out of reset. A good display lets go of it. On a board that holds
+it, the SD library takes the low line as "card busy", and every mount or read
+fails or is unreliable. No display command fixes this; the cure is to
+disconnect the display's MISO pin (details in `docs/sd-investigation/`). So
+MISO gets its own check: with the card deselected it should read high against
+the pull-up. If it reads low, the report says that the display is the usual
+cause (with a contact for how to cut the pin) and a short to GND is the other
+possibility. Telling them apart would need a display reset, and
+re-initializing the display mid-session corrupts later SD reads, so the check
+doesn't reset it. The bridge/short test covers CS, MOSI and SCK only. CMD0 =
+0x00 counts as "no card", like 0xFF. Open joints are left to the card check.
 
 **Empty slot (limited):**
 

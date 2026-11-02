@@ -218,9 +218,15 @@ static void diagCheckSettingsStore() {
           "%u of %u entries used", (unsigned)stats.used_entries, (unsigned)stats.total_entries);
 }
 
+// Shown wherever MISO stuck low is the cause
+#define DIAG_ADVICE_MISO_LOW   "The SD data line (MISO) is held low, so the card can't be read reliably. Usually the display board "   "is doing it and its MISO pin needs to be disconnected: email Brett at ke9bos@pigletradio.org for how. "   "Otherwise look for solder shorting MISO to ground."
+
+static bool diagSdMisoHeld = false;
+
 static void diagCheckSDWiring() {
   DiagSDWiring w;
   diagSDWiringTest(&w);
+  diagSdMisoHeld = w.misoLow;
 
   char pulled[32] = "";
   for (int i = 0; i < DIAG_SD_PIN_COUNT; i++) {
@@ -251,9 +257,15 @@ static void diagCheckSDWiring() {
     return;
   }
 
+  if (w.misoLow) {
+    diagAdd("sd_wiring", "SD wiring", DIAG_FAIL, DIAG_ADVICE_MISO_LOW,
+            "MISO held low with the card deselected");
+    return;
+  }
+
   // Only CS is the SD slot's own pin; an open joint on any of them shows up
   // in the card check instead
-  diagAdd("sd_wiring", "SD wiring", DIAG_PASS, nullptr, "no shorts or bridges on CS, MOSI, SCK (pull-ups: %s)", pulled);
+  diagAdd("sd_wiring", "SD wiring", DIAG_PASS, nullptr, "no shorts or bridges on CS, MOSI, SCK, MISO free (pull-ups: %s)", pulled);
 }
 
 static bool diagSdMountedOk = false;
@@ -278,7 +290,10 @@ static void diagCheckSDCard() {
   diagSdMountedOk = initSDCard();
 
   if (!diagSdMountedOk) {
-    if (!p.responded) {
+    if (diagSdMisoHeld) {
+      diagAdd("sd_card", "SD card", DIAG_FAIL, DIAG_ADVICE_MISO_LOW,
+              "can't read the card while MISO is held low (reset reply 0x%02X)", p.cmd0);
+    } else if (!p.responded) {
       diagAdd("sd_card", "SD card", DIAG_WARN,
               "No SD card found. If a card is in the slot, push it in until it clicks, or try another card.",
               "no response from card");
