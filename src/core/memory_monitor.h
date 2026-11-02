@@ -122,6 +122,7 @@ void checkMemoryHealth() {
         Serial.printf("WARNING: largest internal block %u < %u needed for TLS (lowest since boot %u)\n",
             (unsigned)maxInternal, (unsigned)TLS_INTERNAL_BLOCK_NEEDED, (unsigned)lowestMaxInternalBlock);
         logMemoryStatus("TLS_ROOM");
+        diagEvent("HEAP", "TLS room low: block %u", (unsigned)maxInternal);
         lastWarning = now;
     }
 
@@ -131,6 +132,7 @@ void checkMemoryHealth() {
         if (now - lastWarning > 300000) {
             Serial.println("WARNING: Low heap memory!");
             logMemoryStatus("LOW_MEM");
+            diagEvent("HEAP", "low heap: %u free", (unsigned)freeHeap);
             lastWarning = now;
         }
     }

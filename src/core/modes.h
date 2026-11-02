@@ -198,7 +198,8 @@ enum MenuMode {
     MODE_SAT_BYPASS = 179,        // Full catalog sorted by next pass
     MODE_SAT_WINDOW_NOW = 180,    // Sky window: next 60 minutes from now
     MODE_SAT_TLE_UPDATE = 181,    // Action pseudo-mode (no screen)
-    MODE_SAT_FREQS = 182          // Full transmitter list for selected bird
+    MODE_SAT_FREQS = 182,         // Full transmitter list for selected bird
+    MODE_SELF_CHECK = 183         // Settings > Device Settings > Self Check
 };
 
 extern MenuMode currentMode;

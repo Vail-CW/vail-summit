@@ -408,7 +408,9 @@ lv_obj_t* createPOTARecorderScreen() {
     lv_textarea_set_placeholder_text(pota_rec_text_area, "Decoded CW will appear here...");
     lv_obj_set_style_text_font(pota_rec_text_area, &lv_font_montserrat_14, 0);
     lv_obj_clear_flag(pota_rec_text_area, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(pota_rec_text_area, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    // Display-only: textareas auto-join the default input group and would take
+    // initial focus from the STOP button, leaving keys and ESC dead.
+    removeNavigableWidget(pota_rec_text_area);
 
     // QSO info panel
     lv_obj_t* qso_panel = lv_obj_create(screen);

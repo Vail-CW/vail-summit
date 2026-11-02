@@ -1852,6 +1852,33 @@ lv_obj_t* createSystemInfoScreen() {
         createInfoRow(content, "PSRAM:", "Not available");
     }
 
+    // SD card (mounts on demand; a missing card answers instantly after the
+    // first failed attempt thanks to initSDCard's retry back-off)
+    if (!sdCardAvailable) initSDCard();
+    char sdBuf[40];
+    if (sdCardAvailable) {
+        char sizeBuf[16], freeBuf[16];
+        formatBytes(SD.cardSize(), sizeBuf, sizeof(sizeBuf));
+        formatBytes(getSDFreeBytes(), freeBuf, sizeof(freeBuf));
+        snprintf(sdBuf, sizeof(sdBuf), "%s (%s free)", sizeBuf, freeBuf);
+    } else {
+        strlcpy(sdBuf, "Not detected", sizeof(sdBuf));
+    }
+    createInfoRow(content, "SD Card:", sdBuf);
+
+    // Battery
+    char battBuf[32];
+    if (hasMAX17048) {
+        snprintf(battBuf, sizeof(battBuf), "%.2f V (%.0f%%)", maxlipo.cellVoltage(), maxlipo.cellPercent());
+    } else if (hasLC709203) {
+        snprintf(battBuf, sizeof(battBuf), "%.2f V (%.0f%%)", lc.cellVoltage(), lc.cellPercent());
+    } else {
+        strlcpy(battBuf, "No gauge found", sizeof(battBuf));
+    }
+    createInfoRow(content, "Battery:", battBuf);
+
+    createInfoRow(content, "Last Restart:", diagResetReasonName(esp_reset_reason()));
+
     // Uptime
     char uptimeBuf[32];
     formatUptime(millis(), uptimeBuf, sizeof(uptimeBuf));

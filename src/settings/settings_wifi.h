@@ -362,6 +362,7 @@ void autoConnectWiFi() {
   }
 
   Serial.println("Could not connect to any saved network");
+  diagEvent("WIFI", "no saved network reachable");
 }
 
 // Reset WiFi settings - erase all saved credentials
@@ -530,6 +531,7 @@ bool updateWiFiConnection() {
             // Check for timeout
             if (millis() - wifiConnRequest.startTime > wifiConnRequest.timeout) {
                 Serial.println("[WiFi] Connection timeout!");
+                diagEvent("WIFI", "connect timed out");
 
                 // Restore AP mode if we were in it
                 if (wifiConnRequest.wasInAPMode) {
@@ -544,6 +546,7 @@ bool updateWiFiConnection() {
             // Still waiting - check for intermediate failures
             if (WiFi.status() == WL_CONNECT_FAILED || WiFi.status() == WL_NO_SSID_AVAIL) {
                 Serial.printf("[WiFi] Connection failed early (status: %d)\n", WiFi.status());
+                diagEvent("WIFI", WiFi.status() == WL_NO_SSID_AVAIL ? "network not found" : "connect failed (password?)");
 
                 if (wifiConnRequest.wasInAPMode) {
                     Serial.println("[WiFi] Restoring AP mode...");

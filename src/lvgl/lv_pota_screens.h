@@ -1435,6 +1435,11 @@ lv_obj_t* createPOTAFilterScreen() {
     lv_obj_set_style_border_width(filter_callsign_textarea, 1, 0);
     lv_obj_set_style_border_color(filter_callsign_textarea, LV_COLOR_TEXT_TERTIARY, 0);
     lv_obj_set_style_pad_all(filter_callsign_textarea, 2, 0);
+    // Textareas auto-join the default input group and would steal focus from
+    // the card, swallowing every key (arrows, ENTER, ESC). The card's key
+    // handler feeds this field, so keep it out of the group.
+    removeNavigableWidget(filter_callsign_textarea);
+    lv_obj_clear_flag(filter_callsign_textarea, LV_OBJ_FLAG_CLICKABLE);
     // Load existing filter value
     if (potaSpotFilter.callsign[0] != '\0') {
         lv_textarea_set_text(filter_callsign_textarea, potaSpotFilter.callsign);

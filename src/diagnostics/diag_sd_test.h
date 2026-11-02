@@ -1,0 +1,294 @@
+/*
+ * SD Card Wiring and Card Tests (self check)
+ *
+ * The SD slot sits on the back of the display board. MOSI 35, SCK 36 and
+ * MISO 37 are shared with the display; only CS 38 is the SD slot's own. Two
+ * tests:
+ *
+ *  diagSDWiringTest() - works with an EMPTY slot, and only runs when the card
+ *    won't mount: taking the pins off the SPI bus leaves later SD reads failing
+ *    until a restart. Checks CS, MOSI and SCK for solder bridges and shorts to
+ *    GND. MISO gets its own check: with the SD card deselected nothing should
+ *    drive it, but some display boards hold it low whenever the display is
+ *    running, which breaks every SD read (the fix is to disconnect the
+ *    display's MISO pin). A short to GND looks the same. Telling them apart
+ *    would mean resetting the display, and re-initializing it mid-session
+ *    corrupts later SD reads, so the report names both.
+ *
+ *  diagSDCardProbe() - needs a card. Talks the SD protocol directly so the
+ *    result says WHERE it failed: no response at all (wiring / no card), a
+ *    garbled response (MISO fault), init OK but reads failing at higher clock
+ *    speeds (marginal joint), or all good (any mount failure is then the card's
+ *    format, not the hardware).
+ *
+ * Both run synchronously between LVGL frames (no flush can be in flight) and
+ * take well under a second each.
+ */
+
+#ifndef DIAG_SD_TEST_H
+#define DIAG_SD_TEST_H
+
+#include <SPI.h>
+#include <SD.h>
+#include "../core/config.h"
+#include "../storage/sd_card.h"
+
+extern LGFX tft;
+
+#define DIAG_SD_PIN_COUNT 4
+static const uint8_t diagSdPins[DIAG_SD_PIN_COUNT] = { SD_CS, SD_MOSI, SD_SCK, SD_MISO };
+static const char* const diagSdPinNames[DIAG_SD_PIN_COUNT] = { "CS", "MOSI", "SCK", "MISO" };
+// Pins the bridge/short test checks: MISO (last) has its own test, since the
+// display can legitimately drive it
+#define DIAG_SD_GPIO_TESTED 3
+
+struct DiagSDWiring {
+  uint8_t pullupMask;     // bit i: pin i read HIGH against the internal pull-down
+  uint8_t shortGndMask;   // bit i: pin i read LOW against the internal pull-up
+  uint8_t bridgeMask;     // bit i: pin i follows another SD pin
+  char bridges[48];       // e.g. "CS-MOSI"
+  bool misoLow;           // MISO read low with the SD card deselected
+};
+
+struct DiagSDProbe {
+  bool responded;         // CMD0 got anything but a stuck line (0xFF / 0x00)
+  bool garbled;           // CMD0 response was not a valid idle reply
+  uint8_t cmd0;
+  bool v2;                // answered CMD8 (SD v2 / SDHC capable)
+  bool initOk;            // ACMD41 completed
+  bool sdhc;
+  uint8_t speedOkMask;    // bit per diagSdSpeeds[] entry: block 0 read with good CRC
+  uint8_t speedTriedMask;
+  // How the last failed block read went, for the report
+  uint8_t readR1;         // reply to CMD17 (0x00 = accepted)
+  uint8_t readToken;      // 0xFE = data start; 0xFF = nothing came
+  bool readCrcBad;        // data arrived but its CRC didn't match
+};
+
+static const uint32_t diagSdSpeeds[] = { 400000, 1000000, 4000000, 10000000 };
+#define DIAG_SD_SPEED_COUNT (sizeof(diagSdSpeeds) / sizeof(diagSdSpeeds[0]))
+
+// Free the shared pins: unmount SD and end the Arduino SPI bus, which
+// detaches the pins so they can be driven as plain GPIO. The display's bus is
+// left alone: releasing it and running tft.initBus() mid-session made every
+// later SD read fail.
+static void diagSDReleaseBus() {
+  if (sdCardAvailable) SD.end();
+  sdCardAvailable = false;
+  SPI.end();
+  pinMode(TFT_CS, OUTPUT);
+  digitalWrite(TFT_CS, HIGH);   // keep the display deselected throughout
+}
+
+static void diagSDRestoreBus() {
+  for (int i = 0; i < DIAG_SD_PIN_COUNT; i++) pinMode(diagSdPins[i], INPUT);
+  pinMode(SD_CS, OUTPUT);
+  digitalWrite(SD_CS, HIGH);
+  SPI.begin(SD_SCK, SD_MISO, SD_MOSI, -1);   // reattach the pins for SD and the display
+}
+
+static inline bool diagReadPin(uint8_t pin) {
+  delayMicroseconds(50);
+  return digitalRead(pin) == HIGH;
+}
+
+// A card left selected (CS low or floating) takes any SCK edge as part of a
+// command, and garbage commands left cards half started, so later reads and
+// writes failed. While pin `testing` is exercised, hold CS high unless CS is
+// the pin under test, and hold SCK still unless SCK is.
+static void diagSdQuietCard(int testing) {
+  if (diagSdPins[testing] != SD_CS) {
+    pinMode(SD_CS, OUTPUT);
+    digitalWrite(SD_CS, HIGH);
+  }
+  if (diagSdPins[testing] != SD_SCK) {
+    pinMode(SD_SCK, OUTPUT);
+    digitalWrite(SD_SCK, LOW);
+  }
+}
+
+void diagSDWiringTest(DiagSDWiring* out) {
+  memset(out, 0, sizeof(*out));
+  diagSDReleaseBus();
+
+  for (int i = 0; i < DIAG_SD_GPIO_TESTED; i++) {
+    uint8_t p = diagSdPins[i];
+    diagSdQuietCard(i);
+    pinMode(p, INPUT_PULLUP);
+    if (!diagReadPin(p)) out->shortGndMask |= (1 << i);
+    pinMode(p, INPUT_PULLDOWN);
+    if (diagReadPin(p)) out->pullupMask |= (1 << i);
+    pinMode(p, INPUT);
+  }
+
+  // Bridge test: drive one pin low then high; a neighbor that follows it is
+  // connected to it. Works whether or not the neighbor has a board pull-up.
+  // Only neighbors after pin i are checked (j > i), so once CS has had its
+  // turn it stays driven high and the card is never selected while MOSI or
+  // SCK move. CS goes first, with SCK sitting still on its pull-down.
+  for (int i = 0; i < DIAG_SD_GPIO_TESTED; i++) {
+    for (int j = 0; j < DIAG_SD_GPIO_TESTED; j++) {
+      if (j != i) pinMode(diagSdPins[j], INPUT_PULLDOWN);
+    }
+    if (diagSdPins[i] != SD_CS) {
+      pinMode(SD_CS, OUTPUT);
+      digitalWrite(SD_CS, HIGH);
+    }
+    pinMode(diagSdPins[i], OUTPUT);
+    digitalWrite(diagSdPins[i], LOW);
+    bool low[DIAG_SD_PIN_COUNT];
+    for (int j = 0; j < DIAG_SD_GPIO_TESTED; j++) low[j] = (j != i) && diagReadPin(diagSdPins[j]);
+    digitalWrite(diagSdPins[i], HIGH);
+    for (int j = i + 1; j < DIAG_SD_GPIO_TESTED; j++) {
+      bool high = diagReadPin(diagSdPins[j]);
+      if (!low[j] && high) {
+        out->bridgeMask |= (1 << i) | (1 << j);
+        size_t used = strlen(out->bridges);
+        snprintf(out->bridges + used, sizeof(out->bridges) - used, "%s%s-%s",
+                 used ? " " : "", diagSdPinNames[i], diagSdPinNames[j]);
+      }
+    }
+    pinMode(diagSdPins[i], INPUT);
+  }
+
+  // MISO with the card deselected should float up to the pull-up
+  pinMode(SD_CS, OUTPUT);
+  digitalWrite(SD_CS, HIGH);
+  pinMode(SD_MISO, INPUT_PULLUP);
+  int lowReads = 0;
+  for (int i = 0; i < 8; i++) {
+    if (!diagReadPin(SD_MISO)) lowReads++;
+  }
+  out->misoLow = lowReads >= 4;
+  pinMode(SD_MISO, INPUT);
+
+  diagSDRestoreBus();
+}
+
+// ---- raw SD protocol over SPI -------------------------------------------------
+
+static uint8_t diagSdCmd(uint8_t cmd, uint32_t arg, uint8_t crc) {
+  // Wait for the card to stop signalling busy (bounded)
+  for (int i = 0; i < 200 && SPI.transfer(0xFF) != 0xFF; i++) {}
+  SPI.transfer(0x40 | cmd);
+  SPI.transfer((uint8_t)(arg >> 24));
+  SPI.transfer((uint8_t)(arg >> 16));
+  SPI.transfer((uint8_t)(arg >> 8));
+  SPI.transfer((uint8_t)arg);
+  SPI.transfer(crc);
+  uint8_t r = 0xFF;
+  for (int i = 0; i < 10; i++) {
+    r = SPI.transfer(0xFF);
+    if (!(r & 0x80)) break;
+  }
+  return r;
+}
+
+static inline void diagSdSelect(bool on) {
+  digitalWrite(SD_CS, on ? LOW : HIGH);
+  SPI.transfer(0xFF);
+}
+
+static uint16_t diagCrc16(const uint8_t* data, size_t len) {
+  uint16_t crc = 0;
+  for (size_t i = 0; i < len; i++) {
+    crc ^= (uint16_t)data[i] << 8;
+    for (int b = 0; b < 8; b++) crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : (crc << 1);
+  }
+  return crc;
+}
+
+// Read block 0 and verify the card's data CRC
+static bool diagSdReadBlock0(uint8_t* buf, DiagSDProbe* out) {
+  diagSdSelect(true);
+  bool ok = false;
+  out->readToken = 0xFF;
+  out->readCrcBad = false;
+  out->readR1 = diagSdCmd(17, 0, 0xFF);
+  if (out->readR1 == 0x00) {
+    unsigned long start = millis();
+    uint8_t token = 0xFF;
+    while (millis() - start < 150 && (token = SPI.transfer(0xFF)) == 0xFF) {}
+    out->readToken = token;
+    if (token == 0xFE) {
+      for (int i = 0; i < 512; i++) buf[i] = SPI.transfer(0xFF);
+      uint16_t crc = ((uint16_t)SPI.transfer(0xFF) << 8) | SPI.transfer(0xFF);
+      ok = (crc == diagCrc16(buf, 512));
+      out->readCrcBad = !ok;
+    }
+  }
+  diagSdSelect(false);
+  return ok;
+}
+
+void diagSDCardProbe(DiagSDProbe* out) {
+  memset(out, 0, sizeof(*out));
+  if (sdCardAvailable) SD.end();
+  sdCardAvailable = false;
+
+  SPI.begin(SD_SCK, SD_MISO, SD_MOSI, -1);
+  pinMode(SD_CS, OUTPUT);
+  digitalWrite(SD_CS, HIGH);
+  SPI.beginTransaction(SPISettings(400000, MSBFIRST, SPI_MODE0));
+
+  // 80+ clocks with CS high puts the card in SPI mode
+  for (int i = 0; i < 10; i++) SPI.transfer(0xFF);
+
+  uint8_t r = 0xFF;
+  for (int attempt = 0; attempt < 5 && r != 0x01; attempt++) {
+    diagSdSelect(true);
+    r = diagSdCmd(0, 0, 0x95);
+    diagSdSelect(false);
+  }
+  out->cmd0 = r;
+  // With no card nothing drives MISO, which can then read 0x00 as easily as
+  // 0xFF (it floats, or the display holds it low). Neither is a card's answer.
+  out->responded = (r != 0xFF && r != 0x00);
+  out->garbled = out->responded && r != 0x01;
+
+  if (r == 0x01) {
+    diagSdSelect(true);
+    r = diagSdCmd(8, 0x1AA, 0x87);
+    if (r == 0x01) {
+      uint8_t echo[4];
+      for (int i = 0; i < 4; i++) echo[i] = SPI.transfer(0xFF);
+      out->v2 = (echo[3] == 0xAA);
+    }
+    diagSdSelect(false);
+
+    unsigned long start = millis();
+    do {
+      diagSdSelect(true);
+      diagSdCmd(55, 0, 0x65);
+      r = diagSdCmd(41, out->v2 ? 0x40000000UL : 0, 0x77);
+      diagSdSelect(false);
+    } while (r == 0x01 && millis() - start < 1000);
+    out->initOk = (r == 0x00);
+
+    if (out->initOk && out->v2) {
+      diagSdSelect(true);
+      if (diagSdCmd(58, 0, 0xFD) == 0x00) {
+        uint8_t ocr[4];
+        for (int i = 0; i < 4; i++) ocr[i] = SPI.transfer(0xFF);
+        out->sdhc = (ocr[0] & 0x40) != 0;
+      }
+      diagSdSelect(false);
+    }
+  }
+  SPI.endTransaction();
+
+  if (out->initOk) {
+    uint8_t* buf = (uint8_t*)malloc(512);
+    if (buf) {
+      for (size_t s = 0; s < DIAG_SD_SPEED_COUNT; s++) {
+        SPI.beginTransaction(SPISettings(diagSdSpeeds[s], MSBFIRST, SPI_MODE0));
+        out->speedTriedMask |= (1 << s);
+        if (diagSdReadBlock0(buf, out)) out->speedOkMask |= (1 << s);
+        SPI.endTransaction();
+      }
+      free(buf);
+    }
+  }
+}
+
+#endif // DIAG_SD_TEST_H

@@ -39,6 +39,7 @@ bool initSDCard() {
   // The display's bus_shared=true setting allows this to work
   if (!SD.begin(SD_CS, SPI, 4000000, "/sd", 5, false)) {
     Serial.println("SD card initialization failed (or no card inserted)");
+    diagEvent("SD", "mount failed (no card or bad card)");
     sdInitLastFailMs = millis();
     sdCardAvailable = false;
     return false;
@@ -51,6 +52,7 @@ bool initSDCard() {
   uint8_t cardType = SD.cardType();
   if (cardType == CARD_NONE) {
     Serial.println("No SD card attached");
+    diagEvent("SD", "no card attached");
     sdInitLastFailMs = millis();
     sdCardAvailable = false;
     return false;
@@ -74,6 +76,7 @@ bool initSDCard() {
 
   Serial.printf("SD Card Size: %llu MB\n", sdCardSize);
   Serial.printf("SD Card Used: %llu MB\n", sdCardUsed);
+  diagEvent("SD", "mounted, %llu MB", sdCardSize);
 
   return true;
 }
@@ -101,6 +104,7 @@ uint64_t getSDFreeBytes() {
   // so treat that as the card having gone away and drop the flag so callers
   // can retry the mount and report "no card" instead.
   if (total == 0) {
+    diagEvent("SD", "card stopped responding");
     sdCardAvailable = false;
     return 0;
   }

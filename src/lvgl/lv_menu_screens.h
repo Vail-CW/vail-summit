@@ -95,9 +95,10 @@ static const LVMenuItem deviceSettingsMenuItems[] = {
     MENU_ITEM_LV_D(LV_SYMBOL_SETTINGS, "General", MODE_GENERAL_SUBMENU, "Volume, brightness, theme"),
     MENU_ITEM_LV_D(LV_SYMBOL_BLUETOOTH, "Bluetooth", MODE_DEVICE_BT_SUBMENU, "Keyer, MIDI, keyboard"),
     MENU_ITEM_LV_D(LV_SYMBOL_HOME, "System Info", MODE_SYSTEM_INFO, "Version, storage, battery"),
+    MENU_ITEM_LV_D(LV_SYMBOL_OK, "Self Check", MODE_SELF_CHECK, "Test SD card, keys, sound"),
     MENU_ITEM_LV_D(LV_SYMBOL_TRASH, "Factory Reset", MODE_FACTORY_RESET, "Erase everything")
 };
-#define DEVICE_SETTINGS_COUNT 5
+#define DEVICE_SETTINGS_COUNT 6
 
 // WiFi submenu items
 static const LVMenuItem wifiSubmenuItems[] = {

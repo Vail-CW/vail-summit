@@ -43,6 +43,10 @@ static lv_group_t* input_group = NULL;
 // Reference to LovyanGFX display (set during init)
 static LGFX* lvgl_tft = NULL;
 
+// While non-NULL, every flush is also copied here (RGB565, SCREEN_WIDTH x
+// SCREEN_HEIGHT). Set only for one forced redraw by web_api_screenshot.h.
+static uint16_t* lvgl_capture_buf = NULL;
+
 // ============================================
 // Key Acceleration System
 // ============================================
@@ -205,6 +209,17 @@ void lvgl_disp_flush(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* colo
     lvgl_tft->setAddrWindow(area->x1, area->y1, w, h);
     lvgl_tft->pushPixels((uint16_t*)color_p, w * h, true);  // swap565 = true
     lvgl_tft->endWrite();
+
+    // Web screenshot: copy what LVGL drew instead of reading the display back,
+    // so it works on boards with the display's MISO pin cut
+    if (lvgl_capture_buf != NULL) {
+        const uint16_t* src = (const uint16_t*)color_p;
+        for (uint32_t row = 0; row < h; row++) {
+            int32_t y = area->y1 + row;
+            if (y < 0 || y >= SCREEN_HEIGHT || area->x1 < 0 || area->x2 >= SCREEN_WIDTH) continue;
+            memcpy(lvgl_capture_buf + y * SCREEN_WIDTH + area->x1, src + row * w, w * sizeof(uint16_t));
+        }
+    }
 
 #if DISPLAY_PERF_INSTRUMENT
     uint32_t t_exit = micros();
