@@ -872,6 +872,9 @@ void loop() {
   // This must run every loop to accurately track active practice time
   updateActivityAccumulator();
 
+  // Web screenshot requests are captured here, on the LVGL thread
+  processScreenshotRequest();
+
   // Check for pending web server restart (after file upload)
   if (isWebServerRestartPending()) {
     restartWebServer();
