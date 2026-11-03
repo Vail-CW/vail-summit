@@ -26,6 +26,19 @@ void onWebMemoryDecoded(String morse, String text) {
  */
 void initWebMemoryChainMode() {
     Serial.println("Initializing web Memory Chain mode");
+    // The decoder is owned by the main loop: created here (the browser may
+    // open the WebSocket before or after this runs) and only rebuilt when
+    // the decoder type setting changed, so the socket task never sees it
+    // deleted underneath it on a normal start.
+    if (webMemoryChainDecoder == nullptr || webMemoryChainDecoderType != (int)decoderType) {
+        MorseDecoder* old = webMemoryChainDecoder;
+        webMemoryChainDecoder = nullptr;
+        delete old;
+        webMemoryChainDecoder = (decoderType == DECODER_DIRECT)
+            ? (MorseDecoder*) new MorseDecoderDirect(15.0f)
+            : (MorseDecoder*) new MorseDecoderAdaptive(15.0f);
+        webMemoryChainDecoderType = (int)decoderType;
+    }
     webMemoryChainDecoder->messageCallback = onWebMemoryDecoded;
     webMemoryChainDecoder->reset();
 }

@@ -7,6 +7,7 @@
 
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
+#include "../../core/mode_registry.h"
 
 // External declarations
 extern CWMemoryPreset* cwMemories;
@@ -17,6 +18,26 @@ extern void previewCWMemory(int slot);
 extern bool isValidMorseMessage(const char* message);
 extern bool queueRadioMessage(const char* message);
 extern bool checkWebAuth(AsyncWebServerRequest *request);
+extern void requestPlayMorseString(const char* str, int wpm, int toneHz);
+extern MenuMode currentMode;
+
+// Preview requested from the web (slot index, -1 = none). Set by the async
+// handler, consumed by processWebMemoryPreview() in the main loop, which
+// hands the text to the audio task's non-blocking player.
+volatile int webMemoryPreviewSlot = -1;
+
+void processWebMemoryPreview() {
+  int slot = __atomic_exchange_n(&webMemoryPreviewSlot, -1, __ATOMIC_SEQ_CST);
+  if (slot < 0) return;
+
+  if (slot >= CW_MEMORY_MAX_SLOTS || !cwMemories) return;
+  if (cwMemories[slot].isEmpty || cwMemories[slot].message[0] == 0) return;
+  if (isModeAudioCritical((int)currentMode) || isMorsePlaybackActive()) {
+    Serial.println("[Memories] Web preview skipped - audio-critical mode or playback active");
+    return;
+  }
+  requestPlayMorseString(cwMemories[slot].message, cwSpeed, cwTone);
+}
 
 // ============================================
 // Setup Function - Register All CW Memories API Endpoints
@@ -283,9 +304,13 @@ void setupMemoriesAPI(AsyncWebServer &webServer) {
       Serial.print(" from web interface: ");
       Serial.println(cwMemories[slotIndex].message);
 
-      // NOTE: This preview function blocks during playback
-      // For better UX, you might want to make this non-blocking in the future
-      previewCWMemory(slotIndex);
+      if (isModeAudioCritical((int)currentMode) || isMorsePlaybackActive()) {
+        request->send(409, "application/json", "{\"success\":false,\"error\":\"Device is busy playing audio\"}");
+        return;
+      }
+
+      // Played from the main loop through the audio task (non-blocking)
+      webMemoryPreviewSlot = slotIndex;
 
       request->send(200, "application/json", "{\"success\":true}");
     });

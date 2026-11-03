@@ -157,6 +157,7 @@ struct SatTLEParseState {
 };
 
 static void satParseTLELine(SatTLEParseState& st, char* line) {
+    if (!satCatalog.sats) return;   // catalog released mid-update
     satTrimRight(line);
     if (line[0] == '\0') return;
 

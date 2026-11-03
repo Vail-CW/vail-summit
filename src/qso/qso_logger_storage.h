@@ -578,6 +578,22 @@ void regenerateADIFFiles(const char* date) {
   generateMasterADIF();
 }
 
+void recalculateMetadata();
+
+/*
+ * Call after any QSO is edited or deleted outside saveQSO(): rebuilds the
+ * day's ADIF and the master ADIF (so exports match the JSON logs) and
+ * recounts the metadata (totals, per-band and per-mode counts).
+ * date = YYYYMMDD of the day file that changed.
+ */
+void onQSOLogChanged(const char* date) {
+  if (date && date[0] != '\0') {
+    generateDailyADIF(date);
+  }
+  generateMasterADIF();
+  recalculateMetadata();
+}
+
 // ============================================
 // QSO Storage Operations (SD Card)
 // ============================================
@@ -796,14 +812,8 @@ bool deleteQSO(unsigned long id) {
               serializeJson(doc, outFile);
               outFile.close();
 
-              // Update metadata
-              storageStats.totalLogs--;
-              saveMetadata();
-
-              // Regenerate ADIF files
-              if (deletedDate.length() > 0) {
-                regenerateADIFFiles(deletedDate.c_str());
-              }
+              // Regenerate ADIF files and recount metadata (band/mode too)
+              onQSOLogChanged(deletedDate.c_str());
 
               Serial.println("QSO deleted successfully");
               root.close();
@@ -877,8 +887,8 @@ bool updateQSO(const QSO& qso) {
               serializeJson(doc, outFile);
               outFile.close();
 
-              // Regenerate ADIF files
-              regenerateADIFFiles(qso.date);
+              // Regenerate ADIF files; band/mode may have changed
+              onQSOLogChanged(qso.date);
 
               Serial.println("QSO updated successfully");
               root.close();

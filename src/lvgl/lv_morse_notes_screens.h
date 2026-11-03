@@ -922,7 +922,7 @@ lv_obj_t* createMorseNotesRecordScreen() {
     const char* mnRecKeyTypeNames[] = {"Straight", "Iambic A", "Iambic B", "Ultimatic"};
     char settingsInfo[64];
     snprintf(settingsInfo, sizeof(settingsInfo), "%d WPM  •  %d Hz  •  %s",
-             cwSpeed, cwTone, mnRecKeyTypeNames[getCwKeyTypeAsInt()]);
+             cwSpeed, cwTone, mnRecKeyTypeNames[clampKeyType(getCwKeyTypeAsInt())]);
     lv_obj_t* settings_lbl = lv_label_create(content);
     lv_label_set_text(settings_lbl, settingsInfo);
     lv_obj_set_style_text_color(settings_lbl, LV_COLOR_ACCENT_PRIMARY, 0);
@@ -1033,7 +1033,12 @@ lv_obj_t* createMorseNotesRecordScreen() {
     lv_obj_set_style_text_font(rec_hint, getThemeFonts()->font_small, 0);
     lv_obj_center(rec_hint);
 
-    // Create timer (20ms interval for responsive keying)
+    // Create timer (20ms interval for responsive keying). Delete any timer a
+    // previous visit left behind so they can't stack up.
+    if (mnRecordTimer) {
+        lv_timer_del(mnRecordTimer);
+        mnRecordTimer = nullptr;
+    }
     mnRecordTimer = lv_timer_create(mnRecordTimerCb, 20, nullptr);
 
     return screen;
@@ -1054,8 +1059,16 @@ void cleanupMorseNotesRecordScreen() {
     }
     mnDiscardRecording();
 
-    // Clean up keyer
+    // Clean up keyer: release any element in progress, detach our callback
+    // from the shared keyer instance, and make sure the sidetone is off
+    if (mnRecordKeyer) {
+        mnRecordKeyer->reset();
+        mnRecordKeyer->setTxCallback(nullptr);
+    }
     mnRecordKeyer = nullptr;
+    mnRecordDitPressed = false;
+    mnRecordDahPressed = false;
+    requestStopTone();
 
     // Delete record timer
     if (mnRecordTimer) {
@@ -1558,7 +1571,7 @@ static void mnSettingsKeyHandler(lv_event_t* e) {
             }
         }
         else if (mnSettingsFocus == 2 && mnSettingsKeyTypeValue) {
-            int current = getCwKeyTypeAsInt();
+            int current = clampKeyType(getCwKeyTypeAsInt());
             if (key == LV_KEY_RIGHT) {
                 current = (current + 1) % mnSettingsKeyTypeCount;
             } else {
@@ -1566,7 +1579,7 @@ static void mnSettingsKeyHandler(lv_event_t* e) {
             }
             lv_label_set_text_fmt(mnSettingsKeyTypeValue, "< %s >", mnSettingsKeyTypeNames[current]);
             setCwKeyTypeFromInt(current);
-            saveCWSettings();
+            markDeferredSave(saveCWSettings);
         }
         return;
     }
@@ -1583,7 +1596,7 @@ static void mnSettingsSpeedEventCb(lv_event_t* e) {
     if (mnSettingsSpeedValue != NULL) {
         lv_label_set_text_fmt(mnSettingsSpeedValue, "%d WPM", cwSpeed);
     }
-    saveCWSettings();
+    markDeferredSave(saveCWSettings);
     beep(cwTone, 100);
 }
 
@@ -1593,7 +1606,7 @@ static void mnSettingsToneEventCb(lv_event_t* e) {
     if (mnSettingsToneValue != NULL) {
         lv_label_set_text_fmt(mnSettingsToneValue, "%d Hz", cwTone);
     }
-    saveCWSettings();
+    markDeferredSave(saveCWSettings);
     beep(cwTone, 100);
 }
 
@@ -1746,7 +1759,7 @@ lv_obj_t* createMorseNotesSettingsScreen() {
     lv_obj_add_style(keytype_label, getStyleLabelSubtitle(), 0);
 
     mnSettingsKeyTypeValue = lv_label_create(mnSettingsKeyTypeRow);
-    lv_label_set_text_fmt(mnSettingsKeyTypeValue, "< %s >", mnSettingsKeyTypeNames[getCwKeyTypeAsInt()]);
+    lv_label_set_text_fmt(mnSettingsKeyTypeValue, "< %s >", mnSettingsKeyTypeNames[clampKeyType(getCwKeyTypeAsInt())]);
     lv_obj_set_style_text_color(mnSettingsKeyTypeValue, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_text_font(mnSettingsKeyTypeValue, getThemeFonts()->font_subtitle, 0);
 

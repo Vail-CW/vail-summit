@@ -51,7 +51,7 @@ void onPracticeWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *clie
         if (!error) {
           const char* msgType = doc["type"] | "";
 
-          if (strcmp(msgType, "timing") == 0) {
+          if (strcmp(msgType, "timing") == 0 && webPracticeDecoder) {
             // Timing data from browser
             float duration = doc["duration"].as<float>();
             bool positive = doc["positive"].as<bool>();

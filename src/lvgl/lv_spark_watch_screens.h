@@ -121,6 +121,14 @@ static void cleanupSparkScreenPointers() {
     spark_continue_btn = NULL;
 }
 
+// KEY events fire on key DOWN. Before navigating from one, swallow the rest
+// of the press so the ENTER release doesn't arrive as a CLICKED on whatever
+// the next screen focuses (e.g. the first Spark Watch menu item).
+static void spark_swallow_key_release() {
+    lv_indev_t* indev = getLVGLKeypad();
+    if (indev != NULL) lv_indev_wait_release(indev);
+}
+
 // ============================================
 // Event Callbacks
 // ============================================
@@ -1005,24 +1013,27 @@ static void spark_gameplay_key_cb(lv_event_t* e) {
 
         case LV_KEY_ENTER:
             // Handle button presses
+            // Playback is non-blocking (audio task + LVGL timer), so these
+            // return at once and Pause/ESC work mid-transmission
             if (spark_gameplay_focus == 0) {
-                // Play
-                playSparkTransmission();
+                // Play (or resume after pause)
                 beep(TONE_SELECT, BEEP_SHORT);
+                playSparkTransmission();
             } else if (spark_gameplay_focus == 1) {
-                // Pause (stop)
-                stopSparkTransmission();
+                // Pause - Play resumes from the current word
+                pauseSparkTransmission();
                 beep(TONE_SELECT, BEEP_SHORT);
             } else if (spark_gameplay_focus == 2) {
-                // Replay
+                // Replay from the start
                 stopSparkTransmission();
-                sparkSession.playbackCharIndex = 0;
-                playSparkTransmission();
                 beep(TONE_SELECT, BEEP_SHORT);
+                playSparkTransmission();
             } else if (spark_gameplay_focus == submitIdx) {
                 // Submit
+                stopSparkTransmission();
                 spark_copy_inputs_to_session();
                 beep(TONE_SELECT, BEEP_MEDIUM);
+                spark_swallow_key_release();
                 onLVGLMenuSelect(SPARK_MODE_RESULTS);
                 lv_event_stop_processing(e);
             } else if (spark_gameplay_focus == submitIdx + 1) {
@@ -1135,7 +1146,7 @@ lv_obj_t* createSparkWatchGameplayScreen() {
     lv_obj_set_style_bg_color(spark_pause_btn, LV_COLOR_BG_LAYER2, 0);
     lv_obj_set_style_radius(spark_pause_btn, 6, 0);
     lv_obj_t* pause_label = lv_label_create(spark_pause_btn);
-    lv_label_set_text(pause_label, LV_SYMBOL_PAUSE " Stop");
+    lv_label_set_text(pause_label, LV_SYMBOL_PAUSE " Pause");
     lv_obj_set_style_text_font(pause_label, getThemeFonts()->font_small, 0);
     lv_obj_center(pause_label);
 
@@ -1454,6 +1465,7 @@ static void spark_results_key_cb(lv_event_t* e) {
 
         case LV_KEY_ENTER:
             beep(TONE_SELECT, BEEP_MEDIUM);
+            spark_swallow_key_release();
             if (hasRetry && spark_results_focus == 0) {
                 // Retry - go back to gameplay, keep inputs
                 onLVGLMenuSelect(SPARK_MODE_GAMEPLAY);
@@ -1677,6 +1689,7 @@ static void spark_debriefing_key_cb(lv_event_t* e) {
 
         case LV_KEY_ENTER:
             beep(TONE_SELECT, BEEP_MEDIUM);
+            spark_swallow_key_release();
             onLVGLMenuSelect(SPARK_MODE_MENU);
             lv_event_stop_processing(e);
             break;

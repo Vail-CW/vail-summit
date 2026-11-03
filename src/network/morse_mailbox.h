@@ -127,7 +127,10 @@ static bool currentMessageLoaded = false;
 // Forward declarations
 bool refreshMailboxIdToken();
 String getValidMailboxToken();
-int mailboxHttpRequest(const String& method, const String& endpoint, const String& body, String& response);
+// allowRefresh: on a 401, refresh the token and retry once (the retry passes
+// false so a second 401 is returned to the caller instead of looping)
+int mailboxHttpRequest(const String& method, const String& endpoint, const String& body, String& response, bool allowRefresh = true);
+int mailboxCallableRequest(const String& functionName, const JsonDocument& data, JsonDocument& result, bool allowRefresh = true);
 
 // ============================================
 // Token Management
@@ -242,7 +245,7 @@ bool refreshMailboxIdToken() {
 // Make authenticated HTTP request to Mailbox API
 // Returns HTTP status code, response body in 'response' parameter
 // Note: endpoint should be the full function name, e.g., "api_device_requestCode"
-int mailboxHttpRequest(const String& method, const String& functionName, const String& body, String& response) {
+int mailboxHttpRequest(const String& method, const String& functionName, const String& body, String& response, bool allowRefresh) {
     // Refuse to hit the network if Firebase keys are still placeholders.
     // Without this guard the request would still reach the URL and fail at
     // HTTP layer; failing fast here keeps the logs cleaner and avoids any
@@ -291,11 +294,11 @@ int mailboxHttpRequest(const String& method, const String& functionName, const S
     http.end();
 
     // Handle 401 - token expired, try refresh once
-    if (httpCode == 401 && token.length() > 0) {
+    if (httpCode == 401 && token.length() > 0 && allowRefresh) {
         Serial.println("[Mailbox] Got 401, attempting token refresh...");
         if (refreshMailboxIdToken()) {
-            // Retry the request
-            return mailboxHttpRequest(method, functionName, body, response);
+            // Retry the request once
+            return mailboxHttpRequest(method, functionName, body, response, false);
         }
     }
 
@@ -304,7 +307,7 @@ int mailboxHttpRequest(const String& method, const String& functionName, const S
 
 // Call a Firebase Callable function (onCall)
 // These require POST with body wrapped in {"data": {...}} and return {"result": {...}}
-int mailboxCallableRequest(const String& functionName, const JsonDocument& data, JsonDocument& result) {
+int mailboxCallableRequest(const String& functionName, const JsonDocument& data, JsonDocument& result, bool allowRefresh) {
     HTTPClient http;
     String url = String(MAILBOX_FUNCTIONS_BASE) + "/" + functionName;
 
@@ -349,10 +352,10 @@ int mailboxCallableRequest(const String& functionName, const JsonDocument& data,
     http.end();
 
     // Handle 401 - token expired, try refresh once
-    if (httpCode == 401 && token.length() > 0) {
+    if (httpCode == 401 && token.length() > 0 && allowRefresh) {
         Serial.println("[Mailbox] Got 401 on callable, attempting token refresh...");
         if (refreshMailboxIdToken()) {
-            return mailboxCallableRequest(functionName, data, result);
+            return mailboxCallableRequest(functionName, data, result, false);
         }
     }
 

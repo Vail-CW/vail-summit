@@ -154,6 +154,7 @@
                     <option value="0">Straight Key</option>
                     <option value="1">Iambic A</option>
                     <option value="2">Iambic B</option>
+                    <option value="3">Ultimatic</option>
                 </select>
             </div>
 
@@ -253,11 +254,17 @@
             const tone = parseInt(document.getElementById('toneSlider').value);
             const keyType = parseInt(document.getElementById('keyTypeSelect').value);
 
+            // Only send fields with a value; the device leaves missing ones unchanged
+            const settings = {};
+            if (Number.isFinite(wpm)) settings.wpm = wpm;
+            if (Number.isFinite(tone)) settings.tone = tone;
+            if (Number.isFinite(keyType)) settings.keyType = keyType;
+
             try {
                 const response = await fetch('/api/settings/cw', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ wpm: wpm, tone: tone, keyType: keyType })
+                    body: JSON.stringify(settings)
                 });
 
                 const data = await response.json();

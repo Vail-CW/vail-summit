@@ -304,14 +304,14 @@
         }
 
         function downloadFile(filename) {
-            window.location.href = `/api/storage/download?file=/${filename}`;
+            window.location.href = `/api/storage/download?file=${encodeURIComponent("/" + filename)}`;
         }
 
         async function deleteFile(filename) {
             if (!confirm(`Delete ${filename}?`)) return;
 
             try {
-                const response = await fetch(`/api/storage/delete?file=/${filename}`, { method: 'DELETE' });
+                const response = await fetch(`/api/storage/delete?file=${encodeURIComponent("/" + filename)}`, { method: 'DELETE' });
                 const result = await response.json();
 
                 if (result.success) {

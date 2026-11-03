@@ -334,7 +334,11 @@
 
                 const data = await response.json();
 
-                if (data.success) {
+                if (data.success && data.pending) {
+                    // Device connects in the background (and leaves AP mode while it tries)
+                    showMessage('Connecting to ' + ssid + '... check the device screen.', 'info');
+                    showConnectionSuccessModal(ssid);
+                } else if (data.success) {
                     showMessage('Successfully connected to ' + ssid + '!', 'success');
 
                     if (isAPMode) {

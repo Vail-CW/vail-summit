@@ -6,7 +6,9 @@
  *
  * Design principles:
  * - Simple 3-state machine: READY, PLAYING, GAME_OVER
- * - Synchronous transitions (no complex callbacks)
+ * - Non-blocking: playback, gaps and feedback are timed phases advanced
+ *   from the poll, so ESC/back navigation can never return into a
+ *   half-finished round
  * - UI updates only when screen exists
  * - Polling-based decoder (no callback timing issues)
  */
@@ -21,6 +23,7 @@
 #include "../audio/morse_decoder_direct.h"
 #include "../settings/settings_decoder.h"
 #include "../keyer/keyer.h"
+#include "morse_text_player.h"
 #include "../lvgl/lv_screen_manager.h"
 #include "../lvgl/lv_theme_summit.h"
 #include "../lvgl/lv_widgets_summit.h"
@@ -52,7 +55,17 @@ enum MCState {
 
 enum MCPlayPhase {
     MC_PHASE_PLAYING_SEQUENCE,  // Playing morse to user
-    MC_PHASE_USER_INPUT         // Waiting for user input
+    MC_PHASE_USER_INPUT,        // Waiting for user input
+    MC_PHASE_PRE_GAP,           // Pause before the sequence plays
+    MC_PHASE_POST_GAP,          // Pause after the sequence, before input
+    MC_PHASE_FEEDBACK           // Showing CORRECT / WRONG
+};
+
+// What happens when the feedback pause ends
+enum MCAfterFeedback {
+    MC_AFTER_NEXT_ROUND,
+    MC_AFTER_RETRY,
+    MC_AFTER_GAME_OVER
 };
 
 struct MemoryChainGame {
@@ -71,6 +84,8 @@ struct MemoryChainGame {
     // Timing
     unsigned long stateStartTime;
     unsigned long lastInputTime;
+    unsigned long phaseEnd;          // End of the current timed phase
+    MCAfterFeedback afterFeedback;
 
     // Decoder
     char lastDecoded;
@@ -81,6 +96,7 @@ struct MemoryChainGame {
 static MemoryChainGame mcGame;
 static MorseDecoder* mcDecoder = nullptr;
 static Preferences mcPrefs;
+static MorseTextPlayer mcPlayer;  // Non-blocking sequence playback
 
 // Unified keyer
 static StraightKeyer* mcKeyer = nullptr;
@@ -103,15 +119,6 @@ static lv_obj_t* mc_message_label = NULL;
 // ============================================
 // UI Update Functions
 // ============================================
-
-// Delay that keeps LVGL running so UI updates are visible
-void mcDelayWithUI(unsigned long ms) {
-    unsigned long start = millis();
-    while (millis() - start < ms) {
-        lv_timer_handler();
-        delay(5);  // Small yield
-    }
-}
 
 void mcUpdateLevel(int level) {
     if (mc_level_label != NULL) {
@@ -171,37 +178,25 @@ void mcSaveHighScore() {
 // Key Event Handler
 // ============================================
 
+void mcStartSequence();
+void cleanupMemoryChain();
+
 static void mc_key_event_cb(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
 
     uint32_t key = lv_event_get_key(e);
 
     if (key == LV_KEY_ESC) {
+        cleanupMemoryChain();
         onLVGLBackNavigation();
         lv_event_stop_processing(e);
     }
     else if (key == ' ') {
         // Space = replay sequence (only during user input phase)
         if (mcGame.state == MC_STATE_PLAYING && mcGame.phase == MC_PHASE_USER_INPUT) {
-            extern int cwTone, cwSpeed;
-            mcGame.phase = MC_PHASE_PLAYING_SEQUENCE;
-            mcUpdateStatus("LISTEN...");
-
-            for (int i = 0; i < mcGame.length; i++) {
-                playMorseChar(mcGame.sequence[i], cwSpeed, cwTone);
-                MorseTiming timing(cwSpeed);
-                if (i < mcGame.length - 1) {
-                    delay(timing.letterGap);
-                }
-            }
-            delay(MC_SEQUENCE_GAP);
-
-            mcGame.phase = MC_PHASE_USER_INPUT;
-            mcGame.playerPos = 0;
-            mcGame.lastInputTime = millis();
-            mcDecoder->reset();
-            mcDecoder->flush();
-            mcUpdateStatus("YOUR TURN");
+            stopTone();
+            if (mcKeyer) mcKeyer->reset();
+            mcStartSequence();
         }
     }
     else if ((key == 0x0D || key == 0x0A) && mcGame.state == MC_STATE_GAME_OVER) {
@@ -380,19 +375,11 @@ void mcAddChar() {
     mcGame.sequence[mcGame.length] = '\0';
 }
 
-void mcPlaySequence() {
-    extern int cwTone, cwSpeed;
-
-    mcGame.phase = MC_PHASE_PLAYING_SEQUENCE;
-    mcUpdateStatus("LISTEN...");
-
-    for (int i = 0; i < mcGame.length; i++) {
-        playMorseChar(mcGame.sequence[i], cwSpeed, cwTone);
-        MorseTiming timing(cwSpeed);
-        if (i < mcGame.length - 1) {
-            delay(timing.letterGap);
-        }
-    }
+// Begin a round's playback: short pause, sequence, short pause, then input.
+// The phases are advanced by memoryChainUpdate().
+void mcStartSequence() {
+    mcGame.phase = MC_PHASE_PRE_GAP;
+    mcGame.phaseEnd = millis() + MC_SEQUENCE_GAP;
 }
 
 void mcStartUserInput() {
@@ -412,11 +399,18 @@ void mcStartUserInput() {
     }
 
     // Reset decoder
-    mcDecoder->reset();
-    mcDecoder->flush();
+    if (mcDecoder) {
+        mcDecoder->reset();
+        mcDecoder->flush();
+    }
 
     mcUpdateStatus("YOUR TURN");
-    lv_timer_handler();  // Update UI
+}
+
+static void mcStartFeedback(MCAfterFeedback after) {
+    mcGame.phase = MC_PHASE_FEEDBACK;
+    mcGame.afterFeedback = after;
+    mcGame.phaseEnd = millis() + MC_FEEDBACK_DELAY;
 }
 
 void mcHandleCorrect() {
@@ -432,21 +426,8 @@ void mcHandleCorrect() {
 
     mcUpdateStatus("CORRECT!");
     mcUpdateScore(mcGame.score);
-    lv_timer_handler();  // Update UI immediately
     beep(1000, 200);
-    mcDelayWithUI(MC_FEEDBACK_DELAY);
-
-    // Next round
-    mcAddChar();
-    mcUpdateLevel(mcGame.length);
-    mcUpdateMessage("");
-    lv_timer_handler();  // Update UI
-
-    mcDelayWithUI(MC_SEQUENCE_GAP);
-    mcPlaySequence();
-    mcDelayWithUI(MC_SEQUENCE_GAP);
-
-    mcStartUserInput();
+    mcStartFeedback(MC_AFTER_NEXT_ROUND);
 }
 
 void mcHandleWrong() {
@@ -457,28 +438,33 @@ void mcHandleWrong() {
 
     mcUpdateStatus("WRONG!");
     mcUpdateLives(mcGame.lives);
-    lv_timer_handler();  // Update UI immediately
     beep(200, 300);
-    mcDelayWithUI(MC_FEEDBACK_DELAY);
+    mcStartFeedback(mcGame.lives <= 0 ? MC_AFTER_GAME_OVER : MC_AFTER_RETRY);
+}
 
-    if (mcGame.lives <= 0) {
-        // Game over
-        mcGame.state = MC_STATE_GAME_OVER;
-        mcUpdateStatus("GAME OVER");
-        mcUpdateMessage("Press ENTER to restart");
-        lv_timer_handler();  // Update UI
-        Serial.printf("[MC] Game over! Score: %d\n", mcGame.score);
-        return;
+// Feedback pause is over - move on
+static void mcFinishFeedback() {
+    switch (mcGame.afterFeedback) {
+        case MC_AFTER_NEXT_ROUND:
+            mcAddChar();
+            mcUpdateLevel(mcGame.length);
+            mcUpdateMessage("");
+            mcStartSequence();
+            break;
+
+        case MC_AFTER_RETRY:
+            // Retry same sequence
+            mcUpdateStatus("TRY AGAIN");
+            mcStartSequence();
+            break;
+
+        case MC_AFTER_GAME_OVER:
+            mcGame.state = MC_STATE_GAME_OVER;
+            mcUpdateStatus("GAME OVER");
+            mcUpdateMessage("Press ENTER to restart");
+            Serial.printf("[MC] Game over! Score: %d\n", mcGame.score);
+            break;
     }
-
-    // Retry same sequence
-    mcUpdateStatus("TRY AGAIN");
-    lv_timer_handler();  // Update UI
-    mcDelayWithUI(MC_SEQUENCE_GAP);
-    mcPlaySequence();
-    mcDelayWithUI(MC_SEQUENCE_GAP);
-
-    mcStartUserInput();
 }
 
 void mcProcessDecodedChar(char c) {
@@ -607,18 +593,32 @@ void memoryChainUpdate() {
                 // Add first character and play
                 mcAddChar();
                 mcUpdateLevel(mcGame.length);
-                lv_timer_handler();  // Update UI
-
-                mcDelayWithUI(MC_SEQUENCE_GAP);
-                mcPlaySequence();
-                mcDelayWithUI(MC_SEQUENCE_GAP);
-
-                mcStartUserInput();
+                mcStartSequence();
             }
             break;
 
         case MC_STATE_PLAYING:
-            if (mcGame.phase == MC_PHASE_USER_INPUT) {
+            if (mcGame.phase == MC_PHASE_PRE_GAP) {
+                if ((long)(now - mcGame.phaseEnd) >= 0) {
+                    extern int cwTone, cwSpeed;
+                    mcGame.phase = MC_PHASE_PLAYING_SEQUENCE;
+                    mcUpdateStatus("LISTEN...");
+                    mtpBegin(&mcPlayer, mcGame.sequence, 0, cwSpeed, cwSpeed, cwTone);
+                }
+            } else if (mcGame.phase == MC_PHASE_PLAYING_SEQUENCE) {
+                if (!mtpIsActive(&mcPlayer)) {
+                    mcGame.phase = MC_PHASE_POST_GAP;
+                    mcGame.phaseEnd = now + MC_SEQUENCE_GAP;
+                }
+            } else if (mcGame.phase == MC_PHASE_POST_GAP) {
+                if ((long)(now - mcGame.phaseEnd) >= 0) {
+                    mcStartUserInput();
+                }
+            } else if (mcGame.phase == MC_PHASE_FEEDBACK) {
+                if ((long)(now - mcGame.phaseEnd) >= 0) {
+                    mcFinishFeedback();
+                }
+            } else if (mcGame.phase == MC_PHASE_USER_INPUT) {
                 // Check for decoded character (polling)
                 if (mcGame.hasNewChar) {
                     mcGame.hasNewChar = false;
@@ -680,6 +680,40 @@ void memoryChainHandlePaddle(bool ditPressed, bool dahPressed) {
 }
 
 // ============================================
+// Cleanup (MODE_MORSE_MEMORY back navigation)
+// ============================================
+
+void cleanupMemoryChain() {
+    // Sequence tones belong to the audio task (cancelled by mtpStop); only
+    // the keyer sidetone is driven from this core
+    bool sequencePlaying = mtpIsActive(&mcPlayer);
+    mtpStop(&mcPlayer);
+    if (!sequencePlaying) stopTone();
+    if (mcKeyer) mcKeyer->reset();
+    if (mcDecoder) {
+        mcDecoder->reset();
+        mcDecoder->flush();
+    }
+    mcDitPressed = false;
+    mcDahPressed = false;
+    mcLastToneState = false;
+    mcLastStateChange = 0;
+
+    // Park the game so nothing runs until memoryChainStart()
+    mcGame.state = MC_STATE_GAME_OVER;
+    mcGame.phase = MC_PHASE_PLAYING_SEQUENCE;
+    mcGame.hasNewChar = false;
+
+    // Screen is about to be deleted
+    mc_screen = NULL;
+    mc_level_label = NULL;
+    mc_score_label = NULL;
+    mc_status_label = NULL;
+    mc_lives_container = NULL;
+    mc_message_label = NULL;
+}
+
+// ============================================
 // Game Start Function
 // ============================================
 
@@ -690,6 +724,7 @@ void memoryChainStart() {
 
     // Load preferences
     mcLoadPrefs();
+    mtpStop(&mcPlayer);
 
     // Initialize game state
     memset(mcGame.sequence, 0, sizeof(mcGame.sequence));
@@ -703,6 +738,8 @@ void memoryChainStart() {
     mcGame.lastInputTime = millis();
     mcGame.lastDecoded = 0;
     mcGame.hasNewChar = false;
+    mcGame.phaseEnd = 0;
+    mcGame.afterFeedback = MC_AFTER_RETRY;
 
     // Initialize unified keyer
     extern int cwSpeed;

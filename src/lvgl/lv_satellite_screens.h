@@ -167,8 +167,14 @@ void cleanupSatelliteScreens() {
  * Together these are 81KB on a board with PSRAM and 24KB without, held for the
  * whole session until now. Coming back in reloads from the SD cache, so this
  * costs a file read, not a download.
+ *
+ * A TLE update in progress writes into the catalog from its timer, so it is
+ * cancelled (job, timer and overlay) before anything is freed.
  */
+static void satCancelUpdateUI();
+
 void freeSatelliteData() {
+    satCancelUpdateUI();
     cleanupSatelliteScreens();
     freeSatCatalog();
     freeSatXmtrs();
@@ -325,7 +331,25 @@ static void satUpdateFinishUI(bool ok) {
     }
 }
 
+// Tear down a running update without the success/failure feedback - used
+// when leaving satellites mid-download. Safe when no update is running.
+static void satCancelUpdateUI() {
+    bool wasRunning = satUpdateJobActive() || sat_upd_timer || sat_upd_overlay;
+    satUpdateJobCancel();
+    if (sat_upd_timer) { lv_timer_del(sat_upd_timer); sat_upd_timer = NULL; }
+    if (sat_upd_overlay && lv_obj_is_valid(sat_upd_overlay)) lv_obj_del(sat_upd_overlay);
+    sat_upd_overlay = NULL;
+    sat_upd_stage_label = NULL;
+    sat_upd_prog_label = NULL;
+    if (wasRunning) showToast("Satellite update cancelled");
+}
+
 static void sat_upd_timer_cb(lv_timer_t* t) {
+    // Catalog or transmitter table released underneath the job: stop cleanly
+    if (!satCatalog.sats || !satXmtrs) {
+        satCancelUpdateUI();
+        return;
+    }
     satUpdateJobTick(20);
 
     if (!satUpdateJobActive()) {

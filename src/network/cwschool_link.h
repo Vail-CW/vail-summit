@@ -23,6 +23,10 @@
 #define CWSCHOOL_DEVICE_TYPE "vail_summit"
 #define CWSCHOOL_HTTP_TIMEOUT 15000  // 15 seconds
 
+// Read timeout for cwschoolHttpRequest. Background sync lowers it for its
+// request so a slow server can't freeze the UI for long.
+static uint32_t cwschoolRequestTimeoutMs = CWSCHOOL_HTTP_TIMEOUT;
+
 // ============================================
 // Link State Machine
 // ============================================
@@ -180,12 +184,14 @@ bool refreshCWSchoolIdToken() {
 
 // Make HTTP request to CW School API
 // Returns HTTP status code, response body in 'response' parameter
-int cwschoolHttpRequest(const String& method, const String& functionName, const String& body, String& response) {
+// allowAuthRetry: on a 401, refresh the token and retry once (the retry
+// itself never retries again, so a bad refresh can't recurse forever)
+static int cwschoolHttpRequestImpl(const String& method, const String& functionName, const String& body, String& response, bool allowAuthRetry) {
     HTTPClient http;
     String url = String(CWSCHOOL_FUNCTIONS_BASE) + "/" + functionName;
 
     http.begin(url);
-    http.setTimeout(CWSCHOOL_HTTP_TIMEOUT);
+    http.setTimeout(cwschoolRequestTimeoutMs);
     http.addHeader("Content-Type", "application/json");
 
     // Add auth header if we have a token
@@ -219,20 +225,24 @@ int cwschoolHttpRequest(const String& method, const String& functionName, const 
     http.end();
 
     // Handle 401 - token expired, try refresh once
-    if (httpCode == 401 && token.length() > 0) {
+    if (httpCode == 401 && token.length() > 0 && allowAuthRetry) {
         Serial.println("[CWSchool] Got 401, attempting token refresh...");
         if (refreshCWSchoolIdToken()) {
-            // Retry the request
-            return cwschoolHttpRequest(method, functionName, body, response);
+            // Retry the request once
+            return cwschoolHttpRequestImpl(method, functionName, body, response, false);
         }
     }
 
     return httpCode;
 }
 
+int cwschoolHttpRequest(const String& method, const String& functionName, const String& body, String& response) {
+    return cwschoolHttpRequestImpl(method, functionName, body, response, true);
+}
+
 // Call a Firebase Callable function (onCall)
 // These require POST with body wrapped in {"data": {...}} and return {"result": {...}}
-int cwschoolCallableRequest(const String& functionName, const JsonDocument& data, JsonDocument& result) {
+static int cwschoolCallableRequestImpl(const String& functionName, const JsonDocument& data, JsonDocument& result, bool allowAuthRetry) {
     HTTPClient http;
     String url = String(CWSCHOOL_FUNCTIONS_BASE) + "/" + functionName;
 
@@ -277,14 +287,18 @@ int cwschoolCallableRequest(const String& functionName, const JsonDocument& data
     http.end();
 
     // Handle 401 - token expired, try refresh once
-    if (httpCode == 401 && token.length() > 0) {
+    if (httpCode == 401 && token.length() > 0 && allowAuthRetry) {
         Serial.println("[CWSchool] Got 401 on callable, attempting token refresh...");
         if (refreshCWSchoolIdToken()) {
-            return cwschoolCallableRequest(functionName, data, result);
+            return cwschoolCallableRequestImpl(functionName, data, result, false);
         }
     }
 
     return httpCode;
+}
+
+int cwschoolCallableRequest(const String& functionName, const JsonDocument& data, JsonDocument& result) {
+    return cwschoolCallableRequestImpl(functionName, data, result, true);
 }
 
 // ============================================

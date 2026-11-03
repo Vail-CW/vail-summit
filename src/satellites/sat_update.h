@@ -98,6 +98,18 @@ bool satUpdateJobStart() {
     return true;
 }
 
+// Abort a running update (e.g. leaving satellites while it downloads).
+// The catalog was cleared at job start and is left partially rebuilt, so the
+// caller must free it or reload it from storage. The SD/flash cache is only
+// rewritten when a job completes, so it is still intact.
+void satUpdateJobCancel() {
+    if (!satUpdateJobActive()) return;
+    if (satUpd.httpOpen && satUpdHttpPtr) satUpdHttpPtr->end();
+    memset(&satUpd, 0, sizeof(satUpd));   // stage = SATUPD_IDLE
+    satUpd.finishedOk = false;
+    Serial.println("[SAT] update cancelled");
+}
+
 static const char* satUpdStageUrl() {
     switch (satUpd.stage) {
         case SATUPD_TLE_AMATEUR: return SAT_TLE_URL_AMATEUR;
@@ -189,6 +201,12 @@ static void satUpdConsumeByte(char c) {
 // One tick of work, bounded by budgetMs. Call from an LVGL timer.
 void satUpdateJobTick(uint32_t budgetMs) {
     if (!satUpdateJobActive() || !satUpdEnsureBuffers()) return;
+    // The job writes straight into the catalog and transmitter table; if
+    // either was released underneath it, stop instead of writing through NULL
+    if (!satCatalog.sats || !satXmtrs) {
+        satUpdateJobCancel();
+        return;
+    }
     uint32_t t0 = millis();
 
     if (!satUpd.httpOpen) {

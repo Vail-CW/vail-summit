@@ -24,7 +24,7 @@
 // External declarations for functions from other modules
 extern bool saveQSO(const QSO& qso);                    // From qso_logger_storage.h
 extern bool isQSOStorageReady();                        // From qso_logger_storage.h
-extern void regenerateADIFFiles(const char* date);      // From qso_logger_storage.h
+extern void onQSOLogChanged(const char* date);           // From qso_logger_storage.h
 extern String frequencyToBand(float freq);              // From qso_logger_validation.h
 extern String formatCurrentDateTime();                  // From qso_logger_validation.h
 extern bool checkWebAuth(AsyncWebServerRequest *request); // From web_server.h
@@ -276,8 +276,8 @@ void setupQSOAPI(AsyncWebServer &webServer) {
       serializeJson(logDoc, file);
       file.close();
 
-      // Regenerate ADIF files
-      regenerateADIFFiles(date);
+      // Regenerate ADIF files and recount stats
+      onQSOLogChanged(date);
 
       Serial.println("QSO updated via web interface");
       request->send(200, "application/json", "{\"success\":true}");
@@ -358,8 +358,8 @@ void setupQSOAPI(AsyncWebServer &webServer) {
       file.close();
     }
 
-    // Regenerate ADIF files
-    regenerateADIFFiles(date.c_str());
+    // Regenerate ADIF files and recount stats
+    onQSOLogChanged(date.c_str());
 
     Serial.println("QSO deleted via web interface");
     request->send(200, "application/json", "{\"success\":true}");

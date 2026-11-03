@@ -17,7 +17,8 @@ AsyncWebSocket* memoryChainWebSocket = nullptr;
 
 // State
 bool webMemoryChainModeActive = false;
-MorseDecoder* webMemoryChainDecoder = nullptr;
+MorseDecoder* webMemoryChainDecoder = nullptr;   // created by initWebMemoryChainMode()
+int webMemoryChainDecoderType = -1;              // decoderType the instance was built with
 
 /*
  * Send decoded character to browser for game logic processing
@@ -38,10 +39,8 @@ void onMemoryChainWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *c
         case WS_EVT_CONNECT:
             Serial.printf("Memory Chain WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
             webMemoryChainModeActive = true;
-            delete webMemoryChainDecoder;
-            webMemoryChainDecoder = (decoderType == DECODER_DIRECT)
-                ? (MorseDecoder*) new MorseDecoderDirect(15.0f)
-                : (MorseDecoder*) new MorseDecoderAdaptive(15.0f);
+            // Decoder (and its messageCallback) is set up on the main loop
+            // by initWebMemoryChainMode(); never replace it from this task
             break;
 
         case WS_EVT_DISCONNECT:
@@ -67,7 +66,7 @@ void onMemoryChainWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *c
                 if (!error) {
                     const char* msgType = doc["type"] | "";
 
-                    if (strcmp(msgType, "timing") == 0) {
+                    if (strcmp(msgType, "timing") == 0 && webMemoryChainDecoder) {
                         float duration = doc["duration"].as<float>();
                         bool positive = doc["positive"].as<bool>();
 

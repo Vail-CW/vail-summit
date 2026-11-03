@@ -96,6 +96,7 @@ void (*morseNotesKeyCallback)(bool keyDown, unsigned long timestamp) = nullptr;
 
 // Forward declarations
 void startRadioOutput();
+void stopRadioOutput();
 void updateRadioOutput();
 void saveRadioSettings();
 void loadRadioSettings();
@@ -148,6 +149,48 @@ void startRadioOutput() {
   digitalWrite(RADIO_KEY_DAH_PIN, LOW);  // Not keyed
 
   // UI is now handled by LVGL - see lv_mode_screens.h
+}
+
+// Stop radio output mode and leave the transmitter unkeyed.
+// The key pins are only driven while updateRadioOutput() is polled, so every
+// exit from Radio Output must come through here - otherwise leaving mid-element
+// or with a paddle held leaves the radio keyed. Safe to call more than once.
+void stopRadioOutput() {
+  radioOutputActive = false;
+
+  // Release the keyer; reset() reports a key-up through radioKeyerCallback
+  // if an element was in progress. Then detach so the shared keyer instance
+  // can't drive the radio pins from another mode.
+  if (radioKeyer) {
+    radioKeyer->reset();
+    radioKeyer->setTxCallback(nullptr);
+    radioKeyer = nullptr;
+  }
+  radioDitPressed = false;
+  radioDahPressed = false;
+
+  // Force both outputs to the unkeyed level regardless of keyer state
+  pinMode(RADIO_KEY_DIT_PIN, OUTPUT);
+  pinMode(RADIO_KEY_DAH_PIN, OUTPUT);
+  digitalWrite(RADIO_KEY_DIT_PIN, LOW);
+  digitalWrite(RADIO_KEY_DAH_PIN, LOW);
+
+  stopTone();
+
+  // Abort any message in progress and drop anything still queued so it
+  // doesn't go out on the next visit
+  isTransmittingMessage = false;
+  messageCharIndex = 0;
+  currentTransmittingMessage[0] = '\0';
+  portENTER_CRITICAL(&radioQueueMux);
+  if (radioMessageQueue) {
+    radioMessageQueue->readIndex = 0;
+    radioMessageQueue->writeIndex = 0;
+    radioMessageQueue->count = 0;
+  }
+  portEXIT_CRITICAL(&radioQueueMux);
+
+  Serial.println("[Radio] Output stopped, key lines released");
 }
 
 // Keyer callback - called by unified keyer when tx state changes

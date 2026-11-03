@@ -21,7 +21,14 @@
 
 #define PROGRESS_SYNC_VERSION 1
 #define OFFLINE_QUEUE_SIZE 10
-#define SYNC_COOLDOWN_MS 60000  // Minimum 1 minute between syncs
+#define SYNC_NEXT_ENTRY_MS 5000       // Gap between queue entries after a success
+#define SYNC_RETRY_MIN_MS 60000       // First retry delay after a failure
+#define SYNC_RETRY_MAX_MS 600000      // Backoff cap (10 minutes)
+#define SYNC_USER_IDLE_MS 5000        // Only make a request after this long without input
+
+// Defined in vail-summit.ino: true while a tone plays (plus hold) or the
+// current mode is audio-critical. A TLS handshake must not start then.
+bool audioPriorityActive();
 
 // ============================================
 // Sync State
@@ -40,7 +47,9 @@ struct SyncState {
     unsigned long lastSyncTime;      // millis() of last successful sync
     unsigned long lastSyncAttempt;   // millis() of last sync attempt
     int pendingQueueCount;           // Number of items in offline queue
-    String lastError;                // Last error message
+    int queueHead;                   // Ring-buffer slot of the oldest entry
+    unsigned long retryDelayMs;      // Wait before the next request attempt
+    char lastError[32];              // Last error message
 };
 
 static SyncState syncState = {
@@ -48,14 +57,9 @@ static SyncState syncState = {
     .lastSyncTime = 0,
     .lastSyncAttempt = 0,
     .pendingQueueCount = 0,
-    .lastError = ""
-};
-
-// Offline queue entry
-struct OfflineQueueEntry {
-    unsigned long timestamp;         // When this entry was created
-    String payload;                  // JSON payload to sync
-    bool valid;                      // Is this entry valid?
+    .queueHead = 0,
+    .retryDelayMs = 0,
+    .lastError = {0}
 };
 
 static Preferences syncPrefs;
@@ -68,7 +72,7 @@ static Preferences syncPrefs;
  * Build a progress sync payload
  * Includes practice time, session info, and any training progress
  */
-String buildSyncPayload(unsigned long sessionDurationSec, const String& sessionMode) {
+String buildSyncPayload(unsigned long sessionDurationSec, const char* sessionMode) {
     JsonDocument doc(psramJsonAllocator());
 
     // Version and device info
@@ -113,9 +117,20 @@ String buildMinimalSyncPayload() {
 // ============================================
 // Offline Queue Management
 // ============================================
+// Every sync goes through this queue (NVS namespace "progsync") and is sent
+// later by updateProgressSync(), so navigation never waits on HTTPS.
+// The queue is a ring buffer: slot = (head + i) % OFFLINE_QUEUE_SIZE, so an
+// add or remove is a constant number of NVS writes. A full queue overwrites
+// the oldest entry. Entries written by the old shifting queue start at slot
+// 0 with no "queue_head" key, which reads back as head 0 - compatible.
+
+static void queueSlotKeys(int slot, char* keyPayload, char* keyTime, size_t n) {
+    snprintf(keyPayload, n, "q_payload_%d", slot);
+    snprintf(keyTime, n, "q_time_%d", slot);
+}
 
 /*
- * Load offline queue from NVS
+ * Load offline queue count from NVS
  */
 int loadOfflineQueueCount() {
     syncPrefs.begin("progsync", true);
@@ -128,40 +143,34 @@ int loadOfflineQueueCount() {
  * Add entry to offline queue
  */
 bool addToOfflineQueue(const String& payload) {
-    syncPrefs.begin("progsync", false);
+    int count = syncState.pendingQueueCount;
+    int head = syncState.queueHead;
+    if (count < 0) count = 0;
+    if (count > OFFLINE_QUEUE_SIZE) count = OFFLINE_QUEUE_SIZE;
 
-    int count = syncPrefs.getInt("queue_count", 0);
+    int slot;
     if (count >= OFFLINE_QUEUE_SIZE) {
-        // Queue full - remove oldest entry (shift down)
-        for (int i = 0; i < OFFLINE_QUEUE_SIZE - 1; i++) {
-            char keyFrom[16], keyTo[16];
-            snprintf(keyFrom, sizeof(keyFrom), "q_payload_%d", i + 1);
-            snprintf(keyTo, sizeof(keyTo), "q_payload_%d", i);
-
-            String val = syncPrefs.getString(keyFrom, "");
-            syncPrefs.putString(keyTo, val);
-
-            snprintf(keyFrom, sizeof(keyFrom), "q_time_%d", i + 1);
-            snprintf(keyTo, sizeof(keyTo), "q_time_%d", i);
-            unsigned long ts = syncPrefs.getULong(keyFrom, 0);
-            syncPrefs.putULong(keyTo, ts);
-        }
-        count = OFFLINE_QUEUE_SIZE - 1;
+        // Full - overwrite the oldest entry and advance the head
+        slot = head;
+        head = (head + 1) % OFFLINE_QUEUE_SIZE;
+    } else {
+        slot = (head + count) % OFFLINE_QUEUE_SIZE;
+        count++;
     }
 
-    // Add new entry at end
     char keyPayload[16], keyTime[16];
-    snprintf(keyPayload, sizeof(keyPayload), "q_payload_%d", count);
-    snprintf(keyTime, sizeof(keyTime), "q_time_%d", count);
+    queueSlotKeys(slot, keyPayload, keyTime, sizeof(keyPayload));
 
+    syncPrefs.begin("progsync", false);
     syncPrefs.putString(keyPayload, payload);
     syncPrefs.putULong(keyTime, millis());
-    syncPrefs.putInt("queue_count", count + 1);
-
+    syncPrefs.putInt("queue_count", count);
+    syncPrefs.putInt("queue_head", head);
     syncPrefs.end();
 
-    syncState.pendingQueueCount = count + 1;
-    Serial.printf("[Sync] Added to offline queue (count: %d)\n", count + 1);
+    syncState.pendingQueueCount = count;
+    syncState.queueHead = head;
+    Serial.printf("[Sync] Added to offline queue (count: %d)\n", count);
     return true;
 }
 
@@ -169,51 +178,40 @@ bool addToOfflineQueue(const String& payload) {
  * Get oldest entry from offline queue (peek, doesn't remove)
  */
 String peekOfflineQueue() {
+    if (syncState.pendingQueueCount <= 0) return String();
+    char keyPayload[16], keyTime[16];
+    queueSlotKeys(syncState.queueHead, keyPayload, keyTime, sizeof(keyPayload));
     syncPrefs.begin("progsync", true);
-    String payload = syncPrefs.getString("q_payload_0", "");
+    String payload = syncPrefs.getString(keyPayload, "");
     syncPrefs.end();
     return payload;
 }
 
 /*
- * Remove oldest entry from offline queue (after successful sync)
+ * Remove oldest entry from offline queue (after successful sync).
+ * If saveSyncTime, also persists lastSyncTime in the same NVS session.
  */
-void removeFromOfflineQueue() {
-    syncPrefs.begin("progsync", false);
+void removeFromOfflineQueue(bool saveSyncTime = false) {
+    int count = syncState.pendingQueueCount;
+    if (count <= 0) return;
 
-    int count = syncPrefs.getInt("queue_count", 0);
-    if (count <= 0) {
-        syncPrefs.end();
-        return;
-    }
-
-    // Shift all entries down
-    for (int i = 0; i < count - 1; i++) {
-        char keyFrom[16], keyTo[16];
-        snprintf(keyFrom, sizeof(keyFrom), "q_payload_%d", i + 1);
-        snprintf(keyTo, sizeof(keyTo), "q_payload_%d", i);
-
-        String val = syncPrefs.getString(keyFrom, "");
-        syncPrefs.putString(keyTo, val);
-
-        snprintf(keyFrom, sizeof(keyFrom), "q_time_%d", i + 1);
-        snprintf(keyTo, sizeof(keyTo), "q_time_%d", i);
-        unsigned long ts = syncPrefs.getULong(keyFrom, 0);
-        syncPrefs.putULong(keyTo, ts);
-    }
-
-    // Clear last slot and update count
     char keyPayload[16], keyTime[16];
-    snprintf(keyPayload, sizeof(keyPayload), "q_payload_%d", count - 1);
-    snprintf(keyTime, sizeof(keyTime), "q_time_%d", count - 1);
+    queueSlotKeys(syncState.queueHead, keyPayload, keyTime, sizeof(keyPayload));
+    int head = (syncState.queueHead + 1) % OFFLINE_QUEUE_SIZE;
+    count--;
+    if (count == 0) head = 0;
+
+    syncPrefs.begin("progsync", false);
     syncPrefs.remove(keyPayload);
     syncPrefs.remove(keyTime);
-    syncPrefs.putInt("queue_count", count - 1);
-
+    syncPrefs.putInt("queue_count", count);
+    syncPrefs.putInt("queue_head", head);
+    if (saveSyncTime) syncPrefs.putULong("last_sync", syncState.lastSyncTime);
     syncPrefs.end();
 
-    syncState.pendingQueueCount = count - 1;
-    Serial.printf("[Sync] Removed from offline queue (count: %d)\n", count - 1);
+    syncState.pendingQueueCount = count;
+    syncState.queueHead = head;
+    Serial.printf("[Sync] Removed from offline queue (count: %d)\n", count);
 }
 
 /*
@@ -224,6 +222,7 @@ void clearOfflineQueue() {
     syncPrefs.clear();
     syncPrefs.end();
     syncState.pendingQueueCount = 0;
+    syncState.queueHead = 0;
     Serial.println("[Sync] Offline queue cleared");
 }
 
@@ -232,116 +231,119 @@ void clearOfflineQueue() {
 // ============================================
 
 /*
- * Sync progress with CW School cloud
- * Returns true if sync was successful or queued
+ * Queue a progress payload for the CW School cloud. Never blocks on the
+ * network: updateProgressSync() sends it when conditions allow.
+ * Returns true if queued.
  */
 bool syncProgressToCloud(const String& payload) {
-    // Check if we're linked
     if (!isCWSchoolLinked()) {
         Serial.println("[Sync] Not linked to CW School - skipping sync");
         return false;
     }
-
-    // Check cooldown
-    if (millis() - syncState.lastSyncAttempt < SYNC_COOLDOWN_MS) {
-        Serial.println("[Sync] Cooldown active - skipping sync");
-        return false;
-    }
-
-    syncState.lastSyncAttempt = millis();
-    syncState.status = SYNC_IN_PROGRESS;
-
-    // Check internet connectivity
-    if (getInternetStatus() != INET_CONNECTED) {
-        Serial.println("[Sync] No internet - adding to offline queue");
-        addToOfflineQueue(payload);
-        syncState.status = SYNC_OFFLINE_QUEUED;
-        return true;
-    }
-
-    // Make sync request
-    String response;
-    int httpCode = cwschoolHttpRequest("POST", "api_summit_syncProgress", payload, response);
-
-    if (httpCode == 200) {
-        // Parse response to update local state if needed
-        JsonDocument respDoc(psramJsonAllocator());
-        if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
-            // Update last sync time
-            syncState.lastSyncTime = millis();
-            syncState.status = SYNC_SUCCESS;
-            syncState.lastError = "";
-
-            // Save last sync time
-            syncPrefs.begin("progsync", false);
-            syncPrefs.putULong("last_sync", syncState.lastSyncTime);
-            syncPrefs.end();
-
-            Serial.println("[Sync] Progress synced successfully");
-
-            // TODO: Process merged_progress from response to update local state
-            // This would include any progress made on the web that we don't have locally
-
-            return true;
-        }
-    }
-
-    // Sync failed
-    syncState.status = SYNC_FAILED;
-    syncState.lastError = "HTTP " + String(httpCode);
-    Serial.printf("[Sync] Sync failed: HTTP %d\n", httpCode);
-
-    // Add to offline queue for retry
     addToOfflineQueue(payload);
-    return false;
+    syncState.status = SYNC_OFFLINE_QUEUED;
+    return true;
 }
 
 /*
  * Sync a completed session
- * Called when user exits a training mode
+ * Called when user exits a training mode. Only queues - see updateProgressSync().
  */
-bool syncSession(unsigned long durationSec, const String& mode) {
+bool syncSession(unsigned long durationSec, const char* mode) {
     if (durationSec < 30) {
         // Don't sync very short sessions (< 30 seconds)
         Serial.println("[Sync] Session too short to sync");
         return false;
     }
+    if (!isCWSchoolLinked()) return false;
 
-    String payload = buildSyncPayload(durationSec, mode);
+    String payload = buildSyncPayload(durationSec, mode ? mode : "");
     return syncProgressToCloud(payload);
 }
 
 /*
- * Flush offline queue (call when WiFi reconnects)
+ * Ask updateProgressSync() to try the queue right away (e.g. WiFi reconnected),
+ * skipping any failure backoff. Does no network work itself.
  */
 void flushOfflineQueue() {
+    syncState.retryDelayMs = 0;
+}
+
+/*
+ * Background sender - call every loop(). Makes at most ONE HTTPS request per
+ * call, and only when: something is queued, linked, WiFi + internet up, no
+ * audio has priority, and the user hasn't touched a key for a few seconds
+ * (the request blocks loop() for the handshake). After a success the next
+ * queued entry follows SYNC_NEXT_ENTRY_MS later, which drains the backlog
+ * a bit at a time; failures back off exponentially.
+ */
+void updateProgressSync() {
+    if (syncState.pendingQueueCount <= 0) return;
+
+    // WiFi just came up: don't wait out a backoff from the offline period
+    static bool wifiWasUp = false;
+    bool wifiUp = (WiFi.status() == WL_CONNECTED);
+    if (wifiUp && !wifiWasUp) flushOfflineQueue();
+    wifiWasUp = wifiUp;
+    if (!wifiUp) return;
+
+    unsigned long now = millis();
+    if (syncState.lastSyncAttempt != 0 &&
+        now - syncState.lastSyncAttempt < syncState.retryDelayMs) return;
+
     if (!isCWSchoolLinked()) return;
     if (getInternetStatus() != INET_CONNECTED) return;
+    if (audioPriorityActive()) return;
+    if (lv_disp_get_inactive_time(NULL) < SYNC_USER_IDLE_MS) return;
 
-    int count = loadOfflineQueueCount();
-    if (count == 0) return;
+    String payload = peekOfflineQueue();
+    if (payload.length() == 0) {
+        // Missing/empty slot - drop it so the queue can't stall
+        removeFromOfflineQueue();
+        return;
+    }
 
-    Serial.printf("[Sync] Flushing offline queue (%d entries)\n", count);
+    syncState.lastSyncAttempt = now;
+    syncState.status = SYNC_IN_PROGRESS;
 
-    while (syncState.pendingQueueCount > 0) {
-        String payload = peekOfflineQueue();
-        if (payload.length() == 0) break;
+    String response;
+    // Short timeout: this runs inline in loop(), so a slow server must not
+    // hold the UI for the full 15 s (a 401 refresh + retry would triple it)
+    cwschoolRequestTimeoutMs = 5000;
+    int httpCode = cwschoolHttpRequest("POST", "api_summit_syncProgress", payload, response);
+    cwschoolRequestTimeoutMs = CWSCHOOL_HTTP_TIMEOUT;
 
-        // Try to sync this entry
-        String response;
-        int httpCode = cwschoolHttpRequest("POST", "api_summit_syncProgress", payload, response);
+    if (httpCode == 200) {
+        syncState.lastSyncTime = millis();
+        syncState.status = SYNC_SUCCESS;
+        syncState.lastError[0] = '\0';
+        syncState.retryDelayMs = SYNC_NEXT_ENTRY_MS;
+        removeFromOfflineQueue(true);
+        Serial.println("[Sync] Progress synced successfully");
 
-        if (httpCode == 200) {
-            removeFromOfflineQueue();
-            Serial.println("[Sync] Flushed queue entry successfully");
-        } else {
-            // Stop trying if we hit an error
-            Serial.printf("[Sync] Queue flush failed: HTTP %d\n", httpCode);
-            break;
-        }
+        // TODO: Process merged_progress from response to update local state
+        // This would include any progress made on the web that we don't have locally
+        return;
+    }
 
-        // Small delay between requests
-        delay(500);
+    syncState.status = SYNC_FAILED;
+    snprintf(syncState.lastError, sizeof(syncState.lastError), "HTTP %d", httpCode);
+    Serial.printf("[Sync] Sync failed: HTTP %d\n", httpCode);
+
+    // A request the server rejects outright will never succeed - drop it
+    // rather than block everything queued behind it
+    if (httpCode >= 400 && httpCode < 500 &&
+        httpCode != 401 && httpCode != 408 && httpCode != 429) {
+        removeFromOfflineQueue();
+        syncState.retryDelayMs = SYNC_NEXT_ENTRY_MS;
+        return;
+    }
+
+    if (syncState.retryDelayMs < SYNC_RETRY_MIN_MS) {
+        syncState.retryDelayMs = SYNC_RETRY_MIN_MS;
+    } else {
+        syncState.retryDelayMs *= 2;
+        if (syncState.retryDelayMs > SYNC_RETRY_MAX_MS) syncState.retryDelayMs = SYNC_RETRY_MAX_MS;
     }
 }
 
@@ -402,7 +404,7 @@ int getPendingQueueCount() {
     return syncState.pendingQueueCount;
 }
 
-String getLastSyncError() {
+const char* getLastSyncError() {
     return syncState.lastError;
 }
 
@@ -417,7 +419,14 @@ void initProgressSync() {
     syncPrefs.begin("progsync", true);
     syncState.lastSyncTime = syncPrefs.getULong("last_sync", 0);
     syncState.pendingQueueCount = syncPrefs.getInt("queue_count", 0);
+    syncState.queueHead = syncPrefs.getInt("queue_head", 0);
     syncPrefs.end();
+    if (syncState.pendingQueueCount < 0 || syncState.pendingQueueCount > OFFLINE_QUEUE_SIZE) {
+        syncState.pendingQueueCount = 0;
+    }
+    if (syncState.queueHead < 0 || syncState.queueHead >= OFFLINE_QUEUE_SIZE) {
+        syncState.queueHead = 0;
+    }
 
     Serial.printf("[Sync] Initialized - last sync: %lu, queue: %d\n",
                   syncState.lastSyncTime, syncState.pendingQueueCount);

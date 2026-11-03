@@ -13,6 +13,7 @@
 #include "../core/config.h"
 #include "../core/morse_code.h"
 #include "../audio/i2s_audio.h"
+#include "morse_text_player.h"
 #include <Preferences.h>
 
 // ============================================
@@ -565,6 +566,37 @@ void applyHintPenalty() {
 // Progress Update Functions
 // ============================================
 
+// Campaign data lives in game_spark_watch_data.h (included after this file)
+const SparkWatchCampaign* getCampaignById(int campaignId);
+
+// Unlock every campaign whose unlockRequirement is completedId.
+// Returns true if anything changed.
+static bool sparkUnlockCampaignsAfter(int completedId) {
+    bool changed = false;
+    for (int id = 1; id <= 5; id++) {
+        const SparkWatchCampaign* next = getCampaignById(id);
+        if (next && next->unlockRequirement == completedId &&
+            !sparkProgress.campaignUnlocked[id]) {
+            sparkProgress.campaignUnlocked[id] = true;
+            changed = true;
+            Serial.printf("[SparkWatch] Campaign %d unlocked\n", id);
+        }
+    }
+    return changed;
+}
+
+// Repair unlocks for players who finished a campaign before unlocking worked
+static void sparkReconcileCampaignUnlocks() {
+    bool changed = false;
+    for (int id = 1; id <= 5; id++) {
+        const SparkWatchCampaign* camp = getCampaignById(id);
+        if (camp && sparkProgress.campaignProgress[id] >= camp->totalMissions) {
+            if (sparkUnlockCampaignsAfter(id)) changed = true;
+        }
+    }
+    if (changed) saveSparkWatchProgress();
+}
+
 void recordChallengeCompletion(int score) {
     if (!sparkSession.currentChallenge) return;
 
@@ -596,8 +628,12 @@ void recordChallengeCompletion(int score) {
             Serial.printf("[SparkWatch] Campaign %d progress: %d missions\n",
                           campId, mission);
 
-            // Check for campaign completion and unlock next
-            // (Campaign data will define totalMissions per campaign)
+            // Campaign complete: unlock whatever campaign requires it
+            const SparkWatchCampaign* camp = getCampaignById(campId);
+            if (camp && mission >= camp->totalMissions) {
+                Serial.printf("[SparkWatch] Campaign %d complete\n", campId);
+                sparkUnlockCampaignsAfter(campId);
+            }
         }
     }
 
@@ -655,44 +691,71 @@ void setSparkSpeed(int speedIndex) {
 // Morse Playback Functions
 // ============================================
 
-// Forward declaration - actual implementation may be async
-void playSparkTransmission();
-void pauseSparkTransmission();
-void resumeSparkTransmission();
-void stopSparkTransmission();
+// Non-blocking: the shared MorseTextPlayer runs the transmission on the audio
+// task, so the loop keeps running and Pause/ESC stay reachable.
+static MorseTextPlayer sparkPlayer;
 
+static void sparkPlaybackDone() {
+    sparkSession.isPlaying = false;
+    sparkSession.isPaused = false;
+    sparkSession.playbackCharIndex = 0;
+    Serial.println("[SparkWatch] Transmission complete");
+}
+
+static int sparkCurrentWPM() {
+    SparkWatchDifficulty diff = sparkSession.currentChallenge->difficulty;
+    int wpm = (int)(SPARK_BASE_WPM[diff] * sparkSession.currentSpeedMult);
+    return wpm < 1 ? 1 : wpm;
+}
+
+// Play from the start, or resume if paused
 void playSparkTransmission() {
     if (!sparkSession.currentChallenge) return;
     if (sparkSession.isPlaying && !sparkSession.isPaused) return;
+
+    bool resuming = sparkSession.isPaused;
 
     // Mark challenge as started (locks speed increase)
     sparkSession.challengeStarted = true;
     sparkSession.isPlaying = true;
     sparkSession.isPaused = false;
-    sparkSession.playCount++;
+    if (!resuming) {
+        sparkSession.playCount++;
+        sparkSession.playbackCharIndex = 0;
+    }
     sparkSession.playStartTime = millis();
 
-    // Calculate effective WPM
-    SparkWatchDifficulty diff = sparkSession.currentChallenge->difficulty;
-    int baseWPM = SPARK_BASE_WPM[diff];
-    int effectiveWPM = (int)(baseWPM * sparkSession.currentSpeedMult);
+    int wpm = sparkCurrentWPM();
+    Serial.printf("[SparkWatch] %s transmission at %d WPM (x%.2f) from %d\n",
+                  resuming ? "Resuming" : "Playing", wpm,
+                  sparkSession.currentSpeedMult, sparkSession.playbackCharIndex);
 
-    Serial.printf("[SparkWatch] Playing transmission at %d WPM (base %d x %.2f)\n",
-                  effectiveWPM, baseWPM, sparkSession.currentSpeedMult);
+    sparkPlayer.onDone = sparkPlaybackDone;
+    mtpBegin(&sparkPlayer, sparkSession.currentChallenge->morseTransmission,
+             sparkSession.playbackCharIndex, wpm, wpm, cwTone);
+}
 
-    // Play the morse string
-    // Note: This is blocking - for async, would need to implement character-by-character
-    playMorseString(sparkSession.currentChallenge->morseTransmission, effectiveWPM, cwTone);
+void pauseSparkTransmission() {
+    if (!sparkSession.isPlaying || sparkSession.isPaused) return;
+    mtpPause(&sparkPlayer);
+    sparkSession.playbackCharIndex = sparkPlayer.resumeIndex;
+    sparkSession.isPaused = true;
+}
 
-    sparkSession.isPlaying = false;
-    Serial.println("[SparkWatch] Transmission complete");
+void resumeSparkTransmission() {
+    if (sparkSession.isPaused) playSparkTransmission();
 }
 
 void stopSparkTransmission() {
-    stopTone();
+    mtpStop(&sparkPlayer);
     sparkSession.isPlaying = false;
     sparkSession.isPaused = false;
     sparkSession.playbackCharIndex = 0;
+}
+
+// Mode cleanup: stop the tone and the playback timer
+void cleanupSparkWatch() {
+    stopSparkTransmission();
 }
 
 // ============================================
@@ -701,6 +764,7 @@ void stopSparkTransmission() {
 
 void startSparkWatch() {
     loadSparkWatchProgress();
+    sparkReconcileCampaignUnlocks();
     initSparkWatchSession();
     Serial.println("[SparkWatch] Game started");
 }

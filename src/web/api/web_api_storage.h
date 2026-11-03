@@ -10,43 +10,94 @@
 #include <SD.h>
 #include "../../storage/sd_card.h"
 
+extern bool checkWebAuth(AsyncWebServerRequest *request);
+
+#define WEB_STORAGE_PATH_MAX 128
+
+// SD mount requested by the storage page (initSDCard() is not safe to run
+// from the async web server task; the main loop consumes this flag)
+volatile bool webSDInitPending = false;
+
+void processWebSDInitRequest() {
+  if (!webSDInitPending) return;
+  webSDInitPending = false;
+  if (!sdCardAvailable) initSDCard();
+}
+
+/*
+ * Path validation for request parameters.
+ * Accepts absolute paths only, no "..", no backslashes, no empty
+ * components and no control characters.
+ */
+static bool isSafeSDPath(const char* path) {
+  if (path == nullptr || path[0] != '/') return false;
+  size_t len = strlen(path);
+  if (len >= WEB_STORAGE_PATH_MAX) return false;
+  if (strstr(path, "..") != nullptr) return false;
+  if (strstr(path, "//") != nullptr) return false;
+  for (size_t i = 0; i < len; i++) {
+    unsigned char c = (unsigned char)path[i];
+    if (c < 0x20 || c == 0x7F || c == '\\' || c == ':' || c == '"') return false;
+  }
+  return true;
+}
+
+// The storage page manages files in the card root only. Writes and deletes
+// are limited to "/<name>" so the web files (/www), Morse Notes, QSO logs
+// and other data folders can't be overwritten or removed from here.
+static bool isRootFilePath(const char* path) {
+  return isSafeSDPath(path) && path[1] != '\0' && strchr(path + 1, '/') == nullptr;
+}
+
 // Get SD card status
 void handleGetStorageStatus(AsyncWebServerRequest *request) {
-  // Initialize SD card on first access if not already done
+  if (!checkWebAuth(request)) return;
+
+  // Mount on first access: the main loop does it, the page refreshes later
   if (!sdCardAvailable) {
-    initSDCard();
+    webSDInitPending = true;
   }
 
   updateSDCardStats();
 
-  String json = "{";
-  json += "\"available\":" + String(sdCardAvailable ? "true" : "false") + ",";
-  json += "\"totalMB\":" + String((unsigned long)sdCardSize) + ",";
-  json += "\"usedMB\":" + String((unsigned long)sdCardUsed) + ",";
-  json += "\"freeMB\":" + String((unsigned long)(sdCardSize - sdCardUsed));
-  json += "}";
+  char json[160];
+  snprintf(json, sizeof(json),
+           "{\"available\":%s,\"totalMB\":%lu,\"usedMB\":%lu,\"freeMB\":%lu}",
+           sdCardAvailable ? "true" : "false",
+           (unsigned long)sdCardSize,
+           (unsigned long)sdCardUsed,
+           (unsigned long)(sdCardSize - sdCardUsed));
 
   request->send(200, "application/json", json);
 }
 
 // List files in SD card root or specific directory
 void handleListFiles(AsyncWebServerRequest *request) {
+  if (!checkWebAuth(request)) return;
+
   if (!sdCardAvailable) {
     request->send(503, "application/json", "{\"error\":\"SD card not available\"}");
     return;
   }
 
-  String path = "/";
+  const char* path = "/";
   if (request->hasParam("path")) {
-    path = request->getParam("path")->value();
+    path = request->getParam("path")->value().c_str();
   }
 
-  String fileList = listSDFiles(path.c_str());
+  if (!isSafeSDPath(path)) {
+    request->send(400, "application/json", "{\"error\":\"Invalid path\"}");
+    return;
+  }
+
+  String fileList = listSDFiles(path);
   request->send(200, "application/json", fileList);
 }
 
 // Download file from SD card
 void handleDownloadFile(AsyncWebServerRequest *request) {
+  if (!checkWebAuth(request)) return;
+
   if (!sdCardAvailable) {
     request->send(503, "text/plain", "SD card not available");
     return;
@@ -57,7 +108,12 @@ void handleDownloadFile(AsyncWebServerRequest *request) {
     return;
   }
 
-  String filepath = request->getParam("file")->value();
+  const String& filepath = request->getParam("file")->value();
+
+  if (!isSafeSDPath(filepath.c_str())) {
+    request->send(400, "text/plain", "Invalid file path");
+    return;
+  }
 
   if (!fileExists(filepath.c_str())) {
     request->send(404, "text/plain", "File not found");
@@ -70,6 +126,8 @@ void handleDownloadFile(AsyncWebServerRequest *request) {
 
 // Delete file from SD card
 void handleDeleteFile(AsyncWebServerRequest *request) {
+  if (!checkWebAuth(request)) return;
+
   if (!sdCardAvailable) {
     request->send(503, "application/json", "{\"success\":false,\"error\":\"SD card not available\"}");
     return;
@@ -80,9 +138,14 @@ void handleDeleteFile(AsyncWebServerRequest *request) {
     return;
   }
 
-  String filepath = request->getParam("file")->value();
+  const char* filepath = request->getParam("file")->value().c_str();
 
-  if (deleteSDFile(filepath.c_str())) {
+  if (!isRootFilePath(filepath)) {
+    request->send(400, "application/json", "{\"success\":false,\"error\":\"Invalid file path\"}");
+    return;
+  }
+
+  if (deleteSDFile(filepath)) {
     updateSDCardStats();
     request->send(200, "application/json", "{\"success\":true}");
   } else {
@@ -90,35 +153,51 @@ void handleDeleteFile(AsyncWebServerRequest *request) {
   }
 }
 
+// Upload state (one upload at a time)
+static File uploadFile;
+static bool uploadAccepted = false;    // auth + path checks passed for the current upload
+static char uploadPath[WEB_STORAGE_PATH_MAX];
+
 // Upload file to SD card
 void handleUploadFile(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-  static File uploadFile;
-
-  if (!sdCardAvailable) {
-    request->send(503, "application/json", "{\"success\":false,\"error\":\"SD card not available\"}");
-    return;
-  }
-
-  // Start of upload
+  // Start of upload: authenticate and validate once
   if (index == 0) {
-    Serial.printf("Upload Start: %s\n", filename.c_str());
+    if (uploadFile) uploadFile.close();
+    uploadAccepted = false;
+    uploadPath[0] = '\0';
 
-    // Ensure filename starts with /
-    if (!filename.startsWith("/")) {
-      filename = "/" + filename;
+    if (!checkWebAuth(request)) return;
+
+    if (!sdCardAvailable) {
+      request->send(503, "application/json", "{\"success\":false,\"error\":\"SD card not available\"}");
+      return;
     }
 
-    // Open file for writing
-    uploadFile = SD.open(filename, FILE_WRITE);
+    // Root-level files only: the name may not carry its own directories
+    const char* name = filename.c_str();
+    if (name[0] == '/') name++;
+    snprintf(uploadPath, sizeof(uploadPath), "/%s", name);
+    if (strlen(name) == 0 || strlen(name) + 1 >= sizeof(uploadPath) || !isRootFilePath(uploadPath)) {
+      uploadPath[0] = '\0';
+      request->send(400, "application/json", "{\"success\":false,\"error\":\"Invalid file name\"}");
+      return;
+    }
+
+    Serial.printf("Upload Start: %s\n", uploadPath);
+
+    uploadFile = SD.open(uploadPath, FILE_WRITE);
     if (!uploadFile) {
       Serial.println("Failed to open file for upload");
       request->send(500, "application/json", "{\"success\":false,\"error\":\"Failed to create file\"}");
       return;
     }
+    uploadAccepted = true;
   }
 
+  if (!uploadAccepted) return;
+
   // Write chunk to file
-  if (uploadFile) {
+  if (uploadFile && len > 0) {
     uploadFile.write(data, len);
   }
 
@@ -127,9 +206,13 @@ void handleUploadFile(AsyncWebServerRequest *request, String filename, size_t in
     if (uploadFile) {
       uploadFile.close();
     }
-    Serial.printf("Upload Complete: %s (%u bytes)\n", filename.c_str(), index + len);
+    uploadAccepted = false;
+    Serial.printf("Upload Complete: %s (%u bytes)\n", uploadPath, (unsigned)(index + len));
     updateSDCardStats();
-    request->send(200, "application/json", "{\"success\":true,\"file\":\"" + filename + "\"}");
+
+    char resp[WEB_STORAGE_PATH_MAX + 48];
+    snprintf(resp, sizeof(resp), "{\"success\":true,\"file\":\"%s\"}", uploadPath);
+    request->send(200, "application/json", resp);
   }
 }
 
@@ -150,7 +233,11 @@ void registerStorageAPI(AsyncWebServer* server) {
   // Upload file
   server->on("/api/storage/upload", HTTP_POST,
     [](AsyncWebServerRequest *request) {
-      // This is called after upload completes
+      // Called after the upload completes; the upload handler has already
+      // queued the reply. Covers a POST without a file part.
+      if (request->getResponse() != nullptr) return;  // upload already replied
+      if (!checkWebAuth(request)) return;
+      request->send(400, "application/json", "{\"success\":false,\"error\":\"No file in upload\"}");
     },
     handleUploadFile
   );

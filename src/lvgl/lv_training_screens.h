@@ -894,6 +894,13 @@ static void license_next_handler(lv_event_t* e) {
             lv_group_focus_obj(license_answer_btns[0]);
         }
 
+        // This KEY event fires on key DOWN. Without this, the ENTER release
+        // arrives as a CLICKED on the newly focused answer A and answers the
+        // next question on its own. Discard the rest of this press so only a
+        // fresh press can pick an answer.
+        lv_indev_t* indev = getLVGLKeypad();
+        if (indev != NULL) lv_indev_wait_release(indev);
+
         lv_event_stop_processing(e);
     }
 }

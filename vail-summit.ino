@@ -169,7 +169,7 @@ using namespace lgfx::v1::fonts;
 // cwKeyType accessor functions for LVGL (needed because cwKeyType is KeyType enum)
 // ============================================
 int getCwKeyTypeAsInt() { return (int)cwKeyType; }
-void setCwKeyTypeFromInt(int keyType) { cwKeyType = (KeyType)keyType; }
+void setCwKeyTypeFromInt(int keyType) { cwKeyType = clampKeyType(keyType); }
 
 // ============================================
 // Audio priority gate
@@ -863,14 +863,23 @@ void loop() {
       updateWiFiScreen();
     }
   }
+  // Connections requested from the web API (/api/wifi/connect)
+  processWebWiFiConnectRequest();
 
   // Keep the clock synced once WiFi is up (non-blocking), so QSO timestamps are
   // correct even if WiFi connected after boot.
   ensureNTPStarted();
 
   // Update practice time activity accumulator (for inactivity detection)
-  // This must run every loop to accurately track active practice time
+  // This must run every loop to accurately track active practice time.
+  // Keying or listening (any tone) and keyboard input count as activity.
+  if (isTonePlaying() || lv_disp_get_inactive_time(NULL) < 1000) {
+    recordPracticeActivity();
+  }
   updateActivityAccumulator();
+
+  // Send queued practice sessions to the cloud, one request at a time when idle
+  updateProgressSync();
 
   // Web screenshot requests are captured here, on the LVGL thread
   processScreenshotRequest();
@@ -889,18 +898,26 @@ void loop() {
   extern volatile bool webMemoryChainStartPending;
   extern volatile bool webModeDisconnectPending;
 
+  // A start for the mode that is already running (second tab, Start pressed
+  // twice) is ignored: re-entering would rebuild the screen and decoder
+  // while the WebSocket task may be feeding it.
   if (webPracticeStartPending) {
       webPracticeStartPending = false;
-      onLVGLMenuSelect(MODE_WEB_PRACTICE);
+      if (currentMode != MODE_WEB_PRACTICE) onLVGLMenuSelect(MODE_WEB_PRACTICE);
   }
   if (webHearItStartPending) {
       webHearItStartPending = false;
-      onLVGLMenuSelect(MODE_WEB_HEAR_IT);
+      if (currentMode != MODE_WEB_HEAR_IT) onLVGLMenuSelect(MODE_WEB_HEAR_IT);
   }
   if (webMemoryChainStartPending) {
       webMemoryChainStartPending = false;
-      onLVGLMenuSelect(MODE_WEB_MEMORY_CHAIN);
+      if (currentMode != MODE_WEB_MEMORY_CHAIN) onLVGLMenuSelect(MODE_WEB_MEMORY_CHAIN);
   }
+
+  // Other deferred work queued by web API handlers (async task)
+  processWebSettingsRequests();   // CW/volume/callsign saves, Radio Output entry
+  processWebMemoryPreview();      // CW memory preview via the audio task
+  processWebSDInitRequest();      // SD mount requested by the storage page
   if (webModeDisconnectPending) {
       webModeDisconnectPending = false;
       // Only trigger back-nav if we're actually in a web mode

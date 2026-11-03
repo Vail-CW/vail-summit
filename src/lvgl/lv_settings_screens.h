@@ -407,9 +407,8 @@ static void brightness_slider_event_cb(lv_event_t* e) {
         lv_label_set_text_fmt(brightness_value_label, "%d%%", value);
     }
 
-    // Apply brightness immediately
-    applyBrightness(value);
-    saveBrightnessSettings();
+    // Apply immediately; setBrightness() stores the value and defers the save
+    setBrightness(value);
 }
 
 // Key handler for brightness slider - applies acceleration for faster adjustment
@@ -760,7 +759,7 @@ static void cw_settings_key_handler(lv_event_t* e) {
         }
         else if (cw_settings_focus == 2 && cw_keytype_value) {
             // Key type - cycle through options using arrow selector
-            int current = getCwKeyTypeAsInt();
+            int current = clampKeyType(getCwKeyTypeAsInt());
 
             if (key == LV_KEY_RIGHT) {
                 current = (current + 1) % cw_keytype_count;
@@ -775,7 +774,7 @@ static void cw_settings_key_handler(lv_event_t* e) {
         }
         else if (cw_settings_focus == 3 && cw_decoder_value) {
             // Decoder type - toggle between Adaptive and Direct
-            int current = decoderType;
+            int current = clampDecoderType((int)decoderType);
 
             if (key == LV_KEY_RIGHT) {
                 current = (current + 1) % cw_decoder_count;
@@ -954,7 +953,7 @@ lv_obj_t* createCWSettingsScreen() {
 
     // Key type value - shows "< Straight >" style selector (like Hear It Type It)
     cw_keytype_value = lv_label_create(cw_keytype_row);
-    lv_label_set_text_fmt(cw_keytype_value, "< %s >", cw_keytype_names[getCwKeyTypeAsInt()]);
+    lv_label_set_text_fmt(cw_keytype_value, "< %s >", cw_keytype_names[clampKeyType(getCwKeyTypeAsInt())]);
     lv_obj_set_style_text_color(cw_keytype_value, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_text_font(cw_keytype_value, getThemeFonts()->font_subtitle, 0);
 
@@ -974,7 +973,7 @@ lv_obj_t* createCWSettingsScreen() {
     lv_obj_add_style(decoder_label, getStyleLabelSubtitle(), 0);
 
     cw_decoder_value = lv_label_create(cw_decoder_row);
-    lv_label_set_text_fmt(cw_decoder_value, "< %s >", cw_decoder_names[decoderType]);
+    lv_label_set_text_fmt(cw_decoder_value, "< %s >", cw_decoder_names[clampDecoderType((int)decoderType)]);
     lv_obj_set_style_text_color(cw_decoder_value, LV_COLOR_ACCENT_PRIMARY, 0);
     lv_obj_set_style_text_font(cw_decoder_value, getThemeFonts()->font_subtitle, 0);
 

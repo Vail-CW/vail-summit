@@ -138,7 +138,9 @@ lv_obj_t* createWebPracticeModeScreen() {
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
 
-    // Status update timer
+    // Status update timer (drop any previous one so a re-created screen
+    // can't leave an orphan timer behind)
+    if (webPracticeStatusTimer) lv_timer_del(webPracticeStatusTimer);
     webPracticeStatusTimer = lv_timer_create(web_practice_timer_cb, 1000, NULL);
 
     return screen;
@@ -272,7 +274,9 @@ lv_obj_t* createWebHearItModeScreen() {
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
 
-    // Status update timer
+    // Status update timer (drop any previous one so a re-created screen
+    // can't leave an orphan timer behind)
+    if (webHearItStatusTimer) lv_timer_del(webHearItStatusTimer);
     webHearItStatusTimer = lv_timer_create(web_hear_it_timer_cb, 1000, NULL);
 
     return screen;
@@ -404,7 +408,9 @@ lv_obj_t* createWebMemoryChainModeScreen() {
     lv_obj_set_style_text_font(help, getThemeFonts()->font_small, 0);
     lv_obj_center(help);
 
-    // Status update timer
+    // Status update timer (drop any previous one so a re-created screen
+    // can't leave an orphan timer behind)
+    if (webMemoryChainStatusTimer) lv_timer_del(webMemoryChainStatusTimer);
     webMemoryChainStatusTimer = lv_timer_create(web_memory_chain_timer_cb, 1000, NULL);
 
     return screen;

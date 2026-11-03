@@ -41,6 +41,7 @@ extern CWMemoryPreset* cwMemories;
 extern bool ensureCWMemories();
 extern void freeCWMemories();
 extern void freeRadioMessageQueue();
+extern void stopRadioOutput();
 
 // Radio screen state
 static lv_obj_t* radio_screen = NULL;
@@ -561,6 +562,27 @@ static void radio_key_event_cb(lv_event_t* e) {
     }
 }
 
+// Safety net: if the Radio Output screen is torn down by any path that skipped
+// cleanupRadioOutputScreen(), still release the key lines. A normal exit runs
+// the cleanup first (radio_screen is NULL by then), and a re-entry has already
+// pointed radio_screen at the new screen, so neither stops a live session.
+static void radio_screen_delete_cb(lv_event_t* e) {
+    if (lv_event_get_target(e) != radio_screen) return;
+    stopRadioOutput();
+    radio_screen = NULL;
+    radio_overlay = NULL;
+    radio_settings_active = false;
+    radio_memories_active = false;
+    radio_mode_label = NULL;
+    radio_status_label = NULL;
+    radio_wpm_label = NULL;
+    radio_tone_label = NULL;
+    radio_keytype_label = NULL;
+    radio_btn_mode = NULL;
+    radio_btn_settings = NULL;
+    radio_btn_memories = NULL;
+}
+
 lv_obj_t* createRadioOutputScreen() {
     ensureCWMemories();  // memory selector overlay reads the table
     lv_obj_t* screen = createScreen();
@@ -727,6 +749,7 @@ lv_obj_t* createRadioOutputScreen() {
     lv_group_focus_obj(focus_container);
 
     radio_screen = screen;
+    lv_obj_add_event_cb(screen, radio_screen_delete_cb, LV_EVENT_DELETE, NULL);
 
     // Reset overlay state
     radio_overlay = NULL;
@@ -755,6 +778,8 @@ void updateRadioStatus(const char* status) {
 }
 
 void cleanupRadioOutputScreen() {
+    // Unkey the transmitter and drop pending messages before anything else
+    stopRadioOutput();
     closeRadioOverlay();
     freeCWMemories();
     freeRadioMessageQueue();
@@ -3347,6 +3372,30 @@ static void qso_entry_key_cb(lv_event_t* e) {
         if (strlen(callsign) < 3) {
             beep(600, 100);  // Error - need callsign
             lv_group_focus_obj(qso_callsign_input);
+            lv_event_stop_bubbling(e);
+            return;
+        }
+
+        // Date/time are blank when the clock wasn't synced as the form opened.
+        // Fill them now if it has synced since; otherwise the operator must
+        // enter them (a blank date makes qso_.json and an ADIF with no QSO_DATE).
+        if (dateStr[0] == '\0' || timeStr[0] == '\0') {
+            char nowDate[9] = "";
+            char nowTime[5] = "";
+            getCurrentDateTimeStrings(nowDate, nowTime);
+            if (dateStr[0] == '\0' && nowDate[0] != '\0') {
+                lv_textarea_set_text(qso_date_input, nowDate);
+            }
+            if (timeStr[0] == '\0' && nowTime[0] != '\0') {
+                lv_textarea_set_text(qso_time_input, nowTime);
+            }
+            dateStr = lv_textarea_get_text(qso_date_input);
+            timeStr = lv_textarea_get_text(qso_time_input);
+        }
+        if (!validateDate(dateStr) || !validateTime(timeStr)) {
+            beep(600, 100);  // Error - need a real date and time
+            showToast("Enter date YYYYMMDD and UTC time HHMM");
+            lv_group_focus_obj(validateDate(dateStr) ? qso_time_input : qso_date_input);
             lv_event_stop_bubbling(e);
             return;
         }

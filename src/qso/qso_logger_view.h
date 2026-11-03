@@ -200,6 +200,8 @@ bool deleteCurrentQSO() {
   }
 
   QSO& qsoToDelete = viewState.qsos[viewState.selectedIndex];
+  char deleteDate[sizeof(qsoToDelete.date)];
+  strlcpy(deleteDate, qsoToDelete.date, sizeof(deleteDate));
 
   Serial.print("Deleting QSO: ");
   Serial.print(qsoToDelete.callsign);
@@ -207,7 +209,7 @@ bool deleteCurrentQSO() {
   Serial.println(qsoToDelete.id);
 
   // Get the log filename for this QSO's date
-  String filename = getLogFilename(qsoToDelete.date);
+  String filename = getLogFilename(deleteDate);
 
   if (!SD.exists(filename)) {
     Serial.println("Log file doesn't exist!");
@@ -244,17 +246,18 @@ bool deleteCurrentQSO() {
   JsonDocument newDoc(psramJsonAllocator());
   JsonArray newLogs = newDoc.createNestedArray("logs");
 
+  // Remove only the first entry with this ID (the one being viewed)
   int removedCount = 0;
   for (JsonObject qsoObj : oldLogs) {
     unsigned long id = qsoObj["id"] | 0;
-    if (id != qsoToDelete.id) {
-      // Keep this QSO
-      newLogs.add(qsoObj);
-    } else {
+    if (removedCount == 0 && id == qsoToDelete.id) {
       // Skip this QSO (delete it)
       removedCount++;
       Serial.print("Removed QSO with ID: ");
       Serial.println(id);
+    } else {
+      // Keep this QSO
+      newLogs.add(qsoObj);
     }
   }
 
@@ -273,13 +276,11 @@ bool deleteCurrentQSO() {
   serializeJson(newDoc, file);
   file.close();
 
-  // Update metadata to decrement total count
-  if (storageStats.totalLogs > 0) {
-    storageStats.totalLogs--;
-    saveMetadata();
-    Serial.print("Updated metadata: totalLogs now = ");
-    Serial.println(storageStats.totalLogs);
-  }
+  // Rebuild ADIF exports (daily + master) and recount metadata, so the
+  // deleted QSO is gone from exports and band/mode counts stay correct
+  onQSOLogChanged(deleteDate);
+  Serial.print("Updated metadata: totalLogs now = ");
+  Serial.println(storageStats.totalLogs);
 
   Serial.println("QSO deleted successfully");
   return true;

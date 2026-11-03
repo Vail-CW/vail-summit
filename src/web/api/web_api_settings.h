@@ -33,7 +33,89 @@ extern void setVolume(int volume);
 extern int getVolume();
 extern void saveCallsign(const char* callsign);
 extern bool checkWebAuth(AsyncWebServerRequest *request);
+extern void onLVGLMenuSelect(int target_mode);
 String getWebFilesVersion();  // Forward declaration (defined in web_file_downloader.h)
+
+// ============================================
+// Deferred work from the async web server task
+// ============================================
+// Handlers below run in the AsyncTCP task. They never touch LVGL,
+// currentMode or NVS: they stage values here and the main loop applies
+// them in processWebSettingsRequests(). -1 / false = nothing pending.
+volatile bool webRadioEnterPending = false;
+volatile int webPendingWpm = -1;
+volatile int webPendingTone = -1;
+volatile int webPendingKeyType = -1;
+volatile int webPendingVolume = -1;
+volatile bool webCallsignPending = false;
+static char webPendingCallsign[VAIL_CALLSIGN_LEN];
+
+/*
+ * Main loop: apply settings staged by the web API. CW and volume saves go
+ * through markDeferredSave() (which is only safe on this task); the callsign
+ * is a one-shot text save.
+ */
+void processWebSettingsRequests() {
+  bool cwChanged = false;
+  int v;
+
+  // Take-and-clear in one step so a value the web task writes between a
+  // read and a clear can't be lost
+  v = __atomic_exchange_n(&webPendingWpm, -1, __ATOMIC_SEQ_CST);
+  if (v >= 0) {
+    if (cwSpeed != v) {
+      cwSpeed = v;
+      // Radio Output caches the dit length when it starts; follow the change
+      if (radioOutputActive && radioKeyer) {
+        radioDitDuration = DIT_DURATION(cwSpeed);
+        radioKeyer->setDitDuration(radioDitDuration);
+      }
+    }
+    cwChanged = true;
+  }
+
+  v = __atomic_exchange_n(&webPendingTone, -1, __ATOMIC_SEQ_CST);
+  if (v >= 0) {
+    cwTone = v;
+    cwChanged = true;
+  }
+
+  v = __atomic_exchange_n(&webPendingKeyType, -1, __ATOMIC_SEQ_CST);
+  if (v >= 0) {
+    // Radio Output picks its keyer at start; a new key type applies the
+    // next time it is entered
+    if (v <= KEY_ULTIMATIC) cwKeyType = (KeyType)v;  // range-checked by the handler
+    cwChanged = true;
+  }
+
+  if (cwChanged) {
+    markDeferredSave(saveCWSettings);
+  }
+
+  v = __atomic_exchange_n(&webPendingVolume, -1, __ATOMIC_SEQ_CST);
+  if (v >= 0) {
+    setVolume(v);  // deferred save inside
+  }
+
+  if (webCallsignPending) {
+    // Copy before clearing the flag: the handler refuses a new callsign
+    // while the flag is set, so the buffer can't change under the copy
+    char call[VAIL_CALLSIGN_LEN];
+    strlcpy(call, webPendingCallsign, sizeof(call));
+    __sync_synchronize();
+    webCallsignPending = false;
+    strlcpy(vailCallsign, call, VAIL_CALLSIGN_LEN);
+    saveCallsign(call);
+  }
+
+  if (webRadioEnterPending) {
+    webRadioEnterPending = false;
+    if (currentMode != MODE_RADIO_OUTPUT) {
+      Serial.println("Switching to Radio Output mode via web interface");
+      onLVGLMenuSelect(MODE_RADIO_OUTPUT);
+    }
+  }
+}
 
 // ============================================
 // Setup Function - Register All Settings API Endpoints
@@ -62,11 +144,8 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
   webServer.on("/api/radio/enter", HTTP_POST, [](AsyncWebServerRequest *request) {
     if (!checkWebAuth(request)) return;
 
-    // Switch to radio output mode
-    currentMode = MODE_RADIO_OUTPUT;
-    startRadioOutput();
-
-    Serial.println("Switched to Radio Output mode via web interface");
+    // Mode switch happens on the main loop (processWebSettingsRequests)
+    webRadioEnterPending = true;
 
     request->send(200, "application/json", "{\"success\":true}");
   });
@@ -145,11 +224,8 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
         return;
       }
 
-      // Update global CW speed
-      cwSpeed = wpm;
-
-      // Save to preferences
-      saveCWSettings();
+      // Applied and saved on the main loop
+      webPendingWpm = wpm;
 
       Serial.print("CW speed updated to ");
       Serial.print(wpm);
@@ -195,36 +271,47 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
         return;
       }
 
-      // Validate and update settings
-      if (doc.containsKey("wpm")) {
-        int wpm = doc["wpm"];
+      // Validate everything first, then stage. A missing or null field
+      // leaves that setting unchanged.
+      int wpm = -1, tone = -1, keyType = -1;
+
+      if (doc["wpm"].is<int>()) {
+        wpm = doc["wpm"].as<int>();
         if (wpm < 5 || wpm > 40) {
           request->send(400, "application/json", "{\"success\":false,\"error\":\"WPM must be between 5 and 40\"}");
           return;
         }
-        cwSpeed = wpm;
+      } else if (!doc["wpm"].isNull()) {
+        request->send(400, "application/json", "{\"success\":false,\"error\":\"WPM must be a number\"}");
+        return;
       }
 
-      if (doc.containsKey("tone")) {
-        int tone = doc["tone"];
+      if (doc["tone"].is<int>()) {
+        tone = doc["tone"].as<int>();
         if (tone < 400 || tone > 1200) {
           request->send(400, "application/json", "{\"success\":false,\"error\":\"Tone must be between 400 and 1200 Hz\"}");
           return;
         }
-        cwTone = tone;
+      } else if (!doc["tone"].isNull()) {
+        request->send(400, "application/json", "{\"success\":false,\"error\":\"Tone must be a number\"}");
+        return;
       }
 
-      if (doc.containsKey("keyType")) {
-        int keyType = doc["keyType"];
-        if (keyType < 0 || keyType > 2) {
+      if (doc["keyType"].is<int>()) {
+        keyType = doc["keyType"].as<int>();
+        if (keyType < KEY_STRAIGHT || keyType > KEY_ULTIMATIC) {
           request->send(400, "application/json", "{\"success\":false,\"error\":\"Invalid key type\"}");
           return;
         }
-        cwKeyType = (KeyType)keyType;
+      } else if (!doc["keyType"].isNull()) {
+        request->send(400, "application/json", "{\"success\":false,\"error\":\"Invalid key type\"}");
+        return;
       }
 
-      // Save to preferences
-      saveCWSettings();
+      // Applied and saved on the main loop
+      if (wpm >= 0) webPendingWpm = wpm;
+      if (tone >= 0) webPendingTone = tone;
+      if (keyType >= 0) webPendingKeyType = keyType;
 
       Serial.println("CW settings updated via web interface");
 
@@ -268,8 +355,8 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
         return;
       }
 
-      // Update volume
-      setVolume(volume);
+      // Applied and saved on the main loop
+      webPendingVolume = volume;
 
       Serial.print("Volume updated to ");
       Serial.print(volume);
@@ -309,27 +396,35 @@ void setupSettingsAPI(AsyncWebServer &webServer) {
         return;
       }
 
-      String callsign = doc["callsign"] | "";
-      callsign.trim();
-      callsign.toUpperCase();
+      // Trim and upper-case into a fixed buffer
+      const char* raw = doc["callsign"] | "";
+      while (*raw == ' ' || *raw == '\t') raw++;
+      size_t rawLen = strlen(raw);
+      while (rawLen > 0 && (raw[rawLen - 1] == ' ' || raw[rawLen - 1] == '\t')) rawLen--;
 
-      if (callsign.length() == 0) {
+      if (rawLen == 0) {
         request->send(400, "application/json", "{\"success\":false,\"error\":\"Callsign cannot be empty\"}");
         return;
       }
 
-      if (callsign.length() > 10) {
+      if (rawLen > 10) {
         request->send(400, "application/json", "{\"success\":false,\"error\":\"Callsign too long (max 10 characters)\"}");
         return;
       }
 
-      // Update callsign
-      strlcpy(vailCallsign, callsign.c_str(), VAIL_CALLSIGN_LEN);
-      saveCallsign(callsign.c_str());
+      if (webCallsignPending) {
+        request->send(409, "application/json", "{\"success\":false,\"error\":\"Busy, try again\"}");
+        return;
+      }
 
-      Serial.print("Callsign updated to ");
-      Serial.print(callsign);
-      Serial.println(" via web interface");
+      // Applied and saved on the main loop
+      for (size_t i = 0; i < rawLen; i++) webPendingCallsign[i] = toupper((unsigned char)raw[i]);
+      webPendingCallsign[rawLen] = '\0';
+      __sync_synchronize();  // buffer visible before the flag
+      webCallsignPending = true;
+
+      Serial.print("Callsign update queued via web interface: ");
+      Serial.println(webPendingCallsign);
 
       request->send(200, "application/json", "{\"success\":true}");
     });
