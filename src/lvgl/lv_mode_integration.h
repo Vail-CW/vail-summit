@@ -327,12 +327,12 @@ extern void setCurrentModeFromInt(int mode);
 static int previousModeForPractice = MODE_MAIN_MENU;
 
 /*
- * Initialize mode-specific state after screen is loaded
- * This calls the appropriate start function for modes that need initialization
- * (decoders, audio callbacks, game state, etc.)
+ * Practice time tracking: end the session when leaving a training mode and
+ * start one when entering a training mode. Must run on every mode change,
+ * forward (initializeModeInt) and back (onLVGLBackNavigation), or a session
+ * keeps counting after ESC.
  */
-void initializeModeInt(int mode) {
-    // Practice time tracking: end previous session if leaving training mode
+void trackPracticeModeChange(int mode) {
     const char* prevName = getTrainingModeNameStr(previousModeForPractice);
     const char* newName = getTrainingModeNameStr(mode);
     bool sameTraining = (prevName && newName && strcmp(prevName, newName) == 0);
@@ -355,6 +355,15 @@ void initializeModeInt(int mode) {
     }
 
     previousModeForPractice = mode;
+}
+
+/*
+ * Initialize mode-specific state after screen is loaded
+ * This calls the appropriate start function for modes that need initialization
+ * (decoders, audio callbacks, game state, etc.)
+ */
+void initializeModeInt(int mode) {
+    trackPracticeModeChange(mode);
 
     switch (mode) {
         // Training modes
@@ -628,6 +637,9 @@ static void factoryResetConfirmCb(lv_event_t* e) {
     factoryReset();  // erases the NVS partition and restarts - does not return
 }
 
+// Defined after the cleanup table below
+static void cleanupDepartingModes(int fromMode, int toMode);
+
 void onLVGLMenuSelect(int target_mode) {
     Serial.printf("[ModeIntegration] Menu selected mode: %d\n", target_mode);
 
@@ -714,6 +726,13 @@ void onLVGLMenuSelect(int target_mode) {
     }
     setMenuFocusRestoreIndex(-1);  // forward navigation starts at the first item
 
+    // A jump that isn't down into a child (web-started modes, Save/Discard
+    // exits, link auto-nav, re-entering the same mode) leaves the departing
+    // mode for good: release its timers, audio, key lines and buffers. Must
+    // run before the target screen is created - some create paths load their
+    // screen immediately, deleting the old one.
+    cleanupDepartingModes(fromMode, target_mode);
+
     // Clear navigation group before creating new screen's widgets
     clearNavigationGroup();
 
@@ -733,7 +752,11 @@ void onLVGLMenuSelect(int target_mode) {
         Serial.printf("[ModeIntegration] Screen loaded, nav group has %d objects\n",
                       group ? lv_group_get_obj_count(group) : -1);
     } else {
-        Serial.printf("[ModeIntegration] WARNING: No screen for mode %d\n", target_mode);
+        // Mailbox, CW School and Vail Course load their own screen and return
+        // NULL here; initializeModeInt is skipped, but practice time still
+        // has to follow the mode change.
+        trackPracticeModeChange(target_mode);
+        Serial.printf("[ModeIntegration] No screen returned for mode %d (loaded internally or missing)\n", target_mode);
     }
 }
 
@@ -745,6 +768,20 @@ void onLVGLMenuSelect(int target_mode) {
  * Get the parent mode for a given mode (for back navigation)
  * Uses centralized parent table from mode_registry.h
  */
+/*
+ * Same answer as getParentModeInt() but without consuming the one-shot
+ * overrides (volume shortcut, home launch). Used to reason about the
+ * navigation tree without changing where ESC will go.
+ */
+static int peekParentModeInt(int mode) {
+    if (mode == MODE_VOLUME_SETTINGS && volumeViaShortcut) return returnToModeAfterVolume;
+    if (mode == homeLaunchTarget) return MODE_HOME;
+    if (mode == MODE_SAT_PASSES) return satPassesReturnMode;
+    if (onboardingActive && mode == MODE_WIFI_SETTINGS) return MODE_ONBOARDING;
+    if (mode == MODE_ONBOARDING && onboardingLaunchFromSettings) return MODE_GENERAL_SUBMENU;
+    return lookupParentMode(mode);
+}
+
 int getParentModeInt(int mode) {
     // Special case: Volume accessed via global "V" shortcut
     // Returns to the menu the user was on, not the normal parent
@@ -811,8 +848,9 @@ static const ModeCallbackEntry cleanupTable[] = {
     { MODE_BT_MIDI,                      stopBTMIDI },
     { MODE_BT_KEYBOARD_SETTINGS,         cleanupBTKeyboardSettingsScreen },
     { MODE_POTA_ACTIVE_SPOTS,            cleanupPOTAScreen },
-    { MODE_POTA_SPOT_DETAIL,             cleanupPOTAScreen },
-    { MODE_POTA_FILTERS,                 cleanupPOTAScreen },
+    // Detail/Filters return to Active Spots, which keeps its refresh timers
+    { MODE_POTA_SPOT_DETAIL,             cleanupPOTAChildScreen },
+    { MODE_POTA_FILTERS,                 cleanupPOTAChildScreen },
     // Satellite tracker: every screen may own an LVGL timer (pass search,
     // countdown, live tracking) - one cleanup deletes whatever exists.
     { MODE_SAT_MENU,                     freeSatelliteData },
@@ -857,8 +895,79 @@ static const ModeCallbackEntry cleanupTable[] = {
     { MODE_WEB_FILES_UPDATE,             cleanupWebDownloadScreen },
     { MODE_ONBOARDING,                   cleanupOnboardingScreen },
     { MODE_SELF_CHECK,                   cleanupSelfCheckScreen },
+    // Games: stop tones, async playback and feedback timers
+    { MODE_MORSE_MEMORY,                 cleanupMemoryChain },
+    { MODE_CW_SPEEDER,                   cleanupCWSpeeder },
+    { MODE_SPARK_WATCH_GAMEPLAY,         cleanupSparkWatch },
+    { MODE_STORY_TIME_LISTEN,            cleanupStoryTimeListen },
+    { MODE_STORY_TIME_QUIZ,              cleanupStoryTimeQuiz },
 };
 static const int cleanupTableSize = sizeof(cleanupTable) / sizeof(cleanupTable[0]);
+
+// Longest parent chain we will walk (the deepest real chain is ~8); also the
+// guard against a cycle in the parent table.
+#define MODE_CHAIN_MAX_DEPTH 16
+
+// True if 'ancestor' is a strict ancestor of 'mode' in the back-nav tree
+static bool isModeAncestorOf(int ancestor, int mode) {
+    int m = mode;
+    for (int i = 0; i < MODE_CHAIN_MAX_DEPTH; i++) {
+        int p = peekParentModeInt(m);
+        if (p == m) return false;          // reached a root (MODE_HOME)
+        if (p == ancestor) return true;
+        m = p;
+    }
+    return false;
+}
+
+static ModeCallback findCleanupCallback(int mode) {
+    for (int i = 0; i < cleanupTableSize; i++) {
+        if (cleanupTable[i].mode == mode) return cleanupTable[i].callback;
+    }
+    return nullptr;
+}
+
+/*
+ * Run the cleanup of every mode being left by a forward jump from fromMode to
+ * toMode. Menu -> child navigation leaves nothing (the parent stays alive for
+ * ESC). A sideways jump cleans the departing mode and each of its parents up
+ * to, but not including, the first one that is the target or an ancestor of
+ * it - e.g. Satellite Live -> web practice tears down the satellite screens
+ * and frees the catalog, Filters -> Active Spots cleans only Filters (like
+ * ESC would). Re-entering the same mode cleans it once so the fresh instance
+ * starts clean. Each callback runs at most once per jump.
+ */
+static void cleanupDepartingModes(int fromMode, int toMode) {
+    if (fromMode == toMode) {
+        dispatchModeCallback(cleanupTable, cleanupTableSize, fromMode);
+        return;
+    }
+
+    ModeCallback ran[MODE_CHAIN_MAX_DEPTH];
+    int ranCount = 0;
+    int m = fromMode;
+    for (int i = 0; i < MODE_CHAIN_MAX_DEPTH; i++) {
+        if (m == toMode || isModeAncestorOf(m, toMode)) break;
+
+        ModeCallback cb = findCleanupCallback(m);
+        bool already = false;
+        for (int j = 0; j < ranCount; j++) {
+            if (ran[j] == cb) { already = true; break; }
+        }
+        if (cb && !already) {
+            Serial.printf("[ModeIntegration] Cleaning up departing mode %d\n", m);
+            cb();
+            ran[ranCount++] = cb;
+        }
+
+        int p = peekParentModeInt(m);
+        // One-shot back-nav overrides for a mode we are abandoning are stale
+        if (m == homeLaunchTarget) homeLaunchTarget = -1;
+        if (m == MODE_VOLUME_SETTINGS) volumeViaShortcut = false;
+        if (p == m) break;
+        m = p;
+    }
+}
 
 /*
  * Handle back navigation from LVGL screens
@@ -868,22 +977,24 @@ void onLVGLBackNavigation() {
     int currentModeInt = getCurrentModeAsInt();
     Serial.printf("[ModeIntegration] Back navigation from mode: %d\n", currentModeInt);
 
+    // Get parent mode
+    int parentMode = getParentModeInt(currentModeInt);
+
+    if (parentMode == currentModeInt) {
+        // Already at top level (Home): nothing to leave, so don't run its
+        // cleanup - that would kill the live screen's refresh timer.
+        return;
+    }
+
     // Play navigation beep
     beep(TONE_MENU_NAV, BEEP_SHORT);
 
     // Mode-specific cleanup before leaving (dispatch from table)
     dispatchModeCallback(cleanupTable, cleanupTableSize, currentModeInt);
 
-    // Get parent mode
-    int parentMode = getParentModeInt(currentModeInt);
-
-    if (parentMode == currentModeInt) {
-        // Already at top level, ignore or handle deep sleep triple-ESC
-        return;
-    }
-
     // Update mode and selection
     setCurrentModeFromInt(parentMode);
+    trackPracticeModeChange(parentMode);
     currentSelection = 0;
 
     // Restore focus to the menu item the user originally selected

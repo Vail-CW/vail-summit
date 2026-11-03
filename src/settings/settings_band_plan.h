@@ -28,7 +28,7 @@ inline void loadBandPlanSettings() {
     prefs.end();
 
     // Validate loaded values
-    if (bp_user_license > LICENSE_EXTRA) {
+    if ((int)bp_user_license < 0 || bp_user_license > LICENSE_EXTRA) {
         bp_user_license = LICENSE_TECHNICIAN;
     }
     if (bp_mode_filter != BP_MODE_ALL && bp_mode_filter != BP_MODE_CW &&

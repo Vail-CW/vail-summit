@@ -75,6 +75,7 @@ lv_obj_t* createPOTAFilterScreen();
 void refreshPOTASpotsDisplay();
 void updatePOTATimestampLabel();
 void cleanupPOTAScreen();
+void cleanupPOTAChildScreen();
 
 // ============================================
 // Timer Callbacks
@@ -120,6 +121,23 @@ void startPOTATimers() {
     pota_timestamp_timer = lv_timer_create(pota_timestamp_cb, 60000, NULL);
 }
 
+// Widget pointers only - every POTA screen shares these statics
+static void potaClearScreenRefs() {
+    pota_screen = NULL;
+    pota_spots_table = NULL;
+    pota_loading_bar = NULL;
+    pota_loading_label = NULL;
+    pota_loading_text = NULL;
+    pota_updated_label = NULL;
+    pota_filter_label = NULL;
+    pota_filter_container = NULL;
+    pota_count_label = NULL;
+    pota_detail_content = NULL;
+    for (int i = 0; i < 4; i++) pota_detail_tabs[i] = NULL;
+}
+
+// Leaving Active Spots for good: stop the refresh/timestamp/autoload timers
+// that startPOTAActiveSpots() created.
 void cleanupPOTAScreen() {
     if (pota_refresh_timer) {
         lv_timer_del(pota_refresh_timer);
@@ -133,17 +151,15 @@ void cleanupPOTAScreen() {
         lv_timer_del(pota_autoload_timer);
         pota_autoload_timer = NULL;
     }
-    pota_screen = NULL;
-    pota_spots_table = NULL;
-    pota_loading_bar = NULL;
-    pota_loading_label = NULL;
-    pota_loading_text = NULL;
-    pota_updated_label = NULL;
-    pota_filter_label = NULL;
-    pota_filter_container = NULL;
-    pota_count_label = NULL;
-    pota_detail_content = NULL;
-    for (int i = 0; i < 4; i++) pota_detail_tabs[i] = NULL;
+    potaClearScreenRefs();
+}
+
+// Spot Detail / Filters are children of Active Spots: backing out of them
+// returns to Active Spots, which keeps its timers (back navigation does not
+// re-run startPOTAActiveSpots). Only drop the widget pointers here. The
+// timer callbacks already bail while the spots table is missing.
+void cleanupPOTAChildScreen() {
+    potaClearScreenRefs();
 }
 
 // ============================================
@@ -518,6 +534,25 @@ void showSpotsLoadingState(bool loading, const char* message = NULL, lv_color_t 
     }
 }
 
+// The refresh/timestamp timers outlive the Active Spots screen while a child
+// (Spot Detail / Filters) is open. Drop the widget pointers when the screen is
+// deleted so the timers see NULL instead of a stale address that LVGL may have
+// reused for a widget on the child screen. Ignores an old instance being
+// deleted after a new one was built.
+static lv_obj_t* pota_spots_screen = NULL;
+static void pota_spots_screen_delete_cb(lv_event_t* e) {
+    if (lv_event_get_target(e) != pota_spots_screen) return;
+    pota_spots_screen = NULL;
+    pota_spots_table = NULL;
+    pota_loading_bar = NULL;
+    pota_loading_label = NULL;
+    pota_loading_text = NULL;
+    pota_updated_label = NULL;
+    pota_filter_label = NULL;
+    pota_filter_container = NULL;
+    pota_count_label = NULL;
+}
+
 lv_obj_t* createPOTAActiveSpotsScreen() {
     Serial.println("[POTA] Creating Active Spots screen...");
 
@@ -530,6 +565,8 @@ lv_obj_t* createPOTAActiveSpotsScreen() {
     }
     applyScreenStyle(screen);
     pota_screen = screen;
+    pota_spots_screen = screen;
+    lv_obj_add_event_cb(screen, pota_spots_screen_delete_cb, LV_EVENT_DELETE, NULL);
 
     Serial.println("[POTA] Screen created, building UI...");
 

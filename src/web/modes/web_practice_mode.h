@@ -14,6 +14,7 @@
 
 // Web practice decoder instance (separate from device practice mode)
 MorseDecoder* webPracticeDecoder = nullptr;
+static int webPracticeDecoderType = -1;  // decoderType the instance was built with
 
 // Forward declarations from web_practice_socket.h
 extern void sendPracticeDecoded(const char* morse, const char* text);
@@ -50,10 +51,17 @@ void onWebPracticeSpeed(float wpm, float fwpm) {
  */
 void initWebPracticeMode() {
     Serial.println("Initializing web practice mode");
-    delete webPracticeDecoder;
-    webPracticeDecoder = (decoderType == DECODER_DIRECT)
-        ? (MorseDecoder*) new MorseDecoderDirect(20.0f)
-        : (MorseDecoder*) new MorseDecoderAdaptive(20.0f);
+    // Only rebuild when missing or the decoder type changed: the WebSocket
+    // task may already be feeding the existing instance
+    if (webPracticeDecoder == nullptr || webPracticeDecoderType != (int)decoderType) {
+        MorseDecoder* old = webPracticeDecoder;
+        webPracticeDecoder = nullptr;
+        delete old;
+        webPracticeDecoder = (decoderType == DECODER_DIRECT)
+            ? (MorseDecoder*) new MorseDecoderDirect(20.0f)
+            : (MorseDecoder*) new MorseDecoderAdaptive(20.0f);
+        webPracticeDecoderType = (int)decoderType;
+    }
     webPracticeDecoder->messageCallback = onWebPracticeDecoded;
     webPracticeDecoder->speedCallback = onWebPracticeSpeed;
     webPracticeDecoder->reset();

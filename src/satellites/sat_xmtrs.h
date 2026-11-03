@@ -121,6 +121,7 @@ void satFmtMHz(uint32_t hz, char* buf, size_t n) {
 
 static void satAddXmtr(uint32_t norad, uint32_t down, uint32_t up, bool invert,
                        const char* mode, const char* desc) {
+    if (!satXmtrs) return;          // table released mid-update
     if (satXmtrCount >= satXmtrMax()) return;
     if (satXmtrCountFor(norad) >= SAT_XMTR_PER_SAT) return;
     SatTransmitter& x = satXmtrs[satXmtrCount++];

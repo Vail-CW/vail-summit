@@ -14,6 +14,8 @@
 #include "../../morse_notes/morse_notes_storage.h"
 #include "../../storage/sd_card.h"
 
+extern bool checkWebAuth(AsyncWebServerRequest *request);
+
 // ===================================
 // API HANDLERS
 // ===================================
@@ -23,6 +25,7 @@
  * Returns JSON array of all Morse Notes recordings
  */
 void handleGetMorseNotesList(AsyncWebServerRequest *request) {
+    if (!checkWebAuth(request)) return;
     if (!sdCardAvailable) {
         request->send(503, "application/json", "{\"error\":\"SD card not available\"}");
         return;
@@ -60,6 +63,7 @@ void handleGetMorseNotesList(AsyncWebServerRequest *request) {
  * Returns JSON metadata for a single recording
  */
 void handleGetMorseNoteMetadata(AsyncWebServerRequest *request) {
+    if (!checkWebAuth(request)) return;
     if (!sdCardAvailable) {
         request->send(503, "application/json", "{\"error\":\"SD card not available\"}");
         return;
@@ -113,6 +117,7 @@ void handleGetMorseNoteMetadata(AsyncWebServerRequest *request) {
  * Downloads raw .mr timing file (client synthesizes audio from this — see morse-notes.js)
  */
 void handleDownloadMorseNote(AsyncWebServerRequest *request) {
+    if (!checkWebAuth(request)) return;
     if (!sdCardAvailable) {
         request->send(503, "text/plain", "SD card not available");
         return;
@@ -158,6 +163,7 @@ void handleDownloadMorseNote(AsyncWebServerRequest *request) {
  * Deletes a recording
  */
 void handleDeleteMorseNote(AsyncWebServerRequest *request) {
+    if (!checkWebAuth(request)) return;
     if (!sdCardAvailable) {
         request->send(503, "application/json", "{\"success\":false,\"error\":\"SD card not available\"}");
         return;
@@ -182,6 +188,7 @@ void handleDeleteMorseNote(AsyncWebServerRequest *request) {
  * Updates recording title
  */
 void handleUpdateMorseNote(AsyncWebServerRequest *request) {
+    if (!checkWebAuth(request)) return;
     if (!sdCardAvailable) {
         request->send(503, "application/json", "{\"success\":false,\"error\":\"SD card not available\"}");
         return;

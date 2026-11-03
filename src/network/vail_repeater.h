@@ -410,9 +410,24 @@ void connectToVail(const char* channel) {
   Serial.print("Connecting to Vail repeater: ");
   Serial.println(channel);
 
-  // WebSocket connection with subprotocol
-  char path[64];
-  snprintf(path, sizeof(path), "/chat?repeater=%s", channel);
+  // WebSocket connection with subprotocol. The room name is user-typed, so
+  // percent-encode it for the query string (RFC 3986 unreserved chars kept).
+  char path[16 + VAIL_CHANNEL_LEN * 3];
+  {
+    static const char hex[] = "0123456789ABCDEF";
+    size_t n = strlcpy(path, "/chat?repeater=", sizeof(path));
+    for (const char* c = vailChannel; *c && n + 4 <= sizeof(path); c++) {
+      unsigned char ch = (unsigned char)*c;
+      if (isalnum(ch) || ch == '-' || ch == '_' || ch == '.' || ch == '~') {
+        path[n++] = (char)ch;
+      } else {
+        path[n++] = '%';
+        path[n++] = hex[ch >> 4];
+        path[n++] = hex[ch & 0x0F];
+      }
+    }
+    path[n] = '\0';
+  }
 
   Serial.println("WebSocket connecting...");
   Serial.print("URL: wss://");

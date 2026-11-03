@@ -83,13 +83,26 @@ struct WiFiConnectionRequest {
 
 static WiFiConnectionRequest wifiConnRequest;
 
+// Connection requested from the web API (/api/wifi/connect). The async
+// handler only copies the credentials and raises the flag; the main loop
+// hands them to the state machine below once the HTTP response has had
+// time to go out (starting the connection in AP mode stops the server).
+#define WEB_WIFI_CONNECT_DELAY_MS 750
+static char webWiFiConnectSsid[WIFI_SSID_MAX_LEN];
+static char webWiFiConnectPassword[WIFI_PASSWORD_MAX_LEN];
+static volatile unsigned long webWiFiConnectRequestedAt = 0;
+static volatile bool webWiFiConnectPending = false;
+static bool wifiConnFromWeb = false;  // current state machine run was started by the web API
+
 // Forward declarations for non-blocking connection
 void requestWiFiConnection(const char* ssid, const char* password);
 bool updateWiFiConnection();
 void clearWiFiConnectionState();
 WiFiConnectionState getWiFiConnectionState();
 void scanNetworks();
-void connectToWiFi(const char* ssid, const char* password);
+void requestWiFiConnectionFromWeb(const char* ssid, const char* password);
+bool isWebWiFiConnectBusy();
+void processWebWiFiConnectRequest();
 void saveWiFiCredentials(const char* ssid, const char* password);
 int loadAllWiFiCredentials(String ssids[3], String passwords[3]);
 bool loadWiFiCredentials(String &ssid, String &password);
@@ -148,66 +161,6 @@ void scanNetworks() {
 
   // Results are copied into networks[] - free the driver's scan list
   WiFi.scanDelete();
-}
-
-// Connect to WiFi network
-void connectToWiFi(const char* ssid, const char* password) {
-  Serial.print("Connecting to: ");
-  Serial.println(ssid);
-
-  // If we were in AP mode, stop it first
-  bool wasInAPMode = isAPMode;
-  if (isAPMode) {
-    Serial.println("Stopping AP mode before connecting to WiFi...");
-    // Stop web server if running
-    extern bool webServerRunning;
-    extern void stopWebServer();
-    if (webServerRunning) {
-      stopWebServer();
-    }
-
-    WiFi.softAPdisconnect(true);
-    isAPMode = false;
-    delay(100);
-  }
-
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-
-  // Wait up to 10 seconds for connection
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 40) {
-    delay(250);
-    Serial.print(".");
-    attempts++;
-  }
-  Serial.println();
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("Connected!");
-    Serial.print("IP: ");
-    Serial.println(WiFi.localIP());
-
-    wifiState = WIFI_STATE_CONNECTED;
-
-    // Save credentials
-    saveWiFiCredentials(ssid, password);
-
-    // If we were in AP mode, set flag to auto-exit after showing success
-    if (wasInAPMode) {
-      Serial.println("Connection successful from AP mode - will return to main menu");
-      // The WiFi event handler will start the web server automatically
-    }
-  } else {
-    Serial.println("Connection failed!");
-    wifiState = WIFI_STATE_ERROR;
-
-    // If we were in AP mode and connection failed, restart AP mode
-    if (wasInAPMode) {
-      Serial.println("Connection failed - restarting AP mode...");
-      startAPMode();
-    }
-  }
 }
 
 // Save WiFi credentials to flash memory (up to 3 networks)
@@ -567,6 +520,40 @@ bool updateWiFiConnection() {
     return false;
 }
 
+// Queue a connection from the web API (async web server task: no WiFi,
+// NVS or server calls here - processWebWiFiConnectRequest() runs it)
+void requestWiFiConnectionFromWeb(const char* ssid, const char* password) {
+    if (webWiFiConnectPending) return;
+    strlcpy(webWiFiConnectSsid, ssid, sizeof(webWiFiConnectSsid));
+    strlcpy(webWiFiConnectPassword, password ? password : "", sizeof(webWiFiConnectPassword));
+    webWiFiConnectRequestedAt = millis();
+    webWiFiConnectPending = true;
+}
+
+// True while a web or on-device connection attempt is queued or running
+bool isWebWiFiConnectBusy() {
+    return webWiFiConnectPending || wifiConnRequest.state != WIFI_CONN_IDLE;
+}
+
+// Main loop: start a queued web connection, and clear the result of a
+// web-started attempt when no WiFi screen is waiting to consume it
+void processWebWiFiConnectRequest() {
+    if (webWiFiConnectPending && wifiConnRequest.state == WIFI_CONN_IDLE &&
+        millis() - webWiFiConnectRequestedAt >= WEB_WIFI_CONNECT_DELAY_MS) {
+        requestWiFiConnection(webWiFiConnectSsid, webWiFiConnectPassword);
+        memset(webWiFiConnectPassword, 0, sizeof(webWiFiConnectPassword));
+        webWiFiConnectPending = false;
+        wifiConnFromWeb = (wifiConnRequest.state == WIFI_CONN_REQUESTED);
+    }
+
+    if (wifiConnFromWeb &&
+        (wifiConnRequest.state == WIFI_CONN_SUCCESS || wifiConnRequest.state == WIFI_CONN_FAILED)) {
+        Serial.printf("[WiFi] Web-requested connection %s\n",
+                      wifiConnRequest.state == WIFI_CONN_SUCCESS ? "succeeded" : "failed");
+        clearWiFiConnectionState();
+    }
+}
+
 // Clear connection state (call after handling success/failure in UI)
 void clearWiFiConnectionState() {
     wifiConnRequest.state = WIFI_CONN_IDLE;
@@ -574,6 +561,7 @@ void clearWiFiConnectionState() {
     wifiConnRequest.password[0] = '\0';
     wifiConnRequest.startTime = 0;
     wifiConnRequest.wasInAPMode = false;
+    wifiConnFromWeb = false;
 }
 
 // Get current connection state

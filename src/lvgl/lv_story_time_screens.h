@@ -358,6 +358,22 @@ lv_obj_t* createStoryTimeListScreen() {
 // Listening Screen
 // ============================================
 
+// Listen screen widgets updated while playback runs
+static lv_obj_t* st_listen_screen = NULL;
+static lv_obj_t* st_quiz_btn_label = NULL;
+
+// Called by the game layer when the story has played to the end
+static void st_on_playback_complete() {
+    // Ignore if the listen screen has been replaced
+    if (st_listen_screen == NULL || lv_scr_act() != st_listen_screen) return;
+    if (st_status_label) lv_label_set_text(st_status_label, "COMPLETE");
+    if (st_quiz_btn_label) {
+        lv_label_set_text(st_quiz_btn_label, LV_SYMBOL_RIGHT " Take Quiz");
+        // Drop the "disabled" grey so it looks like a freshly built unlocked button
+        lv_obj_remove_local_style_prop(st_quiz_btn_label, LV_STYLE_TEXT_COLOR, 0);
+    }
+}
+
 static void st_play_handler(lv_event_t* e) {
     beep(TONE_SELECT, BEEP_SHORT);
 
@@ -368,35 +384,24 @@ static void st_play_handler(lv_event_t* e) {
     } else if (stSession.playPhase == ST_PLAY_PAUSED) {
         // Resume
         if (st_status_label) lv_label_set_text(st_status_label, "PLAYING...");
-        lv_timer_handler();
         stResumePlayback();
-        if (stSession.playPhase == ST_PLAY_COMPLETE) {
-            if (st_status_label) lv_label_set_text(st_status_label, "COMPLETE");
-        }
     } else {
         // Start
         if (st_status_label) lv_label_set_text(st_status_label, "PLAYING...");
-        lv_timer_handler();
         stPlayStoryMorse();
-        if (stSession.playPhase == ST_PLAY_COMPLETE) {
-            if (st_status_label) lv_label_set_text(st_status_label, "COMPLETE");
-        }
     }
 }
 
 static void st_restart_handler(lv_event_t* e) {
     beep(TONE_SELECT, BEEP_SHORT);
     if (st_status_label) lv_label_set_text(st_status_label, "PLAYING...");
-    lv_timer_handler();
     stRestartPlayback();
-    if (stSession.playPhase == ST_PLAY_COMPLETE) {
-        if (st_status_label) lv_label_set_text(st_status_label, "COMPLETE");
-    }
 }
 
 static void st_quiz_handler(lv_event_t* e) {
     if (stSession.hasListenedOnce) {
-        stStopPlayback();
+        cleanupStoryTimePlayback();
+        st_listen_screen = NULL;
         stSession.currentQuestion = 0;
         stSession.correctAnswers = 0;
         // Note: onLVGLMenuSelect already plays TONE_SELECT beep
@@ -406,12 +411,21 @@ static void st_quiz_handler(lv_event_t* e) {
     }
 }
 
+// Cleanup for MODE_STORY_TIME_LISTEN: stop the tone and the playback timer
+void cleanupStoryTimeListen() {
+    cleanupStoryTimePlayback();
+    st_listen_screen = NULL;
+    st_quiz_btn_label = NULL;
+}
+
 static void st_listen_key_handler(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
     uint32_t key = lv_event_get_key(e);
 
+    // ENTER is left to the focused button's CLICKED (fires on release), so
+    // the release can't land on a widget of the next screen.
     if (key == LV_KEY_ESC) {
-        stStopPlayback();
+        cleanupStoryTimeListen();
         onLVGLBackNavigation();
         lv_event_stop_processing(e);
     } else if (key == ' ') {
@@ -420,14 +434,13 @@ static void st_listen_key_handler(lv_event_t* e) {
     } else if (key == 'r' || key == 'R') {
         st_restart_handler(e);
         lv_event_stop_processing(e);
-    } else if (key == LV_KEY_ENTER || key == 0x0D || key == 0x0A) {
-        st_quiz_handler(e);
-        lv_event_stop_processing(e);
     }
 }
 
 lv_obj_t* createStoryTimeListenScreen() {
     cleanupStoryTimeScreenPointers();
+    st_listen_screen = NULL;
+    st_quiz_btn_label = NULL;
 
     if (!stSession.currentStory) {
         return createComingSoonScreen("NO STORY SELECTED");
@@ -468,7 +481,8 @@ lv_obj_t* createStoryTimeListenScreen() {
 
     st_status_label = lv_label_create(status_card);
     const char* initial_status = "READY";
-    if (stSession.playPhase == ST_PLAY_COMPLETE) initial_status = "COMPLETE";
+    if (stSession.playPhase == ST_PLAY_PLAYING) initial_status = "PLAYING...";
+    else if (stSession.playPhase == ST_PLAY_COMPLETE) initial_status = "COMPLETE";
     else if (stSession.playPhase == ST_PLAY_PAUSED) initial_status = "PAUSED";
     lv_label_set_text(st_status_label, initial_status);
     lv_obj_set_style_text_font(st_status_label, getThemeFonts()->font_title, 0);
@@ -527,6 +541,7 @@ lv_obj_t* createStoryTimeListenScreen() {
     lv_obj_add_event_cb(quiz_btn, linear_nav_handler, LV_EVENT_KEY, NULL);
     applyButtonStyle(quiz_btn);
     lv_obj_t* quiz_lbl = lv_label_create(quiz_btn);
+    st_quiz_btn_label = quiz_lbl;
     if (stSession.hasListenedOnce) {
         lv_label_set_text(quiz_lbl, LV_SYMBOL_RIGHT " Take Quiz");
     } else {
@@ -544,6 +559,8 @@ lv_obj_t* createStoryTimeListenScreen() {
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -10);
 
     st_screen = screen;
+    st_listen_screen = screen;
+    stOnPlaybackComplete = st_on_playback_complete;
     return screen;
 }
 
@@ -551,7 +568,36 @@ lv_obj_t* createStoryTimeListenScreen() {
 // Quiz Screen
 // ============================================
 
+// One-shot timer that holds the correct/wrong colours before moving on
+static lv_timer_t* st_feedback_timer = NULL;
+
+static void st_cancel_feedback_timer() {
+    if (st_feedback_timer != NULL) {
+        lv_timer_del(st_feedback_timer);
+        st_feedback_timer = NULL;
+    }
+}
+
+static void st_feedback_timer_cb(lv_timer_t* t) {
+    // Repeat count 1: LVGL deletes the timer after this call
+    st_feedback_timer = NULL;
+
+    // Move to next question or results
+    stSession.currentQuestion++;
+    if (stSession.currentQuestion >= ST_MAX_QUESTIONS) {
+        stFinishQuiz();
+        onLVGLMenuSelect(MODE_STORY_TIME_RESULTS);
+    } else {
+        // Reload quiz screen for next question
+        onLVGLMenuSelect(MODE_STORY_TIME_QUIZ);
+    }
+}
+
 static void st_answer_handler(lv_event_t* e) {
+    // Ignore further answers while the feedback for this one is showing
+    if (st_feedback_timer != NULL) return;
+    if (!stSession.currentStory || stSession.currentQuestion >= ST_MAX_QUESTIONS) return;
+
     int answer = (int)(intptr_t)lv_obj_get_user_data(lv_event_get_target(e));
 
     // Submit answer
@@ -571,20 +617,15 @@ static void st_answer_handler(lv_event_t* e) {
             lv_obj_set_style_bg_color(st_answer_btns[q->correctIndex], LV_COLOR_SUCCESS, 0);
         }
     }
-    lv_timer_handler();
 
-    // Brief delay for feedback
-    stDelayWithUI(ST_FEEDBACK_DELAY_MS);
+    // Brief delay for feedback, then advance from the timer
+    st_feedback_timer = lv_timer_create(st_feedback_timer_cb, ST_FEEDBACK_DELAY_MS, NULL);
+    lv_timer_set_repeat_count(st_feedback_timer, 1);
+}
 
-    // Move to next question or results
-    stSession.currentQuestion++;
-    if (stSession.currentQuestion >= ST_MAX_QUESTIONS) {
-        stFinishQuiz();
-        onLVGLMenuSelect(MODE_STORY_TIME_RESULTS);
-    } else {
-        // Reload quiz screen for next question
-        onLVGLMenuSelect(MODE_STORY_TIME_QUIZ);
-    }
+// Cleanup for MODE_STORY_TIME_QUIZ: drop a pending feedback timer
+void cleanupStoryTimeQuiz() {
+    st_cancel_feedback_timer();
 }
 
 static void st_quiz_key_handler(lv_event_t* e) {
@@ -593,6 +634,7 @@ static void st_quiz_key_handler(lv_event_t* e) {
 
     if (key == LV_KEY_ESC) {
         // Confirm exit? For now, just go back to listen
+        st_cancel_feedback_timer();
         onLVGLMenuSelect(MODE_STORY_TIME_LISTEN);
         lv_event_stop_processing(e);
     }
@@ -980,7 +1022,7 @@ static void st_wpm_dec_handler(lv_event_t* e) {
             snprintf(text, sizeof(text), "%d WPM", stProgress.preferredWPM);
             lv_label_set_text(st_wpm_label, text);
         }
-        stSaveSettings();
+        markDeferredSave(stSaveSettings);  // per-keypress: defer the NVS commit
         beep(TONE_MENU_NAV, BEEP_SHORT);
     }
 }
@@ -994,7 +1036,7 @@ static void st_wpm_inc_handler(lv_event_t* e) {
             snprintf(text, sizeof(text), "%d WPM", stProgress.preferredWPM);
             lv_label_set_text(st_wpm_label, text);
         }
-        stSaveSettings();
+        markDeferredSave(stSaveSettings);  // per-keypress: defer the NVS commit
         beep(TONE_MENU_NAV, BEEP_SHORT);
     }
 }
@@ -1008,7 +1050,7 @@ static void st_tone_dec_handler(lv_event_t* e) {
             snprintf(text, sizeof(text), "%d Hz", stProgress.preferredTone);
             lv_label_set_text(st_tone_label, text);
         }
-        stSaveSettings();
+        markDeferredSave(stSaveSettings);  // per-keypress: defer the NVS commit
         beep(stProgress.preferredTone, 100);
     }
 }
@@ -1022,7 +1064,7 @@ static void st_tone_inc_handler(lv_event_t* e) {
             snprintf(text, sizeof(text), "%d Hz", stProgress.preferredTone);
             lv_label_set_text(st_tone_label, text);
         }
-        stSaveSettings();
+        markDeferredSave(stSaveSettings);  // per-keypress: defer the NVS commit
         beep(stProgress.preferredTone, 100);
     }
 }

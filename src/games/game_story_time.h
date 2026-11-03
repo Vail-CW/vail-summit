@@ -19,6 +19,7 @@
 #include "../core/morse_code.h"
 #include "../core/task_manager.h"  // For dual-core audio API
 #include "../audio/i2s_audio.h"
+#include "morse_text_player.h"
 
 // Forward declarations
 extern void onLVGLBackNavigation();
@@ -347,188 +348,85 @@ void stSelectStory(const StoryData* story, int index) {
 }
 
 // ============================================
-// Morse Playback
+// Morse Playback (non-blocking)
 // ============================================
+//
+// Playback runs on the shared MorseTextPlayer: the audio task does the
+// timing and its LVGL timer feeds the story in chunks, so the main loop keeps
+// running (watchdog fed, screen live) and SPACE / R / ESC arrive as normal
+// key events on the listen screen.
 
-// Forward declare keyboard read function
-extern char readKeyboardNonBlocking();
+static MorseTextPlayer stPlayer;
 
-// Delay while keeping LVGL responsive and checking for keyboard input
-// Returns false if playback should stop (ESC/SPACE pressed or stopPlayback flag set)
-bool stDelayWithUI(unsigned long ms) {
-    unsigned long start = millis();
-    while (millis() - start < ms) {
-        if (stSession.stopPlayback) return false;
+// Screen hook: called when playback reaches the end of the story
+static void (*stOnPlaybackComplete)() = NULL;
 
-        // Check for keyboard input during playback
-        char key = readKeyboardNonBlocking();
-        if (key != 0) {
-            if (key == 0x1B) {  // ESC
-                stSession.stopPlayback = true;
-                return false;
-            } else if (key == ' ') {  // SPACE - pause
-                stSession.stopPlayback = true;
-                return false;
-            } else if (key == 'r' || key == 'R') {  // R - restart
-                stSession.stopPlayback = true;
-                stSession.playbackCharIndex = 0;  // Signal restart
-                return false;
-            }
-        }
-
-        lv_timer_handler();
-        delay(5);
-    }
-    return true;
+static void stPlaybackDone() {
+    stSession.playPhase = ST_PLAY_COMPLETE;
+    stSession.hasListenedOnce = true;
+    stSession.playbackCharIndex = 0;  // Reset for replay
+    Serial.println("[StoryTime] Playback complete");
+    if (stOnPlaybackComplete) stOnPlaybackComplete();
 }
 
-// Interruptible version of playMorseChar for Story Time
-// Returns false if interrupted by keyboard (ESC, SPACE, R)
-bool stPlayMorseCharInterruptible(char c, int wpm, int toneFreq) {
-    const char* pattern = getMorseCode(c);
-    if (pattern == nullptr) {
-        return true;  // Skip unknown characters
-    }
+// Start playback at a character index of the story text
+static void stBeginPlaybackAt(int index) {
+    if (!stSession.currentStory) return;
 
-    MorseTiming timing(wpm);
-
-    // Play each element in the pattern
-    for (int i = 0; pattern[i] != '\0'; i++) {
-        // Check for keyboard interrupt before each element
-        char key = readKeyboardNonBlocking();
-        if (key != 0) {
-            if (key == 0x1B || key == ' ' || key == 'r' || key == 'R') {
-                stSession.stopPlayback = true;
-                if (key == 'r' || key == 'R') {
-                    stSession.playbackCharIndex = 0;
-                }
-                requestStopTone();
-                return false;
-            }
-        }
-
-        if (stSession.stopPlayback) {
-            requestStopTone();
-            return false;
-        }
-
-        // Play dit or dah
-        int duration = (pattern[i] == '.') ? timing.ditDuration : (timing.ditDuration * 3);
-        playTone(toneFreq, duration);
-
-        // Gap between elements (unless last element)
-        if (pattern[i + 1] != '\0') {
-            if (!stDelayWithUI(timing.elementGap)) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
-// Play the current story as morse code
-// Returns true if completed, false if cancelled
-bool stPlayStoryMorse() {
-    if (!stSession.currentStory) return false;
-
-    const char* text = stSession.currentStory->storyText;
     int charWPM = stSession.useFarnsworth ? stSession.characterWPM : stSession.playbackWPM;
     int effectiveWPM = stSession.playbackWPM;
     int tone = stSession.toneFrequency;
 
+    Serial.printf("[StoryTime] Playback from %d at %d/%d WPM, tone %d Hz\n",
+                  index, effectiveWPM, charWPM, tone);
+
     stSession.playPhase = ST_PLAY_PLAYING;
-    stSession.playCount++;
-
-    Serial.printf("[StoryTime] Starting playback at %d/%d WPM, tone %d Hz\n",
-                  effectiveWPM, charWPM, tone);
-
-    // Calculate extra spacing for Farnsworth
-    MorseTiming charTiming(charWPM);
-    MorseTiming effectiveTiming(effectiveWPM);
-
-    // Extra delay per unit for Farnsworth spacing
-    int extraDelayPerUnit = 0;
-    if (stSession.useFarnsworth && effectiveWPM < charWPM) {
-        extraDelayPerUnit = (int)(effectiveTiming.ditDuration - charTiming.ditDuration);
-    }
-
-    int startIndex = stSession.playbackCharIndex;
-    int len = strlen(text);
-
-    for (int i = startIndex; i < len; i++) {
-        // Check for stop/pause
-        if (stSession.stopPlayback) {
-            stSession.playbackCharIndex = i;
-            stSession.playPhase = ST_PLAY_PAUSED;
-            requestStopTone();  // Non-blocking via dual-core audio
-            return false;
-        }
-
-        char c = toupper(text[i]);
-
-        if (c == ' ') {
-            // Word gap (7 units) with Farnsworth extra
-            int wordGap = charTiming.wordGap + (extraDelayPerUnit * 7);
-            if (!stDelayWithUI(wordGap)) {
-                stSession.playbackCharIndex = i;
-                return false;
-            }
-        } else {
-            // Play character at character speed (interruptible)
-            if (!stPlayMorseCharInterruptible(c, charWPM, tone)) {
-                stSession.playbackCharIndex = i;
-                return false;
-            }
-
-            // Inter-character gap (3 units) with Farnsworth extra
-            if (i < len - 1 && text[i + 1] != ' ') {
-                int letterGap = charTiming.letterGap + (extraDelayPerUnit * 3);
-                if (!stDelayWithUI(letterGap)) {
-                    stSession.playbackCharIndex = i + 1;
-                    return false;
-                }
-            }
-        }
-
-        // Update progress periodically
-        if (i % 10 == 0) {
-            lv_timer_handler();
-        }
-
-        stSession.playbackCharIndex = i + 1;
-    }
-
-    stSession.playPhase = ST_PLAY_COMPLETE;
-    stSession.hasListenedOnce = true;
-    stSession.playbackCharIndex = 0;  // Reset for replay
-
-    Serial.println("[StoryTime] Playback complete");
-    return true;
+    stSession.stopPlayback = false;
+    stPlayer.onDone = stPlaybackDone;
+    mtpBegin(&stPlayer, stSession.currentStory->storyText, index,
+             charWPM, effectiveWPM, tone);
 }
 
+// Start the story from the beginning
+void stPlayStoryMorse() {
+    stSession.playbackCharIndex = 0;
+    stSession.playCount++;
+    stBeginPlaybackAt(0);
+}
+
+// Stop playback and silence the tone. Keeps the position so the listen
+// screen can offer RESUME if the user comes back to it.
 void stStopPlayback() {
     stSession.stopPlayback = true;
-    requestStopTone();  // Non-blocking via dual-core audio
+    if (mtpIsActive(&stPlayer)) {
+        mtpPause(&stPlayer);
+        stSession.playbackCharIndex = stPlayer.resumeIndex;
+        stSession.playPhase = ST_PLAY_PAUSED;
+    }
+    mtpStop(&stPlayer);
 }
 
 void stPausePlayback() {
     stSession.stopPlayback = true;
+    mtpPause(&stPlayer);
+    stSession.playbackCharIndex = stPlayer.resumeIndex;
     stSession.playPhase = ST_PLAY_PAUSED;
-    requestStopTone();  // Non-blocking via dual-core audio
 }
 
 void stResumePlayback() {
-    stSession.stopPlayback = false;
     // Continue from where we left off
-    stPlayStoryMorse();
+    stBeginPlaybackAt(stSession.playbackCharIndex);
 }
 
 void stRestartPlayback() {
-    stSession.stopPlayback = true;
-    requestStopTone();  // Non-blocking via dual-core audio
-    stSession.playbackCharIndex = 0;
-    stSession.stopPlayback = false;
+    mtpStop(&stPlayer);
     stPlayStoryMorse();
+}
+
+// Mode cleanup: stop the tone and the playback timer
+void cleanupStoryTimePlayback() {
+    stStopPlayback();
+    stOnPlaybackComplete = NULL;
 }
 
 // ============================================

@@ -1250,6 +1250,9 @@ lv_obj_t* createMorseShooterSettingsScreen() {
     cleanupShooterScreenPointers();
     cleanupShooterSettingsPointers();
 
+    // No game runs behind the settings screen (the poll keeps ticking here)
+    gameOver = true;
+
     clearNavigationGroup();
     lv_obj_t* screen = createScreen();
     applyScreenStyle(screen);
@@ -1505,6 +1508,33 @@ lv_obj_t* createGameScreenForMode(int mode) {
             Serial.printf("[GameScreens] Unknown game mode: %d\n", mode);
             return NULL;
     }
+}
+
+// ============================================
+// CW Speeder cleanup (MODE_CW_SPEEDER back navigation)
+// ============================================
+// Lives here because game_cw_speeder.h (included earlier) owns the state.
+// Silences a sidetone left on by the keyer, parks the game and drops the
+// screen pointers before the screen is deleted.
+
+void cleanupCWSpeeder() {
+    requestStopTone();  // Speeder's sidetone runs on the audio task
+    if (csKeyer) csKeyer->reset();
+    csDitPressed = false;
+    csDahPressed = false;
+    csGame.matcher.reset();
+    csGame.state = CS_STATE_COMPLETE;  // Ignore paddles until cwSpeedGameStart()
+    csGame.lastToneState = false;
+    csGame.lastStateChange = 0;
+
+    cs_game_screen = NULL;
+    cs_timer_label = NULL;
+    cs_letters_container = NULL;
+    for (int i = 0; i < CS_MAX_WORD_LENGTH; i++) {
+        cs_letter_labels[i] = NULL;
+    }
+    cs_status_label = NULL;
+    cs_best_label = NULL;
 }
 
 #endif // LV_GAME_SCREENS_H

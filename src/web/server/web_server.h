@@ -245,6 +245,7 @@ void setupWebServer() {
   // Note: Download/upload removed - web files can only be downloaded via device WiFi Settings menu
   // ============================================
   webServer.on("/api/webfiles/status", HTTP_GET, [](AsyncWebServerRequest *request) {
+    if (!checkWebAuth(request)) return;
     JsonDocument doc(psramJsonAllocator());
     doc["installed"] = webFilesOnSD;
     doc["version"] = getWebFilesVersion();
@@ -503,6 +504,7 @@ static uint32_t webSocketClientCount() {
   uint32_t n = 0;
   if (practiceWebSocket) n += practiceWebSocket->count();
   if (hearItWebSocket) n += hearItWebSocket->count();
+  if (memoryChainWebSocket) n += memoryChainWebSocket->count();
   return n;
 }
 

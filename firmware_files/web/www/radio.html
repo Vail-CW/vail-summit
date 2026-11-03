@@ -309,7 +309,8 @@
                 const data = await response.json();
                 if (data.success) {
                     showMessage('Device switched to Radio Mode', 'success');
-                    checkRadioStatus();
+                    // The device switches on its next main-loop pass
+                    setTimeout(checkRadioStatus, 500);
                 } else showMessage('Failed to enter radio mode: ' + (data.error || 'Unknown error'), 'error');
             } catch (error) {
                 console.error('Failed to enter radio mode:', error);

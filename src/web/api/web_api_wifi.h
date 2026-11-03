@@ -93,23 +93,37 @@ void setupWiFiScanEndpoint(AsyncWebServer &server) {
 }
 
 // WiFi connect endpoint
+// Runs in the async web server task: validates and queues the request, then
+// answers immediately. The main loop starts the connection through the
+// non-blocking state machine in settings_wifi.h (processWebWiFiConnectRequest),
+// which may stop this server (leaving AP mode) - so nothing here blocks or
+// touches WiFi / the server / NVS.
 void setupWiFiConnectEndpoint(AsyncWebServer &server) {
   server.on("/api/wifi/connect", HTTP_POST,
     [](AsyncWebServerRequest *request) {
-      if (!checkWebAuth(request)) {
-        request->send(401, "application/json", "{\"success\":false,\"error\":\"Unauthorized\"}");
-      }
+      // Body handler sends the reply; this only covers the auth challenge
+      checkWebAuth(request);
     },
     NULL,
     [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+      // Single-chunk JSON body only; answer a split body instead of hanging
+      if (index != 0) return;
+      if (len != total) {
+        request->send(413, "application/json", "{\"success\":false,\"error\":\"Request too large\"}");
+        return;
+      }
       if (!checkWebAuth(request)) return;
 
       extern bool isAPMode;
-      extern void connectToWiFi(const char* ssid, const char* password);  // From settings_wifi.h
 
       // Safety check: only allow connection if in AP mode or not connected
       if (!isAPMode && WiFi.status() == WL_CONNECTED) {
         request->send(403, "application/json", "{\"success\":false,\"error\":\"WiFi changes disabled during remote connection\"}");
+        return;
+      }
+
+      if (isWebWiFiConnectBusy()) {
+        request->send(409, "application/json", "{\"success\":false,\"error\":\"A connection attempt is already in progress\"}");
         return;
       }
 
@@ -123,44 +137,26 @@ void setupWiFiConnectEndpoint(AsyncWebServer &server) {
         return;
       }
 
-      // Debug: Print received JSON
-      Serial.print("Web API: Received JSON: ");
-      String debugJson;
-      serializeJson(doc, debugJson);
-      Serial.println(debugJson);
+      const char* ssid = doc["ssid"] | "";
+      const char* password = doc["password"] | "";
+      size_t ssidLen = strlen(ssid);
+      size_t passLen = strlen(password);
 
-      String ssid = doc["ssid"].as<String>();
-      String password = doc["password"].as<String>();
-
-      Serial.print("Web API: Parsed SSID: '");
-      Serial.print(ssid);
-      Serial.print("' (length: ");
-      Serial.print(ssid.length());
-      Serial.println(")");
-
-      Serial.print("Web API: Password length: ");
-      Serial.println(password.length());
-
-      if (ssid.length() == 0) {
+      if (ssidLen == 0) {
         Serial.println("Web API: ERROR - SSID is empty");
         request->send(400, "application/json", "{\"success\":false,\"error\":\"SSID required\"}");
         return;
       }
-
-      Serial.print("Web API: Attempting to connect to ");
-      Serial.println(ssid);
-
-      // Connect to WiFi (this will save credentials)
-      connectToWiFi(ssid.c_str(), password.c_str());
-
-      // Check connection result
-      if (WiFi.status() == WL_CONNECTED) {
-        request->send(200, "application/json", "{\"success\":true,\"message\":\"Connected successfully\"}");
-        Serial.println("Web API: Connection successful");
-      } else {
-        request->send(500, "application/json", "{\"success\":false,\"error\":\"Connection failed\"}");
-        Serial.println("Web API: Connection failed");
+      if (ssidLen > WIFI_SSID_MAX_LEN - 1 || passLen > WIFI_PASSWORD_MAX_LEN - 1) {
+        request->send(400, "application/json", "{\"success\":false,\"error\":\"SSID or password too long\"}");
+        return;
       }
+
+      Serial.printf("Web API: Queuing connection to '%s' (password length %u)\n", ssid, (unsigned)passLen);
+      requestWiFiConnectionFromWeb(ssid, password);
+
+      request->send(200, "application/json",
+        "{\"success\":true,\"pending\":true,\"message\":\"Connection started - check the device screen\"}");
     });
 }
 

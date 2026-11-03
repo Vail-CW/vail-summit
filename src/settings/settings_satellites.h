@@ -38,6 +38,15 @@ void loadSatSettings() {
     p.begin("clock", true);
     utcOffsetMinutes = p.getInt("utcoffmin", 0);
     p.end();
+
+    // Range-check stored values (same limits the settings screen enforces)
+    if (satSettings.minElevation < 0) satSettings.minElevation = 0;
+    if (satSettings.minElevation > 45) satSettings.minElevation = 45;
+    if (satSettings.lookaheadHours != 12 && satSettings.lookaheadHours != 24 &&
+        satSettings.lookaheadHours != 48 && satSettings.lookaheadHours != 72) {
+        satSettings.lookaheadHours = 48;
+    }
+    if (utcOffsetMinutes < -720 || utcOffsetMinutes > 840) utcOffsetMinutes = 0;
     satSettingsLoaded = true;
 }
 

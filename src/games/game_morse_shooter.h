@@ -302,7 +302,10 @@ int gameMaxLives = MAX_LIVES;
 unsigned long lastSpawnTime = 0;
 unsigned long lastGameUpdate = 0;
 unsigned long gameStartTime = 0;
-bool gameOver = false;
+// Start "over": no game runs until resetGame() is called from the START button.
+// The poll runs from the moment the mode is entered (settings screen first),
+// so a false default here ran physics and error beeps before any game existed.
+bool gameOver = true;
 bool gamePaused = false;
 
 // Decoder state

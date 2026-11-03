@@ -19,6 +19,7 @@
 
 // Forward declarations for mode switching
 extern void onLVGLMenuSelect(int target_mode);  // Proper navigation with screen loading
+extern int getCurrentModeAsInt();
 lv_obj_t* createCWMenuScreen();
 
 // ============================================
@@ -32,6 +33,7 @@ static lv_obj_t* mailbox_url_label = NULL;
 static lv_obj_t* mailbox_status_label = NULL;
 static lv_obj_t* mailbox_timer_label = NULL;
 static lv_timer_t* mailbox_link_timer = NULL;
+static lv_timer_t* mailbox_link_nav_timer = NULL;  // one-shot "go to inbox" after linking
 
 // Inbox screen state
 static lv_obj_t* mailbox_inbox_screen = NULL;
@@ -392,6 +394,17 @@ static void mailbox_playback_nav_handler(lv_event_t* e) {
 // Device Linking Screen
 // ============================================
 
+// One-shot: after a successful link, move on to the inbox - but only if the
+// user is still looking at the link screen (it is cancelled on cleanup too)
+static void mailbox_link_nav_timer_cb(lv_timer_t* t) {
+    mailbox_link_nav_timer = NULL;
+    lv_timer_del(t);
+    int mode = getCurrentModeAsInt();
+    if (mode != MODE_MORSE_MAILBOX && mode != MODE_MORSE_MAILBOX_LINK) return;
+    if (!mailbox_link_screen || !lv_obj_is_valid(mailbox_link_screen)) return;
+    onLVGLMenuSelect(MODE_MORSE_MAILBOX_INBOX);
+}
+
 // Timer callback for link polling
 static void mailbox_link_timer_cb(lv_timer_t* timer) {
     Serial.println("[Mailbox] Link timer callback fired");
@@ -442,10 +455,8 @@ static void mailbox_link_timer_cb(lv_timer_t* timer) {
                     mailbox_link_timer = NULL;
                 }
                 // Navigate to inbox after 2 seconds
-                lv_timer_create([](lv_timer_t* t) {
-                    onLVGLMenuSelect(MODE_MORSE_MAILBOX_INBOX);
-                    lv_timer_del(t);
-                }, 2000, NULL);
+                if (mailbox_link_nav_timer) lv_timer_del(mailbox_link_nav_timer);
+                mailbox_link_nav_timer = lv_timer_create(mailbox_link_nav_timer_cb, 2000, NULL);
                 break;
             }
             case MAILBOX_LINK_EXPIRED:
@@ -1036,7 +1047,7 @@ static void mailbox_speed_adjust(lv_event_t* e) {
 
     // Update both the header label and button label
     if (changed) {
-        saveMailboxPlaybackSpeed();  // Save immediately on change
+        markDeferredSave(saveMailboxPlaybackSpeed);  // Deferred: per-keypress, may be mid-playback
 
         char buf[16];
         snprintf(buf, sizeof(buf), "%.2fx", mailbox_playback_speed);
@@ -1829,6 +1840,10 @@ void cleanupMailboxLinkScreen() {
         Serial.println("[Mailbox] Deleting link timer (cleanup)");
         lv_timer_del(mailbox_link_timer);
         mailbox_link_timer = NULL;
+    }
+    if (mailbox_link_nav_timer) {
+        lv_timer_del(mailbox_link_nav_timer);
+        mailbox_link_nav_timer = NULL;
     }
     mailbox_code_label = NULL;
     mailbox_url_label = NULL;

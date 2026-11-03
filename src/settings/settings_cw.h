@@ -38,6 +38,12 @@ Preferences cwPrefs;
 void saveCWSettings();
 void loadCWSettings();
 
+// Clamp a stored/received key type to the enum range (it indexes name tables)
+inline KeyType clampKeyType(int keyType) {
+  if (keyType < KEY_STRAIGHT || keyType > KEY_ULTIMATIC) return KEY_IAMBIC_B;
+  return (KeyType)keyType;
+}
+
 // Load CW settings from flash
 void loadCWSettings() {
   if (!cwPrefs.begin("cw", true)) {
@@ -46,7 +52,7 @@ void loadCWSettings() {
   }
   cwSpeed = cwPrefs.getInt("speed", DEFAULT_WPM);
   cwTone = cwPrefs.getInt("tone", TONE_SIDETONE);
-  cwKeyType = (KeyType)cwPrefs.getInt("keytype", KEY_IAMBIC_B);
+  cwKeyType = clampKeyType(cwPrefs.getInt("keytype", KEY_IAMBIC_B));
   cwPrefs.end();
 
   // Validate settings
@@ -69,6 +75,9 @@ void saveCWSettings() {
     Serial.println("[CW] ERROR: cannot open 'cw' namespace for write - settings NOT saved");
     return;
   }
+  // Never persist an out-of-range key type, whoever set it
+  cwKeyType = clampKeyType((int)cwKeyType);
+
   // putInt returns bytes written (0 = failure, e.g. NVS partition full)
   bool ok = true;
   ok &= cwPrefs.putInt("speed", cwSpeed) > 0;

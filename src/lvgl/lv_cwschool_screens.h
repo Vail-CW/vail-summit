@@ -19,6 +19,7 @@
 // Forward declarations for mode switching
 extern void setCurrentModeFromInt(int mode);
 extern void onLVGLMenuSelect(int target_mode);  // Proper navigation with screen loading
+extern int getCurrentModeAsInt();
 
 // ============================================
 // Screen State
@@ -30,6 +31,7 @@ static lv_obj_t* cwschool_code_label = NULL;
 static lv_obj_t* cwschool_status_label = NULL;
 static lv_obj_t* cwschool_timer_label = NULL;
 static lv_timer_t* cwschool_link_timer = NULL;
+static lv_timer_t* cwschool_link_nav_timer = NULL;  // one-shot "go to account" after linking
 
 // Account screen state
 static lv_obj_t* cwschool_account_screen = NULL;
@@ -37,6 +39,16 @@ static lv_obj_t* cwschool_account_screen = NULL;
 // ============================================
 // Device Linking Screen
 // ============================================
+
+// One-shot: after a successful link, move on to the account screen - but only
+// if the user is still looking at the link screen (it is cancelled on cleanup too)
+static void cwschool_link_nav_timer_cb(lv_timer_t* t) {
+    cwschool_link_nav_timer = NULL;
+    lv_timer_del(t);
+    if (getCurrentModeAsInt() != MODE_CWSCHOOL_LINK) return;
+    if (!cwschool_link_screen || !lv_obj_is_valid(cwschool_link_screen)) return;
+    onLVGLMenuSelect(MODE_CWSCHOOL_ACCOUNT);
+}
 
 // Timer callback for link polling
 static void cwschool_link_timer_cb(lv_timer_t* timer) {
@@ -85,10 +97,8 @@ static void cwschool_link_timer_cb(lv_timer_t* timer) {
                     cwschool_link_timer = NULL;
                 }
                 // Navigate to account screen after 2 seconds
-                lv_timer_create([](lv_timer_t* t) {
-                    onLVGLMenuSelect(MODE_CWSCHOOL_ACCOUNT);
-                    lv_timer_del(t);
-                }, 2000, NULL);
+                if (cwschool_link_nav_timer) lv_timer_del(cwschool_link_nav_timer);
+                cwschool_link_nav_timer = lv_timer_create(cwschool_link_nav_timer_cb, 2000, NULL);
                 break;
             }
             case CWSCHOOL_LINK_EXPIRED:
@@ -650,6 +660,10 @@ void cleanupCWSchoolLinkScreen() {
         Serial.println("[CWSchool] Deleting link timer (cleanup)");
         lv_timer_del(cwschool_link_timer);
         cwschool_link_timer = NULL;
+    }
+    if (cwschool_link_nav_timer) {
+        lv_timer_del(cwschool_link_nav_timer);
+        cwschool_link_nav_timer = NULL;
     }
     cwschool_code_label = NULL;
     cwschool_status_label = NULL;
