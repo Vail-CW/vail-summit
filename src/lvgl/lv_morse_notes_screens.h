@@ -584,6 +584,23 @@ static void mnDiscardBtnClick(lv_event_t* e) {
 }
 
 /**
+ * Save dialog - ESC asks before throwing the recording away
+ */
+static void mnConfirmDiscardOnEsc(lv_event_t* e) {
+    lv_event_stop_processing(e);  // keep the global ESC handler from discarding
+    lv_indev_t* indev = getLVGLKeypad();
+    if (indev != NULL) lv_indev_wait_release(indev);  // this ESC press must not reach the dialog
+    createConfirmDialog(
+        "Discard Recording",
+        "Throw away this recording\nwithout saving?",
+        mnDiscardBtnClick,
+        [](lv_event_t* e) {
+            // No: stay on the save dialog (dialog closes automatically)
+        }
+    );
+}
+
+/**
  * Save dialog text input key handler - DOWN moves to buttons
  */
 static void mnSaveInputKeyHandler(lv_event_t* e) {
@@ -591,6 +608,11 @@ static void mnSaveInputKeyHandler(lv_event_t* e) {
     if (code != LV_EVENT_KEY) return;
 
     uint32_t key = lv_event_get_key(e);
+
+    if (key == LV_KEY_ESC) {
+        mnConfirmDiscardOnEsc(e);
+        return;
+    }
 
     // DOWN arrow moves to preview button
     if (key == LV_KEY_DOWN) {
@@ -626,6 +648,11 @@ static void mnSaveDialogBtnNavHandler(lv_event_t* e) {
     // Block TAB
     if (key == LV_KEY_NEXT) {
         lv_event_stop_processing(e);
+        return;
+    }
+
+    if (key == LV_KEY_ESC) {
+        mnConfirmDiscardOnEsc(e);
         return;
     }
 

@@ -365,8 +365,9 @@ void csKeyerCallback(bool txOn, int element) {
 // ============================================
 
 void csOnLetterComplete(int letterIndex) {
+    // Green letter only, no beep: this fires mid-keying, and a beep here cuts into
+    // the sidetone and stalls the loop (missed paddle input) while it plays
     csSetLetterColor(letterIndex, LV_COLOR_SUCCESS);
-    beep(1200, 30);  // Quick success chirp
 }
 
 void csOnWrong() {

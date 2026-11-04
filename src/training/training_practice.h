@@ -297,7 +297,7 @@ void practiceHandleEsc() {
   if (practiceKeyer) {
     practiceKeyer->reset();
   }
-  practiceDecoder->flush();  // Decode any remaining buffered timings
+  if (practiceDecoder) practiceDecoder->flush();  // Decode any remaining buffered timings
   practiceEffWpm.reset();
 
   // Save any pending settings before exit

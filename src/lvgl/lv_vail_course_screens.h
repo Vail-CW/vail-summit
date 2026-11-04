@@ -211,6 +211,7 @@ static VailCourseLessonState lessonState = {0};
 
 // Auto-play timer for advancing after feedback / intro replays
 static lv_timer_t* vail_course_autoplay_timer = NULL;
+static bool vail_course_next_lesson_ready = false;  // set on PASS when another lesson follows
 
 // Forward declarations
 void updateVailCourseLessonUI();
@@ -524,7 +525,23 @@ void startVailCourseLessonPhase() {
             break;
 
         case PHASE_RESULT:
-            // Show final results
+            // Save a pass as soon as PASS shows, so ESC keeps it too (not just ENTER).
+            // Resume moves on to the next lesson; ENTER just opens it.
+            {
+                int totalTotal = vcProgress().sessionTotal;
+                int percentage = (totalTotal > 0) ? (vcProgress().sessionCorrect * 100 / totalTotal) : 0;
+                VailCourseModule module = vcProgress().currentModule;
+                int curLesson = vcProgress().currentLesson;
+                vail_course_next_lesson_ready = false;
+                if (percentage >= VAIL_LESSON_PASS_THRESHOLD) {
+                    completeVailCourseLesson(module, curLesson);
+                    if (curLesson < vailCourseLessonCounts[module]) {
+                        vcProgress().currentLesson = curLesson + 1;
+                        vail_course_next_lesson_ready = true;
+                    }
+                    saveVailCourseProgress();
+                }
+            }
             break;
 
         default:
@@ -719,26 +736,10 @@ static void vail_course_lesson_key_handler(lv_event_t* e) {
     if (phase == PHASE_RESULT) {
         if (key == LV_KEY_ENTER || key == ' ') {
             cancelVailCourseAutoplayTimer();
-            // Calculate overall score
-            int totalCorrect = vcProgress().sessionCorrect;
-            int totalTotal = vcProgress().sessionTotal;
-            int percentage = (totalTotal > 0) ? (totalCorrect * 100 / totalTotal) : 0;
-
-            VailCourseModule module = vcProgress().currentModule;
-            int curLesson = vcProgress().currentLesson;
-            int maxLessons = vailCourseLessonCounts[module];
-            const bool passed = (percentage >= VAIL_LESSON_PASS_THRESHOLD);
-
-            if (passed) {
-                completeVailCourseLesson(module, curLesson);
-                if (curLesson < maxLessons) {
-                    vcProgress().currentLesson = curLesson + 1;
-                }
-            }
-
+            // Completion and the next lesson were already saved when the result showed
             endVailCourseSession();
 
-            if (passed && curLesson < maxLessons) {
+            if (vail_course_next_lesson_ready) {
                 onLVGLMenuSelect(MODE_VAIL_COURSE_LESSON);
             } else {
                 onLVGLMenuSelect(MODE_VAIL_COURSE_LESSON_SELECT);
