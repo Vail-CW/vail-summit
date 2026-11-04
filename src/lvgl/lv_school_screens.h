@@ -247,6 +247,7 @@ lv_obj_t* createSchoolCopyScreen()  { return schoolBuildDrillScreen("COPY PRACTI
 
 void cleanupSchoolPractice() {
     if (s_school_tick) { lv_timer_del(s_school_tick); s_school_tick = NULL; }
+    if (s_drill_total > 0) saveVailCourseMastery();  // answers only update mastery in RAM
 }
 
 // ============================================
@@ -422,6 +423,7 @@ void schoolSendPoll() {
 void schoolSendCleanup() {
     s_send_active = false;
     practiceHandleEsc();  // stop tone, tick timer, keyer; flush decoder
+    saveVailCourseMastery();  // answers only update mastery in RAM
 }
 
 // SPACE plays the target as an audible reference (does not feed the decoder,

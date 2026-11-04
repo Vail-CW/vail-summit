@@ -585,7 +585,7 @@ static void st_feedback_timer_cb(lv_timer_t* t) {
     // Move to next question or results
     stSession.currentQuestion++;
     if (stSession.currentQuestion >= ST_MAX_QUESTIONS) {
-        stFinishQuiz();
+        // Score was already saved when the last answer went in
         onLVGLMenuSelect(MODE_STORY_TIME_RESULTS);
     } else {
         // Reload quiz screen for next question
@@ -618,6 +618,11 @@ static void st_answer_handler(lv_event_t* e) {
         }
     }
 
+    // Save the result on the last answer, so ESC during the feedback keeps it
+    if (stSession.currentQuestion == ST_MAX_QUESTIONS - 1) {
+        stFinishQuiz();
+    }
+
     // Brief delay for feedback, then advance from the timer
     st_feedback_timer = lv_timer_create(st_feedback_timer_cb, ST_FEEDBACK_DELAY_MS, NULL);
     lv_timer_set_repeat_count(st_feedback_timer, 1);
@@ -626,6 +631,7 @@ static void st_answer_handler(lv_event_t* e) {
 // Cleanup for MODE_STORY_TIME_QUIZ: drop a pending feedback timer
 void cleanupStoryTimeQuiz() {
     st_cancel_feedback_timer();
+    stSaveProgress();  // keep the per-answer question totals from a quiz left early
 }
 
 static void st_quiz_key_handler(lv_event_t* e) {

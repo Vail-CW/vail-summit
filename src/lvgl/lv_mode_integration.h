@@ -839,6 +839,7 @@ static const ModeCallbackEntry cleanupTable[] = {
     { MODE_SCHOOL_DAILY,                 cleanupSchoolPractice },
     { MODE_SCHOOL_COPY,                  cleanupSchoolPractice },
     { MODE_SCHOOL_SEND,                  schoolSendCleanup },
+    { MODE_PRACTICE,                     practiceHandleEsc },  // stops tone, flushes a pending speed save on any exit
     { MODE_PROPAGATION,                  cleanupBandConditions },
     { MODE_WIFI_SETTINGS,                cleanupWiFiScreen },
     // BT server modes must fully stop on exit: release HID/MIDI services,

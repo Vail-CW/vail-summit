@@ -683,8 +683,9 @@ void setSparkSpeed(int speedIndex) {
     sparkSession.speedIndex = speedIndex;
     sparkSession.currentSpeedMult = SPARK_SPEEDS[speedIndex];
 
-    // Save as preferred speed
+    // Save as preferred speed (deferred: may be adjusted per keypress)
     sparkProgress.preferredSpeed = sparkSession.currentSpeedMult;
+    markDeferredSave(saveSparkWatchSettings);
 }
 
 // ============================================
