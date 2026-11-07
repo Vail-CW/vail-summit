@@ -1,16 +1,16 @@
 ﻿# VAIL SUMMIT
 
 A pocket-sized Morse code (CW) trainer and ham radio tool. Learn code from scratch, keep your
-skills sharp, and use it on the air. It has a color screen, a built-in paddle and speaker, and
-runs on its own battery, so you don't need a computer.
+skills sharp, and use it on the air. It has a color screen, a built-in keyboard and speaker, a jack for your paddle, and
+runs on USB power or a battery you add, so you don't need a computer.
 
 ![Version](https://img.shields.io/badge/version-0.93.2-blue)
 ![For](https://img.shields.io/badge/for-CW%20%26%20ham%20radio-green)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-orange)
 
-> **Now in testing. Official release is planned for July 2026.** You can get one early during the
-> testing phase at [shop.ke9bos.com](https://shop.ke9bos.com), or email me (Brett, KE9BOS) at
-> [ke9bos@pigletradio.org](mailto:ke9bos@pigletradio.org).
+> **Public beta.** Assembled Summits are available at
+> [shop.ke9bos.com](https://shop.ke9bos.com/product/vail-summit/). The hardware is done; the firmware keeps
+> changing and improving over time.
 
 ## What is it?
 
@@ -109,18 +109,23 @@ No software to install:
 
 ## What's in it
 
-A small, battery-powered computer set up for CW:
+A small computer set up for CW, in a black enclosure that folds closed:
 
 - **4-inch color LCD** with a card-style menu
-- **Built-in speaker**, plus a real **iambic paddle** (straight key works too). The board also has capacitive touch pads, and the firmware supports them, but the current beta case does not expose them yet.
-- **Rechargeable battery** with a charge readout on screen
+- **Built-in keyboard and speaker**
+- **3.5 mm key jack** for your own iambic paddle or straight key
+- **3.5 mm headphone jack** for headphones or an external speaker
+- **Capacitive touch:** the current case, PCB, and firmware all support it, but the touch pads are not
+  installed on current units
+- **Battery connector** with a charge readout on screen. No battery is included, but you can add a LiPo;
+  the [Summit manual](https://vailadapter.com/summit-manual) covers options and wiring.
 - **WiFi and Bluetooth** built in
 - **microSD card** slot for logs and files
 - **3.5 mm jack** for keying an external radio
 
 ## Help and community
 
-- **Buy a Summit (testing phase):** [shop.ke9bos.com](https://shop.ke9bos.com) or [ke9bos@pigletradio.org](mailto:ke9bos@pigletradio.org)
+- **Buy a Summit (public beta):** [shop.ke9bos.com](https://shop.ke9bos.com/product/vail-summit/)
 - **Questions or ideas:** [GitHub Discussions](https://github.com/Vail-CW/vail-summit/discussions)
 - **Found a bug?** [GitHub Issues](https://github.com/Vail-CW/vail-summit/issues)
 
@@ -131,6 +136,7 @@ to build it, change it, or just look around:
 
 - [Building from source](docs/BUILDING.md): toolchain setup and compiling
 - [Hardware reference](docs/HARDWARE.md): board, pins, and interfaces
+- [3D models](3d%20prints/): STL and 3MF files for every case part, free to print and modify
 - [Architecture](docs/ARCHITECTURE.md) and [development notes](docs/DEVELOPMENT.md)
 
 ## License
