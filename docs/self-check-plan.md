@@ -194,6 +194,51 @@ Summit. **Not yet tested on hardware**, in particular:
    cleanup table, results list). Also fill the missing SD and battery rows on
    System Info.
 
+## Bluetooth keyboard check
+
+A second guided flow on the same Get Help page, for "my keyboard won't pair".
+The page never pairs anything itself. The user pairs on the Summit's own
+**External Keyboard** screen (Settings > Device Settings > Bluetooth), so the
+real code path is what gets recorded, and the page tells them what to do one
+step at a time:
+
+1. Is the keyboard BLE? (The ESP32-S3 has no Bluetooth Classic radio, so
+   Classic-only keyboards stop here with an explanation.)
+2. Summit health from `bt status`: heap vs. what NimBLE needs, crash guard,
+   WiFi on (shares the radio).
+3. Open the External Keyboard screen (the page watches `mode` and moves on).
+4. Forget the old pairing, if any.
+5. Scan, with the keyboard in pairing mode. The user confirms it is listed;
+   if not, the report also lists named devices that did not advertise as a
+   keyboard.
+6. Pair. A PIN request shows the number on the page.
+7. Type `a s d 1 Enter`. Raw reports and decoded keys are traced only during
+   this step (30 s window).
+8. Turn the keyboard off and on: does auto-reconnect work?
+9. Restart the Summit: is the pairing kept, and does it reconnect?
+
+Copy / Save / Email produce a report with the answers, results with advice,
+the status at start and end, the phase timeline, the HID report map (hex) and
+the event history, followed by the full log.
+
+**Firmware** (`src/diagnostics/bt_check.h`, `src/bluetooth/ble_kb_trace.h`):
+
+| Command | Does |
+|---|---|
+| `@vail bt status` | `{"t":"bt_status",...}`: state, saved keyboard, auto-reconnect, crash guard, bonds, heap, WiFi, current mode |
+| `@vail bt mark <step>` | echoes `bt_mark` and prints `===== BT CHECK STEP: <step> =====` into the log |
+| `@vail bt keys [secs\|off]` | trace key reports for up to 60 s |
+
+While a computer session is active, the keyboard host pushes phase records
+(`scan`, `found`, `other`, `connect`, `link`, `pairing`, `passkey`, `auth`,
+`pair_fail`, `hid_service`, `report_map`, `subscribe`, `done`, `disconnect`,
+`forget`, ...) into a small locked ring. They come from the connect worker and
+the NimBLE host task, so `btCheckPoll()` (called from `serialConsolePoll()`)
+drains them on the main loop as `{"t":"bt","ms":..,"ph":..,"a":..,"b":..,"s":..}`.
+Error codes go out raw and with a plain-English name (`bleKbReasonName()`:
+HCI 0x2xx, Security Manager 0x4xx ours / 0x5xx the keyboard's). With no
+computer attached nothing is recorded.
+
 ## Open questions
 
 - Does the Summit's display board have pull-ups on the SD lines? (Decides
