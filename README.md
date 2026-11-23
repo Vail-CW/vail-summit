@@ -4,7 +4,7 @@ A pocket-sized Morse code (CW) trainer and ham radio tool. Learn code from scrat
 skills sharp, and use it on the air. It has a color screen, a built-in keyboard and speaker, a jack for your paddle, and
 runs on USB power or a battery you add, so you don't need a computer.
 
-![Version](https://img.shields.io/badge/version-0.93.2-blue)
+![Version](https://img.shields.io/badge/version-0.93.3-blue)
 ![For](https://img.shields.io/badge/for-CW%20%26%20ham%20radio-green)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-orange)
 
