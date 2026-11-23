@@ -16,6 +16,7 @@
  *   @vail stop               abort the running test
  *   @vail events             crash-surviving event history
  *   @vail report             re-send the last results + event history
+ *   @vail bt status|mark|keys    Bluetooth keyboard check (see bt_check.h)
  *
  * Polled from loop() (never from an LVGL callback), so it can safely change
  * screens. Non-blocking: reads at most 64 bytes per call.
@@ -25,6 +26,7 @@
 #define SERIAL_CONSOLE_H
 
 #include "diag_checks.h"
+#include "bt_check.h"
 #include "../lvgl/lv_self_check_screen.h"
 
 #define CONSOLE_LINE_MAX 64
@@ -78,6 +80,12 @@ static void consoleHandle(char* line) {
   if (strcmp(cmd, "hello") == 0) { diagEmitHello(); return; }
   if (strcmp(cmd, "events") == 0) { diagEmitEvents(); return; }
   if (strcmp(cmd, "report") == 0) { diagEmitLastResults(); diagEmitEvents(); return; }
+  // The Bluetooth check only watches: the user pairs on the Summit's own
+  // External Keyboard screen, so these never change screens
+  if (strcmp(cmd, "bt") == 0) {
+    if (!btCheckCommand(arg, arg2)) consoleError("usage: bt status|mark <step>|keys [secs|off]");
+    return;
+  }
 
   bool needsScreen = strcmp(cmd, "diag") == 0 || strcmp(cmd, "screen") == 0 ||
                      strcmp(cmd, "tone") == 0 || strcmp(cmd, "keys") == 0 ||
@@ -119,6 +127,7 @@ static void consoleHandle(char* line) {
 }
 
 void serialConsolePoll() {
+  btCheckPoll();
   for (int budget = 64; budget > 0 && Serial.available() > 0; budget--) {
     int c = Serial.read();
     if (c < 0) break;
