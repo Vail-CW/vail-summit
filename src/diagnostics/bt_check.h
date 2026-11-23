@@ -8,8 +8,11 @@
  *   @vail bt status        snapshot: host state, saved pairing, crash guard,
  *                          heap, WiFi (shares the radio), bond count
  *   @vail bt mark <step>   echoes a step marker so the log groups by step
- *   @vail bt keys [secs]   trace raw key reports for secs (default 30, max 60)
- *   @vail bt keys off      stop tracing key reports
+ *   @vail bt keys [secs]   typing test: trace key reports for secs (default 30,
+ *                          max 60). Only while the External Keyboard screen is
+ *                          open and a keyboard is connected; the keys typed in
+ *                          that window go to the test only, not to the Summit.
+ *   @vail bt keys off      end the typing test
  *
  * While a computer is attached, the keyboard host records each scan result and
  * connect/pair/enumerate phase (ble_kb_trace.h). btCheckPoll() drains those
@@ -32,9 +35,10 @@
 #define BT_CHECK_KEYS_MAX_S      60
 
 void btCheckEmitStatus() {
+  PairedKeyboard pd = bleKBGetPairedDevice();   // one consistent snapshot
   char name[48], addr[24], err[64];
-  diagJsonEscape(name, sizeof(name), bleKBHost.pairedDevice.valid ? bleKBHost.pairedDevice.name : "");
-  diagJsonEscape(addr, sizeof(addr), bleKBHost.pairedDevice.valid ? bleKBHost.pairedDevice.address : "");
+  diagJsonEscape(name, sizeof(name), pd.valid ? pd.name : "");
+  diagJsonEscape(addr, sizeof(addr), pd.valid ? pd.address : "");
   diagJsonEscape(err, sizeof(err), bleKBHost.lastError);
   bool up = bleKBHost.state != BLEKB_STATE_IDLE;
   int bonds = up ? NimBLEDevice::getNumBonds() : -1;
@@ -46,8 +50,8 @@ void btCheckEmitStatus() {
            "\"wifi\":\"%s\",\"wifiUp\":%s,\"mode\":%d,\"connSecs\":%lu}",
            FIRMWARE_VERSION, diagBleStateName(bleKBHost.state),
            isBLEKeyboardConnectBusy() ? "true" : "false",
-           bleKBHost.pairedDevice.valid ? "true" : "false", name, addr,
-           (unsigned)bleKBHost.pairedDevice.addrType,
+           pd.valid ? "true" : "false", name, addr,
+           (unsigned)(pd.valid ? pd.addrType : 0),
            bleKBHost.autoReconnect ? "true" : "false",
            bleKBHost.autoReconnectTripped ? "true" : "false",
            (unsigned)bleKBHost.crashCount, getBLEKBPhaseString(bleKBHost.lastCrashPhase),
@@ -73,11 +77,20 @@ void btCheckMark(const char* step) {
   diagEmit("{\"t\":\"bt_mark\",\"step\":\"%s\",\"ms\":%lu}", id, millis());
 }
 
-// secs <= 0 turns key tracing off
+// secs <= 0 turns key tracing off. Refused unless the user is on the External
+// Keyboard screen with a keyboard connected, i.e. doing the guided typing test.
 void btCheckKeys(int secs) {
   if (secs <= 0) {
     bleKbTraceKeysUntil = 0;
     diagEmit("{\"t\":\"bt_keys\",\"on\":false}");
+    return;
+  }
+  if (currentMode != MODE_BT_KEYBOARD_SETTINGS) {
+    diagEmit("{\"t\":\"err\",\"msg\":\"not_on_bt_screen\"}");
+    return;
+  }
+  if (!isBLEKeyboardConnected()) {
+    diagEmit("{\"t\":\"err\",\"msg\":\"bt_not_connected\"}");
     return;
   }
   if (secs > BT_CHECK_KEYS_MAX_S) secs = BT_CHECK_KEYS_MAX_S;
@@ -89,36 +102,34 @@ void btCheckKeys(int secs) {
 static void btCheckEmitReportMap() {
   if (!bleKbReportMapReady) return;
   uint16_t len = bleKbReportMapLen;
+  uint16_t total = bleKbReportMapTotal;
   char hex[BT_CHECK_MAP_CHUNK * 2 + 1];
   for (uint16_t off = 0; off < len; off += BT_CHECK_MAP_CHUNK) {
     uint16_t n = (len - off) < BT_CHECK_MAP_CHUNK ? (len - off) : BT_CHECK_MAP_CHUNK;
     for (uint16_t i = 0; i < n; i++) snprintf(hex + i * 2, 3, "%02X", bleKbReportMap[off + i]);
     hex[n * 2] = '\0';
-    diagEmit("{\"t\":\"bt_map\",\"len\":%u,\"off\":%u,\"hex\":\"%s\"}", len, off, hex);
+    // len: bytes sent, total: the map's real size (bigger when it was cut)
+    diagEmit("{\"t\":\"bt_map\",\"len\":%u,\"total\":%u,\"off\":%u,\"hex\":\"%s\"}",
+             len, total, off, hex);
   }
-  // The worker only writes the buffer while !ready, so it is ours to free
-  free(bleKbReportMap);
+  // Ready means the worker is done with it; it can't start another copy
+  // until ready is cleared below
+  uint8_t* buf = bleKbReportMap;
+  portENTER_CRITICAL(&bleKbTraceMux);
   bleKbReportMap = nullptr;
   bleKbReportMapLen = 0;
+  bleKbReportMapTotal = 0;
   bleKbReportMapReady = false;
+  portEXIT_CRITICAL(&bleKbTraceMux);
+  free(buf);
 }
 
 // Called every loop from serialConsolePoll()
 void btCheckPoll() {
   bool on = diagSessionActive && (bool)Serial;
   if (on != bleKbTraceOn) {
-    bleKbTraceOn = on;
-    if (!on) {
-      // Nobody listening any more: drop whatever is queued
-      BleKbTraceRec r;
-      while (bleKbTracePop(&r)) {}
-      bleKbTraceKeysUntil = 0;
-      if (bleKbReportMapReady) {
-        free(bleKbReportMap);
-        bleKbReportMap = nullptr;
-        bleKbReportMapReady = false;
-      }
-    }
+    // Ending a session drops whatever is queued, under the producers' lock
+    free(bleKbTraceSetOn(on));
   }
   if (!on) return;
 

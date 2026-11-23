@@ -14,6 +14,12 @@
  *
  * Key reports are only traced while the page's key test is armed
  * (bleKbTraceKeysUntil), so the report never holds anything else the user typed.
+ * While armed, the keys are also kept out of the UI (see hidReportNotifyCallback)
+ * so the typing test can't press buttons on the Summit.
+ *
+ * bleKbTraceOn is only changed under bleKbTraceMux, and producers re-check it
+ * under the same lock before publishing, so nothing from a finished session can
+ * land in the queue or the Report Map slot after the main loop has cleaned up.
  */
 
 #ifndef BLE_KB_TRACE_H
@@ -24,7 +30,7 @@
 #include <esp_heap_caps.h>
 
 #define BLEKB_TRACE_CAP       24
-#define BLEKB_TRACE_PH_LEN    12
+#define BLEKB_TRACE_PH_LEN    16
 #define BLEKB_TRACE_TEXT_LEN  48
 #define BLEKB_REPORT_MAP_MAX  512
 
@@ -50,8 +56,10 @@ static volatile uint32_t bleKbTraceKeysUntil = 0;
 // Report map captured during enumeration, sent once by the main loop. Only
 // allocated while tracing, and freed as soon as it has been sent.
 static uint8_t* bleKbReportMap = nullptr;
-static volatile uint16_t bleKbReportMapLen = 0;
+static volatile uint16_t bleKbReportMapLen = 0;     // bytes held in bleKbReportMap
+static volatile uint16_t bleKbReportMapTotal = 0;   // size the keyboard reported
 static volatile bool bleKbReportMapReady = false;
+static volatile bool bleKbReportMapBusy = false;    // worker is copying into it
 
 void bleKbTrace(const char* ph, int32_t a, int32_t b, const char* fmt = nullptr, ...) {
   if (!bleKbTraceOn) return;
@@ -68,7 +76,9 @@ void bleKbTrace(const char* ph, int32_t a, int32_t b, const char* fmt = nullptr,
     va_end(args);
   }
   portENTER_CRITICAL(&bleKbTraceMux);
-  if (bleKbTraceCount < BLEKB_TRACE_CAP) {
+  if (!bleKbTraceOn) {
+    // The session ended while this record was being built
+  } else if (bleKbTraceCount < BLEKB_TRACE_CAP) {
     bleKbTraceQ[(bleKbTraceHead + bleKbTraceCount) % BLEKB_TRACE_CAP] = rec;
     bleKbTraceCount++;
   } else {
@@ -99,17 +109,56 @@ uint16_t bleKbTraceTakeDropped() {
   return d;
 }
 
-// Called from the connect worker after reading the Report Map
+// Called from the connect worker after reading the Report Map. Maps longer
+// than BLEKB_REPORT_MAP_MAX are cut, and bleKbReportMapTotal keeps the real
+// size so the report can say so.
 void bleKbTraceReportMap(const uint8_t* data, size_t len) {
-  if (!bleKbTraceOn || bleKbReportMapReady || len == 0) return;
+  if (len == 0) return;
+  portENTER_CRITICAL(&bleKbTraceMux);
+  bool take = bleKbTraceOn && !bleKbReportMapReady && !bleKbReportMapBusy;
+  if (take) bleKbReportMapBusy = true;
+  portEXIT_CRITICAL(&bleKbTraceMux);
+  if (!take) return;
+
+  // The buffer is only freed by the main loop while neither busy nor ready,
+  // so it is ours to fill now
   if (bleKbReportMap == nullptr) {
     bleKbReportMap = (uint8_t*)heap_caps_malloc(BLEKB_REPORT_MAP_MAX, MALLOC_CAP_8BIT);
-    if (bleKbReportMap == nullptr) return;
   }
   size_t n = len < BLEKB_REPORT_MAP_MAX ? len : BLEKB_REPORT_MAP_MAX;
-  memcpy(bleKbReportMap, data, n);
-  bleKbReportMapLen = (uint16_t)n;
-  bleKbReportMapReady = true;   // published last; the main loop reads after this
+  if (bleKbReportMap != nullptr) memcpy(bleKbReportMap, data, n);
+
+  portENTER_CRITICAL(&bleKbTraceMux);
+  if (bleKbReportMap != nullptr && bleKbTraceOn) {
+    bleKbReportMapLen = (uint16_t)n;
+    bleKbReportMapTotal = (uint16_t)(len > 0xFFFF ? 0xFFFF : len);
+    bleKbReportMapReady = true;
+  }
+  bleKbReportMapBusy = false;
+  portEXIT_CRITICAL(&bleKbTraceMux);
+}
+
+// Main loop: start or end a trace session. Ending one drops everything queued
+// and hands back the Report Map buffer (nullptr if a worker still holds it).
+uint8_t* bleKbTraceSetOn(bool on) {
+  uint8_t* toFree = nullptr;
+  portENTER_CRITICAL(&bleKbTraceMux);
+  bleKbTraceOn = on;
+  if (!on) {
+    bleKbTraceHead = 0;
+    bleKbTraceCount = 0;
+    bleKbTraceDropped = 0;
+    bleKbTraceKeysUntil = 0;
+    if (!bleKbReportMapBusy) {
+      toFree = bleKbReportMap;
+      bleKbReportMap = nullptr;
+      bleKbReportMapReady = false;
+      bleKbReportMapLen = 0;
+      bleKbReportMapTotal = 0;
+    }
+  }
+  portEXIT_CRITICAL(&bleKbTraceMux);
+  return toFree;
 }
 
 bool bleKbTraceKeysArmed() {

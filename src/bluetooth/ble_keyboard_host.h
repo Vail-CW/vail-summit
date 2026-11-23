@@ -141,6 +141,21 @@ struct BLEKBHostContext {
 // Global context
 BLEKBHostContext bleKBHost;
 
+// pairedDevice is written by the connect worker and forget, and read from the
+// main loop (bt status); whole-struct updates go under this lock
+static portMUX_TYPE bleKBPairMux = portMUX_INITIALIZER_UNLOCKED;
+
+PairedKeyboard bleKBGetPairedDevice() {
+  PairedKeyboard pd;
+  portENTER_CRITICAL(&bleKBPairMux);
+  pd = bleKBHost.pairedDevice;
+  portEXIT_CRITICAL(&bleKBPairMux);
+  return pd;
+}
+
+// Set once the first input report of a connection has been logged
+static volatile bool bleKBFirstReportLogged = false;
+
 // ---- Connect worker -------------------------------------------------------
 // NimBLEClient::connect() and secureConnection() block the calling task until
 // the stack answers - and secureConnection() waits with NO timeout of its own
@@ -277,14 +292,15 @@ class BLEKBClientCallbacks : public NimBLEClientCallbacks {
 // keyboard" (or that nothing like it was on the air at all). Only the first
 // few distinct ones, to keep the scan callback cheap.
 #define BLEKB_TRACE_OTHER_MAX 12
-static uint32_t bleKbTraceOtherSeen[BLEKB_TRACE_OTHER_MAX];
+static uint64_t bleKbTraceOtherSeen[BLEKB_TRACE_OTHER_MAX];
 static uint8_t bleKbTraceOtherCount = 0;
 
 static void bleKbTraceOtherDevice(const NimBLEAdvertisedDevice* dev) {
   if (!bleKbTraceOn || bleKbTraceOtherCount >= BLEKB_TRACE_OTHER_MAX) return;
   if (!dev->haveName()) return;
   const uint8_t* v = dev->getAddress().getVal();
-  uint32_t key = (uint32_t)v[0] | ((uint32_t)v[1] << 8) | ((uint32_t)v[2] << 16) | ((uint32_t)v[3] << 24);
+  uint64_t key = 0;
+  for (int i = 0; i < 6; i++) key |= (uint64_t)v[i] << (8 * i);
   for (int i = 0; i < bleKbTraceOtherCount; i++) {
     if (bleKbTraceOtherSeen[i] == key) return;
   }
@@ -382,14 +398,23 @@ bool isBLEKeyboardConnectBusy() {
 // HID Report notification callback
 void hidReportNotifyCallback(NimBLERemoteCharacteristic* pChar,
                               uint8_t* pData, size_t length, bool isNotify) {
-  // Raw report trace - proves whether the keyboard is sending anything at all
-  Serial.printf("BLEKB: Report h=%d len=%d:", pChar->getHandle(), (int)length);
-  for (size_t i = 0; i < length && i < 10; i++) {
-    Serial.printf(" %02X", pData[i]);
+  // What the user types is private: report contents and decoded keys are only
+  // logged during the Get Help page's typing test, and those keys go to the
+  // test only, never into the UI (so the test can't press Summit buttons).
+  // Otherwise just note that reports are arriving at all.
+  const bool keyTest = bleKbTraceKeysArmed();
+  if (keyTest) {
+    Serial.printf("BLEKB: Report h=%d len=%d:", pChar->getHandle(), (int)length);
+    for (size_t i = 0; i < length && i < 10; i++) {
+      Serial.printf(" %02X", pData[i]);
+    }
+    Serial.println();
+  } else if (!bleKBFirstReportLogged) {
+    bleKBFirstReportLogged = true;
+    Serial.printf("BLEKB: First input report received (h=%d len=%d)\n", pChar->getHandle(), (int)length);
   }
-  Serial.println();
 
-  if (bleKbTraceKeysArmed() && pData != nullptr) {
+  if (keyTest && pData != nullptr) {
     char hex[BLEKB_TRACE_TEXT_LEN];
     int o = 0;
     for (size_t i = 0; i < length && i < 12 && o + 4 < (int)sizeof(hex); i++) {
@@ -433,25 +458,17 @@ void hidReportNotifyCallback(NimBLERemoteCharacteristic* pChar,
     if (isNewKey) {
       // Convert HID key code to ASCII/CardKB format
       char ascii = hidKeyCodeToChar(keyCode, modifiers);
-      if (ascii != 0) {
+      if (ascii != 0 && keyTest) {
+        bleKbTrace("key", keyCode, (uint8_t)ascii);
+        Serial.printf("BLEKB: Test key 0x%02X -> 0x%02X\n", keyCode, (uint8_t)ascii);
+      } else if (ascii != 0) {
         // Add to circular buffer
         uint8_t nextHead = (bleKBHost.keyHead + 1) % BLE_KEY_BUFFER_SIZE;
         if (nextHead != bleKBHost.keyTail) {
           bleKBHost.keyBuffer[bleKBHost.keyHead] = ascii;
           bleKBHost.keyHead = nextHead;
           bleKBHost.lastKeyTime = millis();
-          if (bleKbTraceKeysArmed()) bleKbTrace("key", keyCode, (uint8_t)ascii);
-
-          Serial.print("BLEKB: Key 0x");
-          Serial.print(keyCode, HEX);
-          Serial.print(" -> '");
-          if (ascii >= 32 && ascii < 127) {
-            Serial.print(ascii);
-          } else {
-            Serial.print("0x");
-            Serial.print((uint8_t)ascii, HEX);
-          }
-          Serial.println("'");
+          // No logging here: keys typed in normal use stay private
         }
       }
     }
@@ -915,29 +932,28 @@ static bool bleKBRunConnect(const BLEKBConnectRequest& req) {
                 connInfo.getMTU(), connInfo.getConnInterval());
   bleKbTrace("conn_info", connInfo.getMTU(), connInfo.getConnInterval(), "%s|%d",
              idAddr.toString().c_str(), idAddr.getType());
-  strncpy(bleKBHost.pairedDevice.address, idAddr.toString().c_str(),
-          sizeof(bleKBHost.pairedDevice.address) - 1);
-  bleKBHost.pairedDevice.address[sizeof(bleKBHost.pairedDevice.address) - 1] = '\0';
-  bleKBHost.pairedDevice.addrType = idAddr.getType();
-
+  // Built locally and published in one go, so a reader never sees a
+  // half-written pairing
+  PairedKeyboard pd;
+  memset(&pd, 0, sizeof(pd));
+  strlcpy(pd.address, idAddr.toString().c_str(), sizeof(pd.address));
+  pd.addrType = idAddr.getType();
   // Device name: the advertised name captured at launch, else the address
-  if (req.name[0] != '\0') {
-    strncpy(bleKBHost.pairedDevice.name, req.name, sizeof(bleKBHost.pairedDevice.name) - 1);
-  } else {
-    strncpy(bleKBHost.pairedDevice.name, req.address, sizeof(bleKBHost.pairedDevice.name) - 1);
-  }
-  bleKBHost.pairedDevice.name[sizeof(bleKBHost.pairedDevice.name) - 1] = '\0';
+  strlcpy(pd.name, req.name[0] != '\0' ? req.name : req.address, sizeof(pd.name));
+  pd.valid = true;
 
   if (bleKBPairEpoch != epochAtStart) {
     // Forgotten while we were connecting: drop the link and the new bond
     Serial.println("BLEKB: Pairing was forgotten during connect, discarding");
     bleKBHost.pClient->disconnect();
     NimBLEDevice::deleteBond(idAddr);
-    memset(&bleKBHost.pairedDevice, 0, sizeof(bleKBHost.pairedDevice));
     bleKBSetLastError("Pairing forgotten");
     return false;
   }
-  bleKBHost.pairedDevice.valid = true;
+  portENTER_CRITICAL(&bleKBPairMux);
+  bleKBHost.pairedDevice = pd;
+  portEXIT_CRITICAL(&bleKBPairMux);
+  bleKBFirstReportLogged = false;
 
   // Save to preferences
   saveBLEKeyboardSettings();
@@ -1304,9 +1320,9 @@ void forgetBLEKeyboardPairing() {
   }
 
   // Clear pairing info
-  bleKBHost.pairedDevice.valid = false;
-  memset(bleKBHost.pairedDevice.name, 0, sizeof(bleKBHost.pairedDevice.name));
-  memset(bleKBHost.pairedDevice.address, 0, sizeof(bleKBHost.pairedDevice.address));
+  portENTER_CRITICAL(&bleKBPairMux);
+  memset(&bleKBHost.pairedDevice, 0, sizeof(bleKBHost.pairedDevice));
+  portEXIT_CRITICAL(&bleKBPairMux);
   bleKBHost.reconnectAddr[0] = '\0';
   bleKBHost.reconnectDeviceSeen = false;
 
